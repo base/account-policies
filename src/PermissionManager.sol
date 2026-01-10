@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
-import {ReentrancyGuardTransient} from "openzeppelin-contracts/contracts/utils/ReentrancyGuardTransient.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
@@ -11,7 +11,7 @@ import {Policy} from "./policies/Policy.sol";
 /// @title PermissionManager
 /// @notice Wallet-agnostic module that installs policies authorized by the account and executes policy-prepared
 ///         calldata on the account using an authority signature or direct call.
-contract PermissionManager is EIP712, ReentrancyGuardTransient {
+contract PermissionManager is EIP712, ReentrancyGuard {
     /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
     PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
 
@@ -57,8 +57,12 @@ contract PermissionManager is EIP712, ReentrancyGuardTransient {
     mapping(bytes32 executionDigest => bool used) internal _usedExecutionDigest;
 
     modifier requireSender(address sender) {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
+        _requireSender(sender);
         _;
+    }
+
+    function _requireSender(address sender) internal view {
+        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     constructor(PublicERC6492Validator publicERC6492Validator) {
@@ -72,15 +76,14 @@ contract PermissionManager is EIP712, ReentrancyGuardTransient {
         bytes calldata policyConfig,
         bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig); // @review could get rid of this since it'll be
-        // checked at execute time
+        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
         _checkInstallWindow(install.validAfter, install.validUntil);
 
         bytes32 structHash = getInstallStructHash(install);
         policyId = structHash;
 
         PolicyState storage state = _policyState[policyId];
-        if (state.installed) revert PolicyAlreadyInstalled(policyId); // @review could no-op here instead
+        if (state.installed) revert PolicyAlreadyInstalled(policyId);
         if (state.revoked) revert PolicyRevokedAlready(policyId);
 
         bytes32 digest = _hashTypedData(structHash);
@@ -127,7 +130,7 @@ contract PermissionManager is EIP712, ReentrancyGuardTransient {
 
         PolicyState storage state = _policyState[policyId];
         if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId); // @review could no-op here instead
+        if (state.revoked) revert PolicyRevokedAlready(policyId);
 
         // IMPORTANT: revoke signatures must be distinct from install signatures to avoid signature replay/ambiguity.
         bytes32 digest = _hashTypedData(getRevokeStructHash(policyId));
@@ -283,7 +286,7 @@ contract PermissionManager is EIP712, ReentrancyGuardTransient {
     function _postCallPolicy(address policy, bytes memory postCallData) internal {
         if (postCallData.length == 0) return;
         (bool success, bytes memory returnData) = policy.call(postCallData);
-        if (!success) revert AccountCallFailed(policy, returnData); // @review maybe name this revert more specifically
+        if (!success) revert AccountCallFailed(policy, returnData);
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
@@ -291,5 +294,4 @@ contract PermissionManager is EIP712, ReentrancyGuardTransient {
         version = "1";
     }
 }
-
 

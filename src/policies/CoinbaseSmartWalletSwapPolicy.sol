@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -48,8 +48,12 @@ contract CoinbaseSmartWalletSwapPolicy is Policy {
     }
 
     modifier requireSender(address sender) {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
+        _requireSender(sender);
         _;
+    }
+
+    function _requireSender(address sender) internal view {
+        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     constructor(address permissionManager) {
@@ -68,6 +72,7 @@ contract CoinbaseSmartWalletSwapPolicy is Policy {
         bytes calldata policyData
     )
         external
+        view
         override
         requireSender(PERMISSION_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
@@ -113,6 +118,7 @@ contract CoinbaseSmartWalletSwapPolicy is Policy {
 
     function afterExecute(address account, address tokenOut, uint256 initialOutBalance, uint256 minAmountOut)
         external
+        view
         requireSender(PERMISSION_MANAGER)
     {
         uint256 finalOutBalance = IERC20(tokenOut).balanceOf(account);
@@ -121,5 +127,4 @@ contract CoinbaseSmartWalletSwapPolicy is Policy {
         }
     }
 }
-
 

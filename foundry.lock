@@ -1,8 +1,44 @@
 {
+  "lib/account-abstraction": {
+    "branch": {
+      "name": "releases/v0.6",
+      "rev": "fa61290d37d079e928d92d53a122efcc63822214"
+    }
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.14.0",
       "rev": "1801b0541f4fda118a10798fd3486bb7051c5dd6"
+    }
+  },
+  "lib/magicspend": {
+    "tag": {
+      "name": "v1.0.0",
+      "rev": "2011f5540fa0d646089dcc60cab6b68d5a031482"
+    }
+  },
+  "lib/openzeppelin-contracts": {
+    "tag": {
+      "name": "v5.5.0",
+      "rev": "fcbae5394ae8ad52d8e580a3477db99814b9d565"
+    }
+  },
+  "lib/smart-wallet": {
+    "tag": {
+      "name": "v1.1.0",
+      "rev": "a8c6456f3a6d5d2dea08d6336b3be13395cacd42"
+    }
+  },
+  "lib/solady": {
+    "tag": {
+      "name": "v0.1.26",
+      "rev": "acd959aa4bd04720d640bf4e6a5c71037510cc4b"
+    }
+  },
+  "lib/webauthn-sol": {
+    "tag": {
+      "name": "v1.0.0",
+      "rev": "619f20ab0f074fef41066ee4ab24849a913263b2"
     }
   }
 }

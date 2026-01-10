@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
@@ -69,8 +69,12 @@ contract LendingPolicy is Policy {
     }
 
     modifier requireSender(address sender) {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
+        _requireSender(sender);
         _;
+    }
+
+    function _requireSender(address sender) internal view {
+        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     constructor(address permissionManager) {

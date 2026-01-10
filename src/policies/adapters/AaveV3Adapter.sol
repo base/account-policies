@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {ILendingAdapter} from "./ILendingAdapter.sol";
 
@@ -48,7 +48,7 @@ contract AaveV3Adapter is ILendingAdapter {
         bytes calldata actionData
     )
         external
-        view
+        pure
         returns (address target, uint256 value, bytes memory data, address approvalToken, address approvalSpender)
     {
         actionData; // reserved for future Aave extensions (e.g., permit, isolation mode flags)

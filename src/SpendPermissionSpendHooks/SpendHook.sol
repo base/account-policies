@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
@@ -11,6 +11,6 @@ interface SpendHook {
         SpendPolicy.SpendPermission calldata spendPermission,
         uint160 value,
         bytes calldata hookData
-    ) external returns (CoinbaseSmartWallet.Call[] memory calls);
+    ) external view returns (CoinbaseSmartWallet.Call[] memory calls);
 }
 

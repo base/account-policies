@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {MagicSpend} from "magicspend/MagicSpend.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -23,11 +23,12 @@ contract MagicSpendSpendHook is SpendHook {
         MAGIC_SPEND = magicSpend;
     }
 
-    function prepare(
-        SpendPolicy.SpendPermission calldata spendPermission,
-        uint160 value,
-        bytes calldata hookData
-    ) external override returns (CoinbaseSmartWallet.Call[] memory calls) {
+    function prepare(SpendPolicy.SpendPermission calldata spendPermission, uint160 value, bytes calldata hookData)
+        external
+        view
+        override
+        returns (CoinbaseSmartWallet.Call[] memory calls)
+    {
         MagicSpend.WithdrawRequest memory withdrawRequest = abi.decode(hookData, (MagicSpend.WithdrawRequest));
 
         if (

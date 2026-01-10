@@ -15,6 +15,36 @@ https://book.getfoundry.sh/
 
 ## Usage
 
+### Getting started (submodules)
+
+This repo uses git submodules for Foundry dependencies (in `lib/`).
+
+Clone with submodules:
+
+```shell
+$ git clone --recurse-submodules <repo>
+```
+
+If you already cloned without submodules:
+
+```shell
+$ git submodule update --init --recursive
+```
+
+Then build / test as usual:
+
+```shell
+$ forge build
+$ forge test
+```
+
+To update dependencies later:
+
+```shell
+$ forge install
+$ git submodule update --init --recursive
+```
+
 ### Build
 
 ```shell

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -73,8 +73,12 @@ contract SpendPolicy is EIP712, Policy {
     error NativeTokenTransferFailed(address to, uint256 value);
 
     modifier requireSender(address sender) {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
+        _requireSender(sender);
         _;
+    }
+
+    function _requireSender(address sender) internal view {
+        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     constructor(address permissionManager) {
@@ -181,7 +185,7 @@ contract SpendPolicy is EIP712, Policy {
         return PeriodSpend({start: start, end: end, spend: 0});
     }
 
-    function _useSpendPermission(bytes32 policyId, SpendPermission memory sp, uint256 value) internal {
+    function _useSpendPermission(bytes32 policyId, SpendPermission memory sp, uint160 value) internal {
         if (value == 0) revert ZeroValue();
         if (sp.token == address(0)) revert ZeroToken();
         if (sp.token != NATIVE_TOKEN) {
@@ -195,14 +199,19 @@ contract SpendPolicy is EIP712, Policy {
         if (sp.start >= sp.end) revert InvalidStartEnd(sp.start, sp.end);
 
         PeriodSpend memory current = _getCurrentPeriod(policyId, sp);
-        uint256 totalSpend = value + uint256(current.spend);
+        uint256 totalSpend = uint256(value) + uint256(current.spend);
         if (totalSpend > type(uint160).max) revert SpendValueOverflow(totalSpend);
         if (totalSpend > sp.allowance) revert ExceededSpendPermission(totalSpend, sp.allowance);
 
+        // forge-lint: disable-next-line(unsafe-typecast)
         current.spend = uint160(totalSpend);
         _lastUpdatedPeriod[policyId] = current;
         emit SpendPermissionUsed(
-            policyId, sp.account, sp.spender, sp.token, PeriodSpend(current.start, current.end, uint160(value))
+            policyId,
+            sp.account,
+            sp.spender,
+            sp.token,
+            PeriodSpend({start: current.start, end: current.end, spend: value})
         );
     }
 
@@ -227,5 +236,4 @@ contract SpendPolicy is EIP712, Policy {
         version = "1";
     }
 }
-
 

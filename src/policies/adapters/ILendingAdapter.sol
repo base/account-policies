@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.23;
 
 /// @notice Protocol adapter for LendingPolicy.
 /// @dev Adapters should be pure/view w.r.t. call construction and risk checks.
