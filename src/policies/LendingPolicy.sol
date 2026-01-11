@@ -6,66 +6,69 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {PermissionTypes} from "../PermissionTypes.sol";
 import {Policy} from "./Policy.sol";
-import {ILendingAdapter} from "./adapters/ILendingAdapter.sol";
 
 interface IPermissionManagerLike {
     function getInstallStructHash(PermissionTypes.Install calldata install) external pure returns (bytes32);
 }
 
-/// @notice Generic lending policy built around an adapter (Aave/Compound/Morpho/etc.).
-/// @dev This is intentionally conservative: fixed adapter + fixed asset allowlist + per-action maxes + optional HF
-/// check.
+/// @dev Morpho Blue `MarketParams` struct.
+struct MarketParams {
+    address loanToken;
+    address collateralToken;
+    address oracle;
+    address irm;
+    uint256 lltv;
+}
+
+/// @dev Minimal Morpho Blue interface used by this policy.
+interface IMorpho {
+    function supply(
+        MarketParams calldata marketParams,
+        uint256 assets,
+        uint256 shares,
+        address onBehalf,
+        bytes calldata data
+    ) external returns (uint256 assetsSupplied, uint256 sharesSupplied);
+}
+
+/// @notice Morpho lend-only policy (supply-only).
+/// @dev Intentionally conservative: fixed market, fixed onBehalf (the account), bounded amount, approval reset,
+///      and optional cumulative cap.
 contract LendingPolicy is Policy {
     error InvalidSender(address sender, address expected);
     error InvalidPolicyConfigAccount(address actual, address expected);
-    error InvalidAction();
-    error InvalidAsset(address asset);
     error ZeroAmount();
     error AmountTooHigh(uint256 amount, uint256 maxAmount);
     error CumulativeAmountTooHigh(uint256 nextTotal, uint256 maxTotal);
     error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
     error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
-    error ZeroAdapter();
+    error ZeroMorpho();
     error ZeroAuthority();
-    error HealthFactorTooLow(uint256 actual, uint256 minRequired);
+    error InvalidMarket();
 
     address public immutable PERMISSION_MANAGER;
 
-    // Cumulative accounting is per policy instance (policyId) and per asset.
-    // We only ever increment these (conservative): Withdraw/Repay do not “refund” budget.
-    mapping(bytes32 policyId => mapping(address asset => uint256)) internal _cumulativeSupplied;
-    mapping(bytes32 policyId => mapping(address asset => uint256)) internal _cumulativeBorrowed;
+    // Cumulative accounting is per policy instance (policyId) in loan-token units.
+    // We only ever increment these (conservative).
+    mapping(bytes32 policyId => uint256) internal _cumulativeSupplied;
 
     struct Config {
         address account;
         address authority;
-        address adapter;
-        bytes adapterConfig;
-
-        address[] allowedAssets;
+        address morpho;
+        MarketParams marketParams;
 
         uint256 maxSupply;
-        uint256 maxWithdraw;
-        uint256 maxBorrow;
-        uint256 maxRepay;
 
-        // Optional cumulative budgets (per-asset, denominated in the asset's units).
-        // 0 disables the cumulative cap.
+        // Optional cumulative budget (denominated in the loan token's units). 0 disables the cumulative cap.
         uint256 maxCumulativeSupply;
-        uint256 maxCumulativeBorrow;
-
-        uint256 minHealthFactor; // 0 disables post-check
-        bool resetApprovals;
 
         uint48 validAfter;
         uint48 validUntil;
     }
 
     struct PolicyData {
-        ILendingAdapter.Action action;
-        address asset;
-        uint256 amount;
-        bytes actionData;
+        uint256 assets; // The amount of assets to supply, in the loan token's smallest unit (i.e. ERC20 decimals)
     }
 
     modifier requireSender(address sender) {
@@ -101,8 +104,11 @@ contract LendingPolicy is Policy {
 
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
-        if (cfg.adapter == address(0)) revert ZeroAdapter();
         if (cfg.authority == address(0)) revert ZeroAuthority();
+        if (cfg.morpho == address(0)) revert ZeroMorpho();
+        if (cfg.marketParams.loanToken == address(0) || cfg.marketParams.collateralToken == address(0)) {
+            revert InvalidMarket();
+        }
 
         uint48 currentTimestamp = uint48(block.timestamp);
         if (cfg.validAfter != 0 && currentTimestamp < cfg.validAfter) {
@@ -113,95 +119,61 @@ contract LendingPolicy is Policy {
         }
 
         PolicyData memory data = abi.decode(policyData, (PolicyData));
-        if (data.amount == 0) revert ZeroAmount();
-        _requireAllowedAsset(cfg.allowedAssets, data.asset);
+        if (data.assets == 0) revert ZeroAmount();
 
-        uint256 maxAmount = _maxForAction(cfg, data.action);
-        if (data.amount > maxAmount) revert AmountTooHigh(data.amount, maxAmount);
+        if (data.assets > cfg.maxSupply) revert AmountTooHigh(data.assets, cfg.maxSupply);
 
         bytes32 policyId = IPermissionManagerLike(PERMISSION_MANAGER).getInstallStructHash(install);
-        _consumeBudget(policyId, cfg, data);
+        _consumeBudget(policyId, cfg, data.assets);
 
-        (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) = ILendingAdapter(
-                cfg.adapter
-            ).buildCall(cfg.account, data.action, data.asset, data.amount, cfg.adapterConfig, data.actionData);
+        (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
+            _buildMorphoCall(cfg, data.assets);
 
         // Build wallet call plan:
-        // - approve (optional)
+        // - approve
         // - protocol call
-        // - approve(0) (optional)
+        // - approve(0)
         if (approvalToken != address(0) && approvalSpender != address(0)) {
-            uint256 n = cfg.resetApprovals ? 3 : 2;
-            CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](n);
+            CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
             calls[0] = CoinbaseSmartWallet.Call({
                 target: approvalToken,
                 value: 0,
-                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, data.amount)
+                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, data.assets)
             });
             calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
-            if (cfg.resetApprovals) {
-                calls[2] = CoinbaseSmartWallet.Call({
-                    target: approvalToken,
-                    value: 0,
-                    data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, 0)
-                });
-            }
+            calls[2] = CoinbaseSmartWallet.Call({
+                target: approvalToken,
+                value: 0,
+                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, 0)
+            });
             accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
         } else {
             accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, target, value, callData);
         }
 
-        if (cfg.minHealthFactor != 0) {
-            postCallData = abi.encodeWithSelector(
-                this.afterExecute.selector, cfg.adapter, cfg.account, cfg.minHealthFactor, cfg.adapterConfig
-            );
-        } else {
-            postCallData = "";
-        }
+        postCallData = "";
     }
 
-    function afterExecute(address adapter, address account, uint256 minHealthFactor, bytes calldata adapterConfig)
-        external
-        view
-        requireSender(PERMISSION_MANAGER)
+    function _consumeBudget(bytes32 policyId, Config memory cfg, uint256 assets) internal {
+        if (cfg.maxCumulativeSupply == 0) return;
+
+        uint256 nextTotal = _cumulativeSupplied[policyId] + assets;
+        if (nextTotal > cfg.maxCumulativeSupply) revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeSupply);
+        _cumulativeSupplied[policyId] = nextTotal;
+    }
+
+    function _buildMorphoCall(Config memory cfg, uint256 assets)
+        internal
+        pure
+        returns (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender)
     {
-        uint256 hf = ILendingAdapter(adapter).healthFactor(account, adapterConfig);
-        if (hf < minHealthFactor) revert HealthFactorTooLow(hf, minHealthFactor);
-    }
+        target = cfg.morpho;
+        value = 0;
 
-    function _maxForAction(Config memory cfg, ILendingAdapter.Action action) internal pure returns (uint256) {
-        if (action == ILendingAdapter.Action.Supply) return cfg.maxSupply;
-        if (action == ILendingAdapter.Action.Withdraw) return cfg.maxWithdraw;
-        if (action == ILendingAdapter.Action.Borrow) return cfg.maxBorrow;
-        if (action == ILendingAdapter.Action.Repay) return cfg.maxRepay;
-        revert InvalidAction();
-    }
-
-    function _consumeBudget(bytes32 policyId, Config memory cfg, PolicyData memory data) internal {
-        if (data.action == ILendingAdapter.Action.Supply && cfg.maxCumulativeSupply != 0) {
-            uint256 nextTotal = _cumulativeSupplied[policyId][data.asset] + data.amount;
-            if (nextTotal > cfg.maxCumulativeSupply) {
-                revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeSupply);
-            }
-            _cumulativeSupplied[policyId][data.asset] = nextTotal;
-            return;
-        }
-
-        if (data.action == ILendingAdapter.Action.Borrow && cfg.maxCumulativeBorrow != 0) {
-            uint256 nextTotal = _cumulativeBorrowed[policyId][data.asset] + data.amount;
-            if (nextTotal > cfg.maxCumulativeBorrow) {
-                revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeBorrow);
-            }
-            _cumulativeBorrowed[policyId][data.asset] = nextTotal;
-            return;
-        }
-    }
-
-    function _requireAllowedAsset(address[] memory allowedAssets, address asset) internal pure {
-        for (uint256 i; i < allowedAssets.length; i++) {
-            if (allowedAssets[i] == asset) return;
-        }
-        revert InvalidAsset(asset);
+        approvalToken = cfg.marketParams.loanToken;
+        approvalSpender = cfg.morpho;
+        callData = abi.encodeWithSelector(IMorpho.supply.selector, cfg.marketParams, assets, 0, cfg.account, bytes(""));
+        return (target, value, callData, approvalToken, approvalSpender);
     }
 }
 
