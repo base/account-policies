@@ -13,7 +13,7 @@ interface IPolicyManagerLike {
     function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
-/// @notice Policy that allows an authority to execute a constrained ERC20->(something) swap on a fixed
+/// @notice Policy that allows an executor to execute a constrained ERC20->(something) swap on a fixed
 /// `swapTarget`, bounded by `maxAmountIn` and checked by a prorated minimum receive amount.
 /// @dev Proration is based on the configured minimum receive amount for `maxAmountIn`:
 ///      proratedMinOut = floor(minAmountOutForMaxAmountIn * amountIn / maxAmountIn).
@@ -37,7 +37,7 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
 
     struct Config {
         address account;
-        address authority;
+        address executor;
         address tokenIn;
         address tokenOut;
         address swapTarget;
@@ -84,10 +84,10 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
         policyData;
 
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (caller == cfg.authority) return;
+        if (caller == cfg.executor) return;
 
         bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
-            cfg.authority, execDigest, authorizationData
+            cfg.executor, execDigest, authorizationData
         );
         if (!ok) revert Unauthorized(caller);
     }

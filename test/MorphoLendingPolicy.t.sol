@@ -27,8 +27,8 @@ contract MorphoLendingPolicyTest is Test {
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
-    uint256 internal authorityPk = uint256(keccak256("authority"));
-    address internal authority = vm.addr(authorityPk);
+    uint256 internal executorPk = uint256(keccak256("executor"));
+    address internal executor = vm.addr(executorPk);
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
@@ -70,7 +70,7 @@ contract MorphoLendingPolicyTest is Test {
 
         LendingPolicy.Config memory cfg = LendingPolicy.Config({
             account: address(account),
-            authority: authority,
+            executor: executor,
             morpho: address(morpho),
             marketParams: market,
             maxSupply: 1_000_000 ether,
@@ -123,7 +123,7 @@ contract MorphoLendingPolicyTest is Test {
 
         loanToken.mint(address(account), 2 ether);
 
-        vm.prank(authority);
+        vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(LendingPolicy.AmountTooHigh.selector, 2 ether, 1 ether));
         pm.execute(
             localInstall,
@@ -137,7 +137,7 @@ contract MorphoLendingPolicyTest is Test {
 
     function _exec(uint256 assets) internal {
         LendingPolicy.PolicyData memory pd = LendingPolicy.PolicyData({assets: assets});
-        vm.prank(authority);
+        vm.prank(executor);
         pm.execute(install, hookConfig, abi.encode(pd), 1, uint48(block.timestamp + 60), hex"");
     }
 

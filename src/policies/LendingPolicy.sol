@@ -45,7 +45,7 @@ contract LendingPolicy is Policy {
     error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
     error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
     error ZeroMorpho();
-    error ZeroAuthority();
+    error ZeroExecutor();
     error InvalidMarket();
     error Unauthorized(address caller);
 
@@ -57,7 +57,7 @@ contract LendingPolicy is Policy {
 
     struct Config {
         address account;
-        address authority;
+        address executor;
         address morpho;
         MarketParams marketParams;
 
@@ -101,13 +101,13 @@ contract LendingPolicy is Policy {
         policyData;
 
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.authority == address(0)) revert ZeroAuthority();
+        if (cfg.executor == address(0)) revert ZeroExecutor();
 
-        // Allow direct calls by the configured authority, otherwise require a signature from it.
-        if (caller == cfg.authority) return;
+        // Allow direct calls by the configured executor, otherwise require a signature from it.
+        if (caller == cfg.executor) return;
 
         bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
-            cfg.authority, execDigest, authorizationData
+            cfg.executor, execDigest, authorizationData
         );
         if (!ok) revert Unauthorized(caller);
     }
@@ -127,7 +127,7 @@ contract LendingPolicy is Policy {
 
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
-        if (cfg.authority == address(0)) revert ZeroAuthority();
+        if (cfg.executor == address(0)) revert ZeroExecutor();
         if (cfg.morpho == address(0)) revert ZeroMorpho();
         if (cfg.marketParams.loanToken == address(0) || cfg.marketParams.collateralToken == address(0)) {
             revert InvalidMarket();

@@ -78,7 +78,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
         CoinbaseSmartWalletSwapPolicy.Config memory cfg = CoinbaseSmartWalletSwapPolicy.Config({
             account: address(account),
-            authority: spender,
+            executor: spender,
             tokenIn: address(tokenIn),
             tokenOut: address(tokenOut),
             swapTarget: address(swapTarget),
@@ -147,7 +147,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
         CoinbaseSmartWalletSwapPolicy.Config memory cfg = CoinbaseSmartWalletSwapPolicy.Config({
             account: address(forkAccount),
-            authority: spender,
+            executor: spender,
             tokenIn: usdc,
             tokenOut: weth,
             swapTarget: router,

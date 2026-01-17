@@ -28,8 +28,8 @@ contract CoinbaseSmartWalletProratedSwapPolicyTest is Test {
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
-    uint256 internal authorityPk = uint256(keccak256("authority"));
-    address internal authority = vm.addr(authorityPk);
+    uint256 internal executorPk = uint256(keccak256("executor"));
+    address internal executor = vm.addr(executorPk);
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
@@ -71,7 +71,7 @@ contract CoinbaseSmartWalletProratedSwapPolicyTest is Test {
 
         CoinbaseSmartWalletProratedSwapPolicy.Config memory cfg = CoinbaseSmartWalletProratedSwapPolicy.Config({
             account: address(account),
-            authority: authority,
+            executor: executor,
             tokenIn: address(tokenIn),
             tokenOut: address(tokenOut),
             swapTarget: address(swapTarget),
@@ -102,7 +102,7 @@ contract CoinbaseSmartWalletProratedSwapPolicyTest is Test {
             abi.encode(CoinbaseSmartWalletProratedSwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
-        vm.prank(authority);
+        vm.prank(executor);
         pm.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
@@ -124,7 +124,7 @@ contract CoinbaseSmartWalletProratedSwapPolicyTest is Test {
 
         CoinbaseSmartWalletProratedSwapPolicy.Config memory cfg = CoinbaseSmartWalletProratedSwapPolicy.Config({
             account: address(account),
-            authority: authority,
+            executor: executor,
             tokenIn: address(tokenIn),
             tokenOut: address(tokenOut),
             swapTarget: address(swapTarget),
@@ -154,7 +154,7 @@ contract CoinbaseSmartWalletProratedSwapPolicyTest is Test {
         bytes memory policyData =
             abi.encode(CoinbaseSmartWalletProratedSwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
 
-        vm.prank(authority);
+        vm.prank(executor);
         bytes memory innerError = abi.encodeWithSelector(
             CoinbaseSmartWalletProratedSwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut
         );
