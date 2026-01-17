@@ -5,11 +5,11 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
-import {PermissionTypes} from "../PermissionTypes.sol";
+import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
 
 interface IPolicyManagerLike {
-    function getInstallStructHash(PermissionTypes.Install calldata install) external pure returns (bytes32);
+    function getInstallStructHash(PolicyTypes.Install calldata install) external pure returns (bytes32);
     function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
@@ -88,7 +88,7 @@ contract LendingPolicy is Policy {
     }
 
     function authorize(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData,
@@ -113,7 +113,7 @@ contract LendingPolicy is Policy {
     }
 
     function onExecute(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData

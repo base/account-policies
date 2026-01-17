@@ -8,7 +8,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
-import {PermissionTypes} from "../src/PermissionTypes.sol";
+import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {CoinbaseSmartWalletSwapPolicy} from "../src/policies/CoinbaseSmartWalletSwapPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
@@ -43,7 +43,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
-    PolicyManager internal sm;
+    PolicyManager internal policyManager;
     CoinbaseSmartWalletSwapPolicy internal swapPolicy;
     MockSwapTarget internal swapTarget;
 
@@ -57,12 +57,12 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         account.initialize(owners);
 
         validator = new PublicERC6492Validator();
-        sm = new PolicyManager(validator);
-        swapPolicy = new CoinbaseSmartWalletSwapPolicy(address(sm));
+        policyManager = new PolicyManager(validator);
+        swapPolicy = new CoinbaseSmartWalletSwapPolicy(address(policyManager));
         swapTarget = new MockSwapTarget();
 
         vm.prank(owner);
-        account.addOwnerAddress(address(sm));
+        account.addOwnerAddress(address(policyManager));
 
         tokenIn = new TestToken();
         tokenOut = new TestToken();
@@ -90,7 +90,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PermissionTypes.Install memory install = PermissionTypes.Install({
+        PolicyTypes.Install memory install = PolicyTypes.Install({
             account: address(account),
             policy: address(swapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -100,7 +100,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(install);
-        sm.installPolicyWithSignature(install, policyConfig, userSig);
+        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
@@ -110,7 +110,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(spender);
-        sm.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -135,11 +135,11 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         forkAccount.initialize(owners);
 
         PublicERC6492Validator forkValidator = new PublicERC6492Validator();
-        PolicyManager forkSm = new PolicyManager(forkValidator);
-        CoinbaseSmartWalletSwapPolicy forkSwapPolicy = new CoinbaseSmartWalletSwapPolicy(address(forkSm));
+        PolicyManager forkPolicyManager = new PolicyManager(forkValidator);
+        CoinbaseSmartWalletSwapPolicy forkSwapPolicy = new CoinbaseSmartWalletSwapPolicy(address(forkPolicyManager));
 
         vm.prank(owner);
-        forkAccount.addOwnerAddress(address(forkSm));
+        forkAccount.addOwnerAddress(address(forkPolicyManager));
 
         uint256 amountIn = 10_000_000; // 10 USDC (6 decimals)
         deal(usdc, address(forkAccount), amountIn, true);
@@ -159,7 +159,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PermissionTypes.Install memory install = PermissionTypes.Install({
+        PolicyTypes.Install memory install = PolicyTypes.Install({
             account: address(forkAccount),
             policy: address(forkSwapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -169,7 +169,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         });
 
         vm.prank(address(forkAccount));
-        forkSm.installPolicy(install, policyConfig);
+        forkPolicyManager.installPolicy(install, policyConfig);
 
         address[] memory path = new address[](2);
         path[0] = usdc;
@@ -184,7 +184,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
         vm.prank(spender);
-        forkSm.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        forkPolicyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 afterWeth = IERC20(weth).balanceOf(address(forkAccount));
@@ -194,9 +194,9 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         assertEq(IERC20(usdc).allowance(address(forkAccount), router), 0);
     }
 
-    function _signInstall(PermissionTypes.Install memory install) internal view returns (bytes memory) {
-        bytes32 structHash = sm.getInstallStructHash(install);
-        bytes32 digest = _hashTypedData(address(sm), "Policy Manager", "1", structHash);
+    function _signInstall(PolicyTypes.Install memory install) internal view returns (bytes memory) {
+        bytes32 structHash = policyManager.getInstallStructHash(install);
+        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);

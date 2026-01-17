@@ -9,7 +9,7 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
-import {PermissionTypes} from "../PermissionTypes.sol";
+import {PolicyTypes} from "../PolicyTypes.sol";
 import {SpendHook} from "../SpendPermissionSpendHooks/SpendHook.sol";
 import {Policy} from "./Policy.sol";
 
@@ -94,7 +94,7 @@ contract SpendPolicy is EIP712, Policy {
     receive() external payable {}
 
     function authorize(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData,
@@ -117,7 +117,7 @@ contract SpendPolicy is EIP712, Policy {
 
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
     function onExecute(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData
@@ -238,7 +238,7 @@ contract SpendPolicy is EIP712, Policy {
         );
     }
 
-    function _getPolicyId(PermissionTypes.Install calldata install) internal pure returns (bytes32) {
+    function _getPolicyId(PolicyTypes.Install calldata install) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 keccak256(

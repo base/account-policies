@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {PermissionTypes} from "../PermissionTypes.sol";
+import {PolicyTypes} from "../PolicyTypes.sol";
 
 /// @notice A policy defines authorization semantics and returns a wallet call plan.
 interface Policy {
@@ -12,7 +12,7 @@ interface Policy {
     /// `authorizationData` is an opaque blob forwarded from `PolicyManager.execute` (e.g. a signature).
     /// `execDigest` is the EIP-712 digest computed by `PolicyManager` for this execution.
     function authorize(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData,
@@ -23,7 +23,7 @@ interface Policy {
 
     /// @notice Build the account call and optional post-call (executed on the policy).
     function onExecute(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData

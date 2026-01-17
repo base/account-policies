@@ -5,7 +5,7 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
-import {PermissionTypes} from "./PermissionTypes.sol";
+import {PolicyTypes} from "./PolicyTypes.sol";
 import {Policy} from "./policies/Policy.sol";
 
 /// @title PolicyManager
@@ -72,7 +72,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Install a policy via a signature from the account.
     /// @dev Compatible with ERC-6492 signatures including side effects.
     function installPolicyWithSignature(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         bytes calldata policyConfig,
         bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
@@ -96,7 +96,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Install a policy via a direct call from the account.
-    function installPolicy(PermissionTypes.Install calldata install, bytes calldata policyConfig)
+    function installPolicy(PolicyTypes.Install calldata install, bytes calldata policyConfig)
         external
         nonReentrant
         requireSender(install.account)
@@ -119,7 +119,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Revoke a policy via a signature from the account.
     /// @dev Compatible with ERC-6492 signatures including side effects.
     function revokePolicyWithSignature(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         bytes calldata policyConfig,
         bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
@@ -143,7 +143,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Revoke a policy via a direct call from the account.
-    function revokePolicy(PermissionTypes.Install calldata install, bytes calldata policyConfig)
+    function revokePolicy(PolicyTypes.Install calldata install, bytes calldata policyConfig)
         external
         nonReentrant
         requireSender(install.account)
@@ -165,7 +165,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Execute an action for an installed policy instance.
     /// @dev Policy defines authorization semantics and returns wallet-specific calldata for the account.
     function execute(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         bytes calldata policyConfig,
         bytes calldata policyData,
         uint256 execNonce,
@@ -194,7 +194,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit Executed(policyId, install.account, install.policy, execNonce);
     }
 
-    function getInstallStructHash(PermissionTypes.Install calldata install) public pure returns (bytes32) {
+    function getInstallStructHash(PolicyTypes.Install calldata install) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 INSTALL_TYPEHASH,
@@ -236,7 +236,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     function _getExecutionDigest(
         bytes32 policyId,
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         bytes32 policyDataHash,
         uint256 nonce,
         uint48 deadline
@@ -264,7 +264,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     function _policyOnExecute(
         address policy,
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData

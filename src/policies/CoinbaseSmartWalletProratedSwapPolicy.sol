@@ -6,7 +6,7 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
-import {PermissionTypes} from "../PermissionTypes.sol";
+import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
 
 interface IPolicyManagerLike {
@@ -71,7 +71,7 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
     }
 
     function authorize(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData,
@@ -93,7 +93,7 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
     }
 
     function onExecute(
-        PermissionTypes.Install calldata install,
+        PolicyTypes.Install calldata install,
         uint256 execNonce,
         bytes calldata policyConfig,
         bytes calldata policyData

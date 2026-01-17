@@ -7,7 +7,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
-import {PermissionTypes} from "../src/PermissionTypes.sol";
+import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {LendingPolicy, MarketParams} from "../src/policies/LendingPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
@@ -32,15 +32,15 @@ contract MorphoLendingPolicyTest is Test {
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
-    PolicyManager internal pm;
+    PolicyManager internal policyManager;
     LendingPolicy internal policy;
     MockMorpho internal morpho;
     MintableToken internal loanToken;
     MintableToken internal collateralToken;
 
     MarketParams internal market;
-    bytes internal hookConfig;
-    PermissionTypes.Install internal install;
+    bytes internal policyConfig;
+    PolicyTypes.Install internal install;
 
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
@@ -49,12 +49,12 @@ contract MorphoLendingPolicyTest is Test {
         account.initialize(owners);
 
         validator = new PublicERC6492Validator();
-        pm = new PolicyManager(validator);
-        policy = new LendingPolicy(address(pm));
+        policyManager = new PolicyManager(validator);
+        policy = new LendingPolicy(address(policyManager));
 
         // PolicyManager must be an owner to call wallet execution methods.
         vm.prank(owner);
-        account.addOwnerAddress(address(pm));
+        account.addOwnerAddress(address(policyManager));
 
         loanToken = new MintableToken("Loan", "LOAN");
         collateralToken = new MintableToken("Collateral", "COLL");
@@ -79,18 +79,18 @@ contract MorphoLendingPolicyTest is Test {
             validUntil: 0
         });
 
-        hookConfig = abi.encode(cfg);
-        install = PermissionTypes.Install({
+        policyConfig = abi.encode(cfg);
+        install = PolicyTypes.Install({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(hookConfig),
+            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
             salt: 111
         });
 
         bytes memory userSig = _signInstall(install);
-        pm.installPolicyWithSignature(install, hookConfig, userSig);
+        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
     }
 
     function test_morphoPolicy_supplyOnly() public {
@@ -105,29 +105,29 @@ contract MorphoLendingPolicyTest is Test {
     }
 
     function test_morphoPolicy_enforcesMaxSupply() public {
-        LendingPolicy.Config memory cfg = abi.decode(hookConfig, (LendingPolicy.Config));
+        LendingPolicy.Config memory cfg = abi.decode(policyConfig, (LendingPolicy.Config));
         cfg.maxSupply = 1 ether;
 
-        bytes memory localConfig = abi.encode(cfg);
-        PermissionTypes.Install memory localInstall = PermissionTypes.Install({
+        bytes memory localPolicyConfig = abi.encode(cfg);
+        PolicyTypes.Install memory localInstall = PolicyTypes.Install({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(localConfig),
+            policyConfigHash: keccak256(localPolicyConfig),
             validAfter: 0,
             validUntil: 0,
             salt: 222
         });
 
         bytes memory userSig = _signInstall(localInstall);
-        pm.installPolicyWithSignature(localInstall, localConfig, userSig);
+        policyManager.installPolicyWithSignature(localInstall, localPolicyConfig, userSig);
 
         loanToken.mint(address(account), 2 ether);
 
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(LendingPolicy.AmountTooHigh.selector, 2 ether, 1 ether));
-        pm.execute(
+        policyManager.execute(
             localInstall,
-            localConfig,
+            localPolicyConfig,
             abi.encode(LendingPolicy.PolicyData({assets: 2 ether})),
             1,
             uint48(block.timestamp + 60),
@@ -138,12 +138,12 @@ contract MorphoLendingPolicyTest is Test {
     function _exec(uint256 assets) internal {
         LendingPolicy.PolicyData memory pd = LendingPolicy.PolicyData({assets: assets});
         vm.prank(executor);
-        pm.execute(install, hookConfig, abi.encode(pd), 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, abi.encode(pd), 1, uint48(block.timestamp + 60), hex"");
     }
 
-    function _signInstall(PermissionTypes.Install memory inst) internal view returns (bytes memory) {
-        bytes32 structHash = pm.getInstallStructHash(inst);
-        bytes32 digest = _hashTypedData(address(pm), "Policy Manager", "1", structHash);
+    function _signInstall(PolicyTypes.Install memory inst) internal view returns (bytes memory) {
+        bytes32 structHash = policyManager.getInstallStructHash(inst);
+        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
