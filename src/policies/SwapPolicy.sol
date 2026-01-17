@@ -22,7 +22,7 @@ interface IPolicyManagerLike {
 ///      - call `swapTarget` with `swapData`
 ///      - reset approval to 0
 ///      Post-call verifies tokenOut balance delta >= proratedMinOut.
-contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
+contract SwapPolicy is Policy {
     error InvalidPolicyData();
     error InvalidPolicyConfigAccount(address actual, address expected);
     error InvalidSwapTarget(address actual, address expected);
@@ -47,9 +47,6 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
         uint256 maxAmountIn;
         /// @dev Minimum amount of tokenOut required when `amountIn == maxAmountIn`.
         uint256 minAmountOutForMaxAmountIn;
-
-        uint48 validAfter;
-        uint48 validUntil;
     }
 
     struct PolicyData {
@@ -110,10 +107,6 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
         if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
 
-        uint48 currentTimestamp = uint48(block.timestamp);
-        if (cfg.validAfter != 0 && currentTimestamp < cfg.validAfter) revert InvalidPolicyData();
-        if (cfg.validUntil != 0 && currentTimestamp >= cfg.validUntil) revert InvalidPolicyData();
-
         PolicyData memory data = abi.decode(policyData, (PolicyData));
         if (data.swapData.length < 4) revert InvalidPolicyData();
         if (data.amountIn > cfg.maxAmountIn) revert AmountInTooHigh(data.amountIn, cfg.maxAmountIn);
@@ -126,8 +119,7 @@ contract CoinbaseSmartWalletProratedSwapPolicy is Policy {
         uint256 initialOutBalance = IERC20(cfg.tokenOut).balanceOf(cfg.account);
 
         // Prorate minAmountOut based on amountIn.
-        uint256 proratedMinAmountOut =
-            Math.mulDiv(cfg.minAmountOutForMaxAmountIn, data.amountIn, cfg.maxAmountIn);
+        uint256 proratedMinAmountOut = Math.mulDiv(cfg.minAmountOutForMaxAmountIn, data.amountIn, cfg.maxAmountIn);
 
         // Wallet call plan: approve -> swap -> approve(0)
         CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);

@@ -9,7 +9,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {PolicyTypes} from "../src/PolicyTypes.sol";
-import {CoinbaseSmartWalletSwapPolicy} from "../src/policies/CoinbaseSmartWalletSwapPolicy.sol";
+import {SwapPolicy} from "../src/policies/SwapPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
 import {MockSwapTarget} from "./mocks/MockSwapTarget.sol";
@@ -25,26 +25,26 @@ interface IUniswapV2Router {
 }
 
 contract TestToken is ERC20 {
-    constructor() ERC20("TestToken", "TST") {}
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
 }
 
-contract CoinbaseSmartWalletSwapPolicyTest is Test {
+contract SwapPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
 
-    uint256 internal ownerPk = uint256(keccak256("owner"));
-    address internal owner = vm.addr(ownerPk);
-    uint256 internal spenderPk = uint256(keccak256("spender"));
-    address internal spender = vm.addr(spenderPk);
+    uint256 internal ownerPrivateKey = uint256(keccak256("owner"));
+    address internal owner = vm.addr(ownerPrivateKey);
+    uint256 internal executorPrivateKey = uint256(keccak256("executor"));
+    address internal executor = vm.addr(executorPrivateKey);
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
-    CoinbaseSmartWalletSwapPolicy internal swapPolicy;
+    SwapPolicy internal swapPolicy;
     MockSwapTarget internal swapTarget;
 
     TestToken internal tokenIn;
@@ -58,17 +58,114 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
-        swapPolicy = new CoinbaseSmartWalletSwapPolicy(address(policyManager));
+        swapPolicy = new SwapPolicy(address(policyManager));
         swapTarget = new MockSwapTarget();
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
-        tokenIn = new TestToken();
-        tokenOut = new TestToken();
+        tokenIn = new TestToken("TokenIn", "TIN");
+        tokenOut = new TestToken("TokenOut", "TOUT");
     }
 
-    function test_happyPath_mockSwapTarget() public {
+    function test_proratedMinOut_happyPath() public {
+        uint256 maxAmountIn = 10 ether;
+        uint256 minOutForMax = 3 ether;
+
+        uint256 amountIn = 5 ether; // half
+        uint256 expectedMinOut = 1.5 ether; // half
+        uint256 amountOut = 2 ether; // >= expectedMinOut
+
+        tokenIn.mint(address(account), amountIn);
+        tokenOut.mint(address(swapTarget), amountOut);
+
+        SwapPolicy.Config memory cfg = SwapPolicy.Config({
+            account: address(account),
+            executor: executor,
+            tokenIn: address(tokenIn),
+            tokenOut: address(tokenOut),
+            swapTarget: address(swapTarget),
+            swapSelector: MockSwapTarget.swap.selector,
+            maxAmountIn: maxAmountIn,
+            minAmountOutForMaxAmountIn: minOutForMax
+        });
+        bytes memory policyConfig = abi.encode(cfg);
+
+        PolicyTypes.Install memory install = PolicyTypes.Install({
+            account: address(account),
+            policy: address(swapPolicy),
+            policyConfigHash: keccak256(policyConfig),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 123
+        });
+
+        bytes memory userSig = _signInstall(install);
+        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+
+        bytes memory swapData = abi.encodeWithSelector(
+            MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
+        );
+        bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+
+        uint256 beforeOut = tokenOut.balanceOf(address(account));
+        vm.prank(executor);
+        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        uint256 afterOut = tokenOut.balanceOf(address(account));
+
+        assertEq(afterOut - beforeOut, amountOut);
+        assertTrue(afterOut - beforeOut >= expectedMinOut);
+        assertEq(IERC20(address(tokenIn)).allowance(address(account), address(swapTarget)), 0);
+    }
+
+    function test_proratedMinOut_revertsWhenBelowProrated() public {
+        uint256 maxAmountIn = 10 ether;
+        uint256 minOutForMax = 3 ether;
+
+        uint256 amountIn = 5 ether; // half
+        uint256 expectedMinOut = 1.5 ether; // half
+        uint256 amountOut = 1 ether; // < expectedMinOut
+
+        tokenIn.mint(address(account), amountIn);
+        tokenOut.mint(address(swapTarget), amountOut);
+
+        SwapPolicy.Config memory cfg = SwapPolicy.Config({
+            account: address(account),
+            executor: executor,
+            tokenIn: address(tokenIn),
+            tokenOut: address(tokenOut),
+            swapTarget: address(swapTarget),
+            swapSelector: MockSwapTarget.swap.selector,
+            maxAmountIn: maxAmountIn,
+            minAmountOutForMaxAmountIn: minOutForMax
+        });
+        bytes memory policyConfig = abi.encode(cfg);
+
+        PolicyTypes.Install memory install = PolicyTypes.Install({
+            account: address(account),
+            policy: address(swapPolicy),
+            policyConfigHash: keccak256(policyConfig),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 456
+        });
+
+        bytes memory userSig = _signInstall(install);
+        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+
+        bytes memory swapData = abi.encodeWithSelector(
+            MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
+        );
+        bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+
+        vm.prank(executor);
+        bytes memory innerError =
+            abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut);
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.AccountCallFailed.selector, address(swapPolicy), innerError));
+        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+    }
+
+    function test_happyPath_mockSwapTarget_amountInEqualsMaxAmountIn() public {
         uint256 amountIn = 10 ether;
         uint256 minAmountOut = 3 ether;
         uint256 amountOut = 5 ether;
@@ -76,17 +173,15 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         tokenIn.mint(address(account), amountIn);
         tokenOut.mint(address(swapTarget), amountOut);
 
-        CoinbaseSmartWalletSwapPolicy.Config memory cfg = CoinbaseSmartWalletSwapPolicy.Config({
+        SwapPolicy.Config memory cfg = SwapPolicy.Config({
             account: address(account),
-            executor: spender,
+            executor: executor,
             tokenIn: address(tokenIn),
             tokenOut: address(tokenOut),
             swapTarget: address(swapTarget),
             swapSelector: MockSwapTarget.swap.selector,
             maxAmountIn: amountIn,
-            minAmountOut: minAmountOut,
-            validAfter: 0,
-            validUntil: 0
+            minAmountOutForMaxAmountIn: minAmountOut
         });
         bytes memory policyConfig = abi.encode(cfg);
 
@@ -105,16 +200,16 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
         );
-        bytes memory policyData =
-            abi.encode(CoinbaseSmartWalletSwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+        bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
-        vm.prank(spender);
+        vm.prank(executor);
         policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
         assertTrue(afterOut - beforeOut >= minAmountOut);
+        assertEq(IERC20(address(tokenIn)).allowance(address(account), address(swapTarget)), 0);
     }
 
     /// @dev More “realistic” fork test: uses Base mainnet USDC/WETH + a deployed router.
@@ -136,7 +231,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
         PublicERC6492Validator forkValidator = new PublicERC6492Validator();
         PolicyManager forkPolicyManager = new PolicyManager(forkValidator);
-        CoinbaseSmartWalletSwapPolicy forkSwapPolicy = new CoinbaseSmartWalletSwapPolicy(address(forkPolicyManager));
+        SwapPolicy forkSwapPolicy = new SwapPolicy(address(forkPolicyManager));
 
         vm.prank(owner);
         forkAccount.addOwnerAddress(address(forkPolicyManager));
@@ -145,17 +240,15 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         deal(usdc, address(forkAccount), amountIn, true);
         uint256 minAmountOut = 1;
 
-        CoinbaseSmartWalletSwapPolicy.Config memory cfg = CoinbaseSmartWalletSwapPolicy.Config({
+        SwapPolicy.Config memory cfg = SwapPolicy.Config({
             account: address(forkAccount),
-            executor: spender,
+            executor: executor,
             tokenIn: usdc,
             tokenOut: weth,
             swapTarget: router,
             swapSelector: IUniswapV2Router.swapExactTokensForTokens.selector,
             maxAmountIn: amountIn,
-            minAmountOut: minAmountOut,
-            validAfter: 0,
-            validUntil: 0
+            minAmountOutForMaxAmountIn: minAmountOut
         });
         bytes memory policyConfig = abi.encode(cfg);
 
@@ -177,13 +270,12 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         bytes memory swapData = abi.encodeWithSelector(
             IUniswapV2Router.swapExactTokensForTokens.selector, amountIn, 0, path, address(forkAccount), block.timestamp
         );
-        bytes memory policyData =
-            abi.encode(CoinbaseSmartWalletSwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+        bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
 
         uint256 beforeUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
-        vm.prank(spender);
+        vm.prank(executor);
         forkPolicyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
@@ -199,7 +291,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, replaySafeDigest);
         bytes memory signature = abi.encodePacked(r, s, v);
         return account.wrapSignature(0, signature);
     }

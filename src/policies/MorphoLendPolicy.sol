@@ -36,14 +36,12 @@ interface IMorpho {
 /// @notice Morpho lend-only policy (supply-only).
 /// @dev Intentionally conservative: fixed market, fixed onBehalf (the account), bounded amount, approval reset,
 ///      and optional cumulative cap.
-contract LendingPolicy is Policy {
+contract MorphoLendPolicy is Policy {
     error InvalidSender(address sender, address expected);
     error InvalidPolicyConfigAccount(address actual, address expected);
     error ZeroAmount();
     error AmountTooHigh(uint256 amount, uint256 maxAmount);
     error CumulativeAmountTooHigh(uint256 nextTotal, uint256 maxTotal);
-    error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
-    error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
     error ZeroMorpho();
     error ZeroExecutor();
     error InvalidMarket();
@@ -60,14 +58,8 @@ contract LendingPolicy is Policy {
         address executor;
         address morpho;
         MarketParams marketParams;
-
         uint256 maxSupply;
-
-        // Optional cumulative budget (denominated in the loan token's units). 0 disables the cumulative cap.
-        uint256 maxCumulativeSupply;
-
-        uint48 validAfter;
-        uint48 validUntil;
+        uint256 maxCumulativeSupply; // Optional cumulative budget (denominated in the loan token's units). 0 disables the cumulative cap.
     }
 
     struct PolicyData {
@@ -131,14 +123,6 @@ contract LendingPolicy is Policy {
         if (cfg.morpho == address(0)) revert ZeroMorpho();
         if (cfg.marketParams.loanToken == address(0) || cfg.marketParams.collateralToken == address(0)) {
             revert InvalidMarket();
-        }
-
-        uint48 currentTimestamp = uint48(block.timestamp);
-        if (cfg.validAfter != 0 && currentTimestamp < cfg.validAfter) {
-            revert BeforeValidAfter(currentTimestamp, cfg.validAfter);
-        }
-        if (cfg.validUntil != 0 && currentTimestamp >= cfg.validUntil) {
-            revert AfterValidUntil(currentTimestamp, cfg.validUntil);
         }
 
         PolicyData memory data = abi.decode(policyData, (PolicyData));
