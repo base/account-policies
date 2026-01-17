@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
-import {PermissionManager} from "../src/PermissionManager.sol";
+import {PolicyManager} from "../src/PolicyManager.sol";
 import {PermissionTypes} from "../src/PermissionTypes.sol";
 import {LendingPolicy, MarketParams} from "../src/policies/LendingPolicy.sol";
 
@@ -32,7 +32,7 @@ contract MorphoLendingPolicyTest is Test {
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
-    PermissionManager internal pm;
+    PolicyManager internal pm;
     LendingPolicy internal policy;
     MockMorpho internal morpho;
     MintableToken internal loanToken;
@@ -49,10 +49,10 @@ contract MorphoLendingPolicyTest is Test {
         account.initialize(owners);
 
         validator = new PublicERC6492Validator();
-        pm = new PermissionManager(validator);
+        pm = new PolicyManager(validator);
         policy = new LendingPolicy(address(pm));
 
-        // PermissionManager must be an owner to call wallet execution methods.
+        // PolicyManager must be an owner to call wallet execution methods.
         vm.prank(owner);
         account.addOwnerAddress(address(pm));
 
@@ -143,7 +143,7 @@ contract MorphoLendingPolicyTest is Test {
 
     function _signInstall(PermissionTypes.Install memory inst) internal view returns (bytes memory) {
         bytes32 structHash = pm.getInstallStructHash(inst);
-        bytes32 digest = _hashTypedData(address(pm), "Permission Manager", "1", structHash);
+        bytes32 digest = _hashTypedData(address(pm), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);

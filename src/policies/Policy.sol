@@ -3,10 +3,23 @@ pragma solidity ^0.8.23;
 
 import {PermissionTypes} from "../PermissionTypes.sol";
 
-/// @notice A policy defines an authority identity and returns a wallet call plan.
+/// @notice A policy defines authorization semantics and returns a wallet call plan.
 interface Policy {
-    /// @notice Return the expected authority for this policy instance.
-    function authority(bytes calldata policyConfig) external view returns (address);
+    /// @notice Validate whether an execution is authorized.
+    /// @dev MUST revert on unauthorized execution.
+    ///
+    /// `caller` is the external caller of `PolicyManager.execute`.
+    /// `authorizationData` is an opaque blob forwarded from `PolicyManager.execute` (e.g. a signature).
+    /// `execDigest` is the EIP-712 digest computed by `PolicyManager` for this execution.
+    function authorize(
+        PermissionTypes.Install calldata install,
+        uint256 execNonce,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        bytes32 execDigest,
+        address caller,
+        bytes calldata authorizationData
+    ) external;
 
     /// @notice Build the account call and optional post-call (executed on the policy).
     function onExecute(

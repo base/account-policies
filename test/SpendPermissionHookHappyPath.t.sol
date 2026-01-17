@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
-import {PermissionManager} from "../src/PermissionManager.sol";
+import {PolicyManager} from "../src/PolicyManager.sol";
 import {PermissionTypes} from "../src/PermissionTypes.sol";
 import {ERC20SpendHook} from "../src/SpendPermissionSpendHooks/ERC20SpendHook.sol";
 import {MagicSpendSpendHook} from "../src/SpendPermissionSpendHooks/MagicSpendSpendHook.sol";
@@ -41,7 +41,7 @@ contract SpendPermissionHookHappyPathTest is Test {
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
-    PermissionManager internal sm;
+    PolicyManager internal sm;
     SpendPolicy internal spendPolicy;
     ERC20SpendHook internal erc20SpendHook;
     NativeTokenSpendHook internal nativeTokenSpendHook;
@@ -57,7 +57,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         account.initialize(owners);
 
         validator = new PublicERC6492Validator();
-        sm = new PermissionManager(validator);
+        sm = new PolicyManager(validator);
         spendPolicy = new SpendPolicy(address(sm));
         erc20SpendHook = new ERC20SpendHook(address(spendPolicy));
         nativeTokenSpendHook = new NativeTokenSpendHook(address(spendPolicy));
@@ -275,7 +275,7 @@ contract SpendPermissionHookHappyPathTest is Test {
 
     function _signInstall(PermissionTypes.Install memory install) internal view returns (bytes memory) {
         bytes32 structHash = sm.getInstallStructHash(install);
-        bytes32 digest = _hashTypedData(address(sm), "Permission Manager", "1", structHash);
+        bytes32 digest = _hashTypedData(address(sm), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);

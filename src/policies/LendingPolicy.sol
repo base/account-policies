@@ -4,11 +4,13 @@ pragma solidity ^0.8.23;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
+import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PermissionTypes} from "../PermissionTypes.sol";
 import {Policy} from "./Policy.sol";
 
-interface IPermissionManagerLike {
+interface IPolicyManagerLike {
     function getInstallStructHash(PermissionTypes.Install calldata install) external pure returns (bytes32);
+    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
 /// @dev Morpho Blue `MarketParams` struct.
@@ -45,8 +47,9 @@ contract LendingPolicy is Policy {
     error ZeroMorpho();
     error ZeroAuthority();
     error InvalidMarket();
+    error Unauthorized(address caller);
 
-    address public immutable PERMISSION_MANAGER;
+    address public immutable POLICY_MANAGER;
 
     // Cumulative accounting is per policy instance (policyId) in loan-token units.
     // We only ever increment these (conservative).
@@ -80,13 +83,33 @@ contract LendingPolicy is Policy {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
-    constructor(address permissionManager) {
-        PERMISSION_MANAGER = permissionManager;
+    constructor(address policyManager) {
+        POLICY_MANAGER = policyManager;
     }
 
-    function authority(bytes calldata policyConfig) external pure override returns (address) {
+    function authorize(
+        PermissionTypes.Install calldata install,
+        uint256 execNonce,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        bytes32 execDigest,
+        address caller,
+        bytes calldata authorizationData
+    ) external override requireSender(POLICY_MANAGER) {
+        install;
+        execNonce;
+        policyData;
+
         Config memory cfg = abi.decode(policyConfig, (Config));
-        return cfg.authority;
+        if (cfg.authority == address(0)) revert ZeroAuthority();
+
+        // Allow direct calls by the configured authority, otherwise require a signature from it.
+        if (caller == cfg.authority) return;
+
+        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
+            cfg.authority, execDigest, authorizationData
+        );
+        if (!ok) revert Unauthorized(caller);
     }
 
     function onExecute(
@@ -97,7 +120,7 @@ contract LendingPolicy is Policy {
     )
         external
         override
-        requireSender(PERMISSION_MANAGER)
+        requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
         execNonce;
@@ -123,7 +146,7 @@ contract LendingPolicy is Policy {
 
         if (data.assets > cfg.maxSupply) revert AmountTooHigh(data.assets, cfg.maxSupply);
 
-        bytes32 policyId = IPermissionManagerLike(PERMISSION_MANAGER).getInstallStructHash(install);
+        bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getInstallStructHash(install);
         _consumeBudget(policyId, cfg, data.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =

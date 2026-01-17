@@ -8,9 +8,14 @@ import {ERC165Checker} from "openzeppelin-contracts/contracts/utils/introspectio
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
+import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PermissionTypes} from "../PermissionTypes.sol";
 import {SpendHook} from "../SpendPermissionSpendHooks/SpendHook.sol";
 import {Policy} from "./Policy.sol";
+
+interface IPolicyManagerLike {
+    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
+}
 
 /// @notice Spend permissions policy.
 contract SpendPolicy is EIP712, Policy {
@@ -42,7 +47,7 @@ contract SpendPolicy is EIP712, Policy {
 
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    address public immutable PERMISSION_MANAGER;
+    address public immutable POLICY_MANAGER;
 
     mapping(bytes32 policyId => PeriodSpend) internal _lastUpdatedPeriod;
 
@@ -71,6 +76,7 @@ contract SpendPolicy is EIP712, Policy {
     error ExceededSpendPermission(uint256 value, uint256 allowance);
     error NativeTokenFinalizeNotSupported();
     error NativeTokenTransferFailed(address to, uint256 value);
+    error Unauthorized(address caller);
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -81,15 +87,32 @@ contract SpendPolicy is EIP712, Policy {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
-    constructor(address permissionManager) {
-        PERMISSION_MANAGER = permissionManager;
+    constructor(address policyManager) {
+        POLICY_MANAGER = policyManager;
     }
 
     receive() external payable {}
 
-    function authority(bytes calldata policyConfig) external pure override returns (address) {
+    function authorize(
+        PermissionTypes.Install calldata install,
+        uint256 execNonce,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        bytes32 execDigest,
+        address caller,
+        bytes calldata authorizationData
+    ) external override requireSender(POLICY_MANAGER) {
+        install;
+        execNonce;
+        policyData;
+
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
-        return sp.spender;
+        if (caller == sp.spender) return;
+
+        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
+            sp.spender, execDigest, authorizationData
+        );
+        if (!ok) revert Unauthorized(caller);
     }
 
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
@@ -101,7 +124,7 @@ contract SpendPolicy is EIP712, Policy {
     )
         external
         override
-        requireSender(PERMISSION_MANAGER)
+        requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
@@ -136,7 +159,7 @@ contract SpendPolicy is EIP712, Policy {
 
     function afterExecute(address account, address token, address recipient, uint160 value)
         external
-        requireSender(PERMISSION_MANAGER)
+        requireSender(POLICY_MANAGER)
     {
         if (token != NATIVE_TOKEN) {
             IERC20(token).safeTransferFrom(account, recipient, value);

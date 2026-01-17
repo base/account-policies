@@ -7,7 +7,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
-import {PermissionManager} from "../src/PermissionManager.sol";
+import {PolicyManager} from "../src/PolicyManager.sol";
 import {PermissionTypes} from "../src/PermissionTypes.sol";
 import {CoinbaseSmartWalletSwapPolicy} from "../src/policies/CoinbaseSmartWalletSwapPolicy.sol";
 
@@ -43,7 +43,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
-    PermissionManager internal sm;
+    PolicyManager internal sm;
     CoinbaseSmartWalletSwapPolicy internal swapPolicy;
     MockSwapTarget internal swapTarget;
 
@@ -57,7 +57,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         account.initialize(owners);
 
         validator = new PublicERC6492Validator();
-        sm = new PermissionManager(validator);
+        sm = new PolicyManager(validator);
         swapPolicy = new CoinbaseSmartWalletSwapPolicy(address(sm));
         swapTarget = new MockSwapTarget();
 
@@ -135,7 +135,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
         forkAccount.initialize(owners);
 
         PublicERC6492Validator forkValidator = new PublicERC6492Validator();
-        PermissionManager forkSm = new PermissionManager(forkValidator);
+        PolicyManager forkSm = new PolicyManager(forkValidator);
         CoinbaseSmartWalletSwapPolicy forkSwapPolicy = new CoinbaseSmartWalletSwapPolicy(address(forkSm));
 
         vm.prank(owner);
@@ -196,7 +196,7 @@ contract CoinbaseSmartWalletSwapPolicyTest is Test {
 
     function _signInstall(PermissionTypes.Install memory install) internal view returns (bytes memory) {
         bytes32 structHash = sm.getInstallStructHash(install);
-        bytes32 digest = _hashTypedData(address(sm), "Permission Manager", "1", structHash);
+        bytes32 digest = _hashTypedData(address(sm), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);

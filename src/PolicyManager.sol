@@ -8,10 +8,10 @@ import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
 import {PermissionTypes} from "./PermissionTypes.sol";
 import {Policy} from "./policies/Policy.sol";
 
-/// @title PermissionManager
+/// @title PolicyManager
 /// @notice Wallet-agnostic module that installs policies authorized by the account and executes policy-prepared
-///         calldata on the account using an authority signature or direct call.
-contract PermissionManager is EIP712, ReentrancyGuard {
+///         calldata on the account.
+contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
     PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
 
@@ -162,15 +162,15 @@ contract PermissionManager is EIP712, ReentrancyGuard {
         emit PolicyRevoked(policyId, install.account, install.policy);
     }
 
-    /// @notice Execute an action authorized by an authority for an installed policy instance.
-    /// @dev Policy defines authority semantics and returns wallet-specific calldata for the account.
+    /// @notice Execute an action for an installed policy instance.
+    /// @dev Policy defines authorization semantics and returns wallet-specific calldata for the account.
     function execute(
         PermissionTypes.Install calldata install,
         bytes calldata policyConfig,
         bytes calldata policyData,
         uint256 execNonce,
         uint48 deadline,
-        bytes calldata authoritySig
+        bytes calldata authorizationData
     ) external nonReentrant {
         _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
         _checkInstallWindow(install.validAfter, install.validUntil);
@@ -179,17 +179,12 @@ contract PermissionManager is EIP712, ReentrancyGuard {
         bytes32 policyId = getInstallStructHash(install);
         _getActivePolicyState(policyId);
 
-        address authority = _policyAuthority(install.policy, policyConfig);
         bytes32 execDigest = _getExecutionDigest(policyId, install, keccak256(policyData), execNonce, deadline);
 
         if (_usedExecutionDigest[execDigest]) revert InvalidSignature();
         _usedExecutionDigest[execDigest] = true;
 
-        if (msg.sender != authority) {
-            if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(authority, execDigest, authoritySig)) {
-                revert InvalidSignature();
-            }
-        }
+        Policy(install.policy).authorize(install, execNonce, policyConfig, policyData, execDigest, msg.sender, authorizationData);
 
         (bytes memory accountCallData, bytes memory postCallData) =
             _policyOnExecute(install.policy, install, execNonce, policyConfig, policyData);
@@ -267,10 +262,6 @@ contract PermissionManager is EIP712, ReentrancyGuard {
         if (!success) revert AccountCallFailed(account, returnData);
     }
 
-    function _policyAuthority(address policy, bytes calldata policyConfig) internal view returns (address) {
-        return Policy(policy).authority(policyConfig);
-    }
-
     function _policyOnExecute(
         address policy,
         PermissionTypes.Install calldata install,
@@ -290,7 +281,7 @@ contract PermissionManager is EIP712, ReentrancyGuard {
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
-        name = "Permission Manager";
+        name = "Policy Manager";
         version = "1";
     }
 }
