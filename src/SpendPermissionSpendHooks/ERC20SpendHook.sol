@@ -22,12 +22,17 @@ contract ERC20SpendHook is SpendHook {
         returns (CoinbaseSmartWallet.Call[] memory calls)
     {
         hookData;
-        calls = new CoinbaseSmartWallet.Call[](1);
+        // Use two calls: set allowance to 0 first (for tokens that require zeroing), then set to the desired value.
+        calls = new CoinbaseSmartWallet.Call[](2);
         calls[0] = CoinbaseSmartWallet.Call({
             target: spendPermission.token,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, SPEND_PERMISSION_POLICY, value)
+            data: abi.encodeWithSelector(IERC20.approve.selector, SPEND_PERMISSION_POLICY, uint256(0))
+        });
+        calls[1] = CoinbaseSmartWallet.Call({
+            target: spendPermission.token,
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.approve.selector, SPEND_PERMISSION_POLICY, uint256(value))
         });
     }
 }
-

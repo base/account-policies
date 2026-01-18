@@ -12,6 +12,17 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 ///
 /// @author Coinbase (https://github.com/coinbase/spend-permissions)
 contract PublicERC6492Validator {
+    error ReentrantCall();
+
+    bool private _entered;
+
+    modifier nonReentrant() {
+        if (_entered) revert ReentrantCall();
+        _entered = true;
+        _;
+        _entered = false;
+    }
+
     /// @notice Validate contract signature and execute side effects if provided.
     ///
     /// @dev If the signature is postfixed with the ERC-6492 magic value, an external call to deploy/prepare the account
@@ -21,6 +32,7 @@ contract PublicERC6492Validator {
     /// @return isValid True if signature is valid.
     function isValidSignatureNowAllowSideEffects(address account, bytes32 hash, bytes calldata signature)
         external
+        nonReentrant
         returns (bool)
     {
         return SignatureCheckerLib.isValidERC6492SignatureNowAllowSideEffects(account, hash, signature);

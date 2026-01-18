@@ -37,7 +37,7 @@ contract SpendPolicy is EIP712, Policy {
     }
 
     bytes32 public constant SPEND_PERMISSION_TYPEHASH = keccak256(
-        "SpendPermission(address account,address spender,address token,uint160 allowance,uint48 period,uint48 start,uint48 end,uint256 salt,bytes extraData,address spendHook,bytes spendHookConfig)"
+        "SpendPermission(address account,address spender,address token,uint160 allowance,uint48 period,uint48 start,uint48 end,uint256 salt,bytes extraData,address spendHook,bytes spendHookConfig)[..."
     );
 
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -142,7 +142,7 @@ contract SpendPolicy is EIP712, Policy {
             IERC20(token).safeTransferFrom(account, recipient, value);
         } else {
             // Spend hook must have transferred ETH from the account into this policy.
-            (bool ok,) = recipient.call{value: value}("");
+            (bool ok,) = recipient.call{value: value}(";
             if (!ok) revert NativeTokenTransferFailed(recipient, value);
         }
     }
@@ -174,9 +174,9 @@ contract SpendPolicy is EIP712, Policy {
         if (currentTimestamp >= sp.end) revert AfterSpendPermissionEnd(currentTimestamp, sp.end);
 
         PeriodSpend memory lastUpdated = _lastUpdatedPeriod[policyId];
-        bool lastExists = lastUpdated.spend != 0;
-        bool lastStillActive = currentTimestamp < lastUpdated.end;
-        if (lastExists && lastStillActive) return lastUpdated;
+        // Use end as a presence marker: spend may be zero even for an active period.
+        bool lastExists = lastUpdated.end != 0;
+        if (lastExists && currentTimestamp < lastUpdated.end) return lastUpdated;
 
         uint48 currentPeriodProgress = (currentTimestamp - sp.start) % sp.period;
         uint48 start = currentTimestamp - currentPeriodProgress;
@@ -236,4 +236,3 @@ contract SpendPolicy is EIP712, Policy {
         version = "1";
     }
 }
-
