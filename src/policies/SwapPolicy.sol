@@ -5,13 +5,8 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
-import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
-
-interface IPolicyManagerLike {
-    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
-}
 
 /// @notice Policy that allows an executor to execute a constrained ERC20->(something) swap on a fixed
 /// `swapTarget`, bounded by `maxAmountIn` and checked by a prorated minimum receive amount.
@@ -25,7 +20,6 @@ interface IPolicyManagerLike {
 contract SwapPolicy is Policy {
     error InvalidPolicyData();
     error InvalidPolicyConfigAccount(address actual, address expected);
-    error InvalidSwapTarget(address actual, address expected);
     error SelectorMismatch(bytes4 actual, bytes4 expected);
     error AmountInTooHigh(uint256 amountIn, uint256 maxAmountIn);
     error ZeroMaxAmountIn();
@@ -67,33 +61,11 @@ contract SwapPolicy is Policy {
         POLICY_MANAGER = policyManager;
     }
 
-    function authorize(
-        PolicyTypes.Install calldata install,
-        uint256 execNonce,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
-        bytes32 execDigest,
-        address caller,
-        bytes calldata authorizationData
-    ) external override requireSender(POLICY_MANAGER) {
-        install;
-        execNonce;
-        policyData;
-
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        if (caller == cfg.executor) return;
-
-        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
-            cfg.executor, execDigest, authorizationData
-        );
-        if (!ok) revert Unauthorized(caller);
-    }
-
     function onExecute(
         PolicyTypes.Install calldata install,
-        uint256 execNonce,
         bytes calldata policyConfig,
-        bytes calldata policyData
+        bytes calldata policyData,
+        address caller
     )
         external
         view
@@ -101,11 +73,10 @@ contract SwapPolicy is Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
-        execNonce;
-
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
+        if (caller != cfg.executor) revert Unauthorized(caller);
 
         PolicyData memory data = abi.decode(policyData, (PolicyData));
         if (data.swapData.length < 4) revert InvalidPolicyData();
@@ -130,9 +101,7 @@ contract SwapPolicy is Policy {
         });
         calls[1] = CoinbaseSmartWallet.Call({target: cfg.swapTarget, value: 0, data: data.swapData});
         calls[2] = CoinbaseSmartWallet.Call({
-            target: cfg.tokenIn,
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, cfg.swapTarget, 0)
+            target: cfg.tokenIn, value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, cfg.swapTarget, 0)
         });
 
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);

@@ -20,14 +20,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         "Install(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
     );
 
-    /// @notice EIP-712 hash of Revoke type.
-    bytes32 public constant REVOKE_TYPEHASH = keccak256("Revoke(bytes32 policyId)");
-
-    /// @notice EIP-712 hash of Execution type.
-    bytes32 public constant EXECUTION_TYPEHASH = keccak256(
-        "Execution(bytes32 policyId,address account,address policy,bytes32 policyConfigHash,bytes32 policyDataHash,uint256 nonce,uint48 deadline)"
-    );
-
     /// @notice Policy was installed.
     event PolicyInstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
@@ -35,12 +27,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     event PolicyRevoked(bytes32 indexed policyId, address indexed account, address indexed policy);
 
     /// @notice Policy execution occurred.
-    event Executed(bytes32 indexed policyId, address indexed account, address indexed policy, uint256 nonce);
+    event Executed(bytes32 indexed policyId, address indexed account, address indexed policy);
 
     error InvalidSignature();
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error PolicyNotInstalled(bytes32 policyId);
-    error PolicyRevokedAlready(bytes32 policyId);
+    error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
     error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
     error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
@@ -54,7 +46,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     mapping(bytes32 policyId => PolicyState) internal _policyState;
-    mapping(bytes32 executionDigest => bool used) internal _usedExecutionDigest;
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -83,8 +74,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         policyId = structHash;
 
         PolicyState storage state = _policyState[policyId];
-        if (state.installed) revert PolicyAlreadyInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId);
+        if (state.installed) revert PolicyAlreadyInstalled(policyId); // TODO should this be idempotent?
+        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
 
         bytes32 digest = _hashTypedData(structHash);
         if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(install.account, digest, userSig)) {
@@ -110,36 +101,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         PolicyState storage state = _policyState[policyId];
         if (state.installed) revert PolicyAlreadyInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId);
+        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
 
         state.installed = true;
         emit PolicyInstalled(policyId, install.account, install.policy);
-    }
-
-    /// @notice Revoke a policy via a signature from the account.
-    /// @dev Compatible with ERC-6492 signatures including side effects.
-    function revokePolicyWithSignature(
-        PolicyTypes.Install calldata install,
-        bytes calldata policyConfig,
-        bytes calldata userSig
-    ) external nonReentrant returns (bytes32 policyId) {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
-
-        bytes32 structHash = getInstallStructHash(install);
-        policyId = structHash;
-
-        PolicyState storage state = _policyState[policyId];
-        if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId);
-
-        // IMPORTANT: revoke signatures must be distinct from install signatures to avoid signature replay/ambiguity.
-        bytes32 digest = _hashTypedData(getRevokeStructHash(policyId));
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(install.account, digest, userSig)) {
-            revert InvalidSignature();
-        }
-
-        state.revoked = true;
-        emit PolicyRevoked(policyId, install.account, install.policy);
     }
 
     /// @notice Revoke a policy via a direct call from the account.
@@ -156,7 +121,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         PolicyState storage state = _policyState[policyId];
         if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId);
+        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
 
         state.revoked = true;
         emit PolicyRevoked(policyId, install.account, install.policy);
@@ -168,9 +133,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         PolicyTypes.Install calldata install,
         bytes calldata policyConfig,
         bytes calldata policyData,
-        uint256 execNonce,
-        uint48 deadline,
-        bytes calldata authorizationData
+        uint48 deadline
     ) external nonReentrant {
         _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
         _checkInstallWindow(install.validAfter, install.validUntil);
@@ -179,19 +142,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 policyId = getInstallStructHash(install);
         _getActivePolicyState(policyId);
 
-        bytes32 execDigest = _getExecutionDigest(policyId, install, keccak256(policyData), execNonce, deadline);
-
-        if (_usedExecutionDigest[execDigest]) revert InvalidSignature();
-        _usedExecutionDigest[execDigest] = true;
-
-        Policy(install.policy).authorize(install, execNonce, policyConfig, policyData, execDigest, msg.sender, authorizationData);
-
         (bytes memory accountCallData, bytes memory postCallData) =
-            _policyOnExecute(install.policy, install, execNonce, policyConfig, policyData);
+            _policyOnExecute(install.policy, install, policyConfig, policyData, msg.sender);
         _callAccount(install.account, accountCallData);
         _postCallPolicy(install.policy, postCallData);
 
-        emit Executed(policyId, install.account, install.policy, execNonce);
+        emit Executed(policyId, install.account, install.policy);
     }
 
     function getInstallStructHash(PolicyTypes.Install calldata install) public pure returns (bytes32) {
@@ -206,10 +162,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 install.salt
             )
         );
-    }
-
-    function getRevokeStructHash(bytes32 policyId) public pure returns (bytes32) {
-        return keccak256(abi.encode(REVOKE_TYPEHASH, policyId));
     }
 
     function _checkPolicyConfigHash(bytes32 expected, bytes calldata policyConfig) internal pure {
@@ -231,30 +183,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _getActivePolicyState(bytes32 policyId) internal view returns (PolicyState storage state) {
         state = _policyState[policyId];
         if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyRevokedAlready(policyId);
-    }
-
-    function _getExecutionDigest(
-        bytes32 policyId,
-        PolicyTypes.Install calldata install,
-        bytes32 policyDataHash,
-        uint256 nonce,
-        uint48 deadline
-    ) internal view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    EXECUTION_TYPEHASH,
-                    policyId,
-                    install.account,
-                    install.policy,
-                    install.policyConfigHash,
-                    policyDataHash,
-                    nonce,
-                    deadline
-                )
-            )
-        );
+        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
     }
 
     function _callAccount(address account, bytes memory accountCallData) internal {
@@ -265,12 +194,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _policyOnExecute(
         address policy,
         PolicyTypes.Install calldata install,
-        uint256 execNonce,
         bytes calldata policyConfig,
-        bytes calldata policyData
+        bytes calldata policyData,
+        address caller
     ) internal returns (bytes memory, bytes memory) {
         (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(install, execNonce, policyConfig, policyData);
+            Policy(policy).onExecute(install, policyConfig, policyData, caller);
         return (accountCallData, postCallData);
     }
 

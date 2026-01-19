@@ -108,7 +108,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(account)), allowance - spendValue);
         assertEq(token.balanceOf(spender), spendValue);
@@ -153,7 +153,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(address(account).balance, allowance - spendValue);
         assertEq(spender.balance, spendValue);
@@ -204,7 +204,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(subAccount)), allowance - spendValue);
         assertEq(token.balanceOf(address(account)), 0);
@@ -266,7 +266,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         bytes memory policyData = abi.encode(spendValue, prepData);
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(magicSpend)), allowance - spendValue);
         assertEq(token.balanceOf(address(account)), 0);

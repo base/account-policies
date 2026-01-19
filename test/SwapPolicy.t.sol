@@ -110,7 +110,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -162,7 +162,7 @@ contract SwapPolicyTest is Test {
         bytes memory innerError =
             abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut);
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.AccountCallFailed.selector, address(swapPolicy), innerError));
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
     }
 
     function test_happyPath_mockSwapTarget_amountInEqualsMaxAmountIn() public {
@@ -204,7 +204,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -276,7 +276,7 @@ contract SwapPolicyTest is Test {
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
         vm.prank(executor);
-        forkPolicyManager.execute(install, policyConfig, policyData, 1, uint48(block.timestamp + 60), hex"");
+        forkPolicyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 afterWeth = IERC20(weth).balanceOf(address(forkAccount));

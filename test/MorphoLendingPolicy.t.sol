@@ -24,6 +24,9 @@ contract MintableToken is ERC20 {
 contract MorphoLendPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
+    bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
+        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash,uint256 nonce)"
+    );
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
@@ -126,17 +129,77 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(
             localInstall,
             localPolicyConfig,
-            abi.encode(MorphoLendPolicy.PolicyData({assets: 2 ether})),
-            1,
-            uint48(block.timestamp + 60),
-            hex""
+            abi.encode(
+                MorphoLendPolicy.PolicyData({
+                    data: MorphoLendPolicy.LendData({assets: 2 ether, nonce: 1}),
+                    signature: bytes("")
+                })
+            ),
+            uint48(block.timestamp + 60)
         );
     }
 
+    function test_morphoPolicy_executorSig_allowsRelayer_andPreventsReplay() public {
+        uint256 supplyAmt = 100 ether;
+        loanToken.mint(address(account), supplyAmt);
+
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
+        bytes memory payload = abi.encode(ld);
+        uint48 deadline = uint48(block.timestamp + 60);
+
+        bytes32 execDigest = _getPolicyExecutionDigest(install, payload, ld.nonce);
+        bytes memory sig = _signExecution(execDigest);
+        bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
+
+        address relayer = vm.addr(uint256(keccak256("relayer")));
+        vm.prank(relayer);
+        policyManager.execute(install, policyConfig, policyData, deadline);
+
+        assertEq(loanToken.balanceOf(address(account)), 0);
+        assertEq(loanToken.allowance(address(account), address(morpho)), 0);
+
+        vm.prank(relayer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoLendPolicy.ExecutionNonceAlreadyUsed.selector, policyManager.getInstallStructHash(install), ld.nonce
+            )
+        );
+        policyManager.execute(install, policyConfig, policyData, deadline);
+    }
+
     function _exec(uint256 assets) internal {
-        MorphoLendPolicy.PolicyData memory pd = MorphoLendPolicy.PolicyData({assets: assets});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
         vm.prank(executor);
-        policyManager.execute(install, policyConfig, abi.encode(pd), 1, uint48(block.timestamp + 60), hex"");
+        policyManager.execute(
+            install,
+            policyConfig,
+            abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")})),
+            uint48(block.timestamp + 60)
+        );
+    }
+
+    function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, execDigest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _getPolicyExecutionDigest(
+        PolicyTypes.Install memory inst,
+        bytes memory payload,
+        uint256 nonce
+    ) internal view returns (bytes32) {
+        bytes32 policyId = policyManager.getInstallStructHash(inst);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                EXECUTION_TYPEHASH,
+                policyId,
+                inst.account,
+                inst.policyConfigHash,
+                keccak256(payload),
+                nonce
+            )
+        );
+        return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
     }
 
     function _signInstall(PolicyTypes.Install memory inst) internal view returns (bytes memory) {

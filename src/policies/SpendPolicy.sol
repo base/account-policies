@@ -8,14 +8,9 @@ import {ERC165Checker} from "openzeppelin-contracts/contracts/utils/introspectio
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PolicyTypes} from "../PolicyTypes.sol";
 import {SpendHook} from "../SpendPermissionSpendHooks/SpendHook.sol";
 import {Policy} from "./Policy.sol";
-
-interface IPolicyManagerLike {
-    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
-}
 
 /// @notice Spend permissions policy.
 contract SpendPolicy is EIP712, Policy {
@@ -74,7 +69,6 @@ contract SpendPolicy is EIP712, Policy {
     error AfterSpendPermissionEnd(uint48 currentTimestamp, uint48 end);
     error SpendValueOverflow(uint256 value);
     error ExceededSpendPermission(uint256 value, uint256 allowance);
-    error NativeTokenFinalizeNotSupported();
     error NativeTokenTransferFailed(address to, uint256 value);
     error Unauthorized(address caller);
 
@@ -93,34 +87,12 @@ contract SpendPolicy is EIP712, Policy {
 
     receive() external payable {}
 
-    function authorize(
-        PolicyTypes.Install calldata install,
-        uint256 execNonce,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
-        bytes32 execDigest,
-        address caller,
-        bytes calldata authorizationData
-    ) external override requireSender(POLICY_MANAGER) {
-        install;
-        execNonce;
-        policyData;
-
-        SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
-        if (caller == sp.spender) return;
-
-        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(
-            sp.spender, execDigest, authorizationData
-        );
-        if (!ok) revert Unauthorized(caller);
-    }
-
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
     function onExecute(
         PolicyTypes.Install calldata install,
-        uint256 execNonce,
         bytes calldata policyConfig,
-        bytes calldata policyData
+        bytes calldata policyData,
+        address caller
     )
         external
         override
@@ -129,6 +101,8 @@ contract SpendPolicy is EIP712, Policy {
     {
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
         if (sp.account != install.account) revert InvalidPolicyConfigAccount(sp.account, install.account);
+
+        if (caller != sp.spender) revert Unauthorized(caller);
 
         (uint160 value, bytes memory prepData) = abi.decode(policyData, (uint160, bytes));
         bytes32 policyId = _getPolicyId(install);
@@ -153,7 +127,6 @@ contract SpendPolicy is EIP712, Policy {
         // Finalize in the policy post-call:
         // - ERC20: transferFrom(account -> recipient) using allowance granted during prep
         // - ETH: transfer(value) out of this policy (funded by NativeTokenSpendHook)
-        execNonce;
         postCallData = abi.encodeWithSelector(this.afterExecute.selector, sp.account, sp.token, sp.spender, value);
     }
 
