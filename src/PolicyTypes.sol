@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-/// @notice Shared types for PermissionManager and policies to avoid circular imports.
-library PermissionTypes {
+/// @notice Shared types for PolicyManager and policies to avoid circular imports.
+library PolicyTypes {
     /// @notice Policy installation parameters authorized by the account.
     struct Install {
         address account;
@@ -13,5 +13,4 @@ library PermissionTypes {
         uint256 salt;
     }
 }
-
 
