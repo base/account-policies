@@ -1,96 +1,43 @@
-## Foundry
+### account-permissions
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+A modular system for allowing smart contract users the ability to authorize third parties to take specific, well-defined, onchain actions via their account.
 
-Foundry consists of:
+### How it works (high level)
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- **`src/PolicyManager.sol`**: installs policy instances authorized by the account and executes policy-prepared calldata on the account.
+- **`src/PolicyTypes.sol`**: shared type definitions (notably `PolicyTypes.Install`) used by the manager and policies.
+- **`src/policies/`**: example policies (each policy defines its own authorization semantics via `authorize(...)` and constructs wallet calldata via `onExecute(...)`).
 
-## Documentation
+### Setup
 
-https://book.getfoundry.sh/
-
-## Usage
-
-### Getting started (submodules)
-
-This repo uses git submodules for Foundry dependencies (in `lib/`).
+This repo uses git submodules for dependencies (in `lib/`).
 
 Clone with submodules:
 
 ```shell
-$ git clone --recurse-submodules <repo>
+git clone --recurse-submodules <repo>
 ```
 
 If you already cloned without submodules:
 
 ```shell
-$ git submodule update --init --recursive
-```
-
-Then build / test as usual:
-
-```shell
-$ forge build
-$ forge test
-```
-
-To update dependencies later:
-
-```shell
-$ forge install
-$ git submodule update --init --recursive
+git submodule update --init --recursive
 ```
 
 ### Build
 
 ```shell
-$ forge build
+forge build
 ```
 
 ### Test
 
 ```shell
-$ forge test
+forge test --offline
 ```
 
 ### Format
 
 ```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
+forge fmt
 ```
