@@ -10,7 +10,7 @@ interface Policy {
     ///
     /// `caller` is the external caller of `PolicyManager.execute`.
     function onExecute(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller

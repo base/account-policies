@@ -5,7 +5,7 @@ A modular system for allowing smart contract users the ability to authorize thir
 ### How it works (high level)
 
 - **`src/PolicyManager.sol`**: installs policy instances authorized by the account and executes policy-prepared calldata on the account.
-- **`src/PolicyTypes.sol`**: shared type definitions (notably `PolicyTypes.Install`) used by the manager and policies.
+- **`src/PolicyTypes.sol`**: shared type definitions (notably `PolicyTypes.PolicyBinding`) used by the manager and policies.
 - **`src/policies/`**: example policies (each policy defines its own authorization semantics via `authorize(...)` and constructs wallet calldata via `onExecute(...)`).
 
 ### Setup

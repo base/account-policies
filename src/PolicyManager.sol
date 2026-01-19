@@ -15,9 +15,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
     PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
 
-    /// @notice EIP-712 hash of Install type.
-    bytes32 public constant INSTALL_TYPEHASH = keccak256(
-        "Install(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
+    /// @notice EIP-712 hash of PolicyBinding type.
+    bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
+        "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
     );
 
     /// @notice Policy was installed.
@@ -34,18 +34,22 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyNotInstalled(bytes32 policyId);
     error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
+    error PolicyConfigNotStored(bytes32 policyId);
     error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
     error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
     error DeadlineExceeded(uint48 currentTimestamp, uint48 deadline);
     error AccountCallFailed(address account, bytes returnData);
     error InvalidSender(address sender, address expected);
 
-    struct PolicyState {
+    struct PolicyRecord {
         bool installed;
         bool revoked;
+        bool hasStoredPolicyConfig;
+        PolicyTypes.PolicyBinding binding;
+        bytes policyConfig;
     }
 
-    mapping(bytes32 policyId => PolicyState) internal _policyState;
+    mapping(bytes32 policyId => PolicyRecord) internal _policies;
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -63,103 +67,130 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Install a policy via a signature from the account.
     /// @dev Compatible with ERC-6492 signatures including side effects.
     function installPolicyWithSignature(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
-        bytes calldata userSig
+        bytes calldata userSig,
+        bool storeConfig
     ) external nonReentrant returns (bytes32 policyId) {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
-        _checkInstallWindow(install.validAfter, install.validUntil);
+        policyId = getPolicyBindingStructHash(binding);
 
-        bytes32 structHash = getInstallStructHash(install);
-        policyId = structHash;
+        PolicyRecord storage p = _policies[policyId];
+        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        PolicyState storage state = _policyState[policyId];
-        if (state.installed) revert PolicyAlreadyInstalled(policyId); // TODO should this be idempotent?
-        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
+        if (p.installed) {
+            if (storeConfig && !p.hasStoredPolicyConfig) {
+                _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
+                _storePolicyConfig(policyId, binding, policyConfig);
+            }
+            return policyId;
+        }
 
-        bytes32 digest = _hashTypedData(structHash);
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(install.account, digest, userSig)) {
+        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
+        _checkInstallWindow(binding.validAfter, binding.validUntil);
+
+        bytes32 digest = _hashTypedData(policyId);
+        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(binding.account, digest, userSig)) {
             revert InvalidSignature();
         }
 
-        state.installed = true;
-        emit PolicyInstalled(policyId, install.account, install.policy);
+        p.installed = true;
+        if (storeConfig) _storePolicyConfig(policyId, binding, policyConfig);
+        emit PolicyInstalled(policyId, binding.account, binding.policy);
     }
 
     /// @notice Install a policy via a direct call from the account.
-    function installPolicy(PolicyTypes.Install calldata install, bytes calldata policyConfig)
+    function installPolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig, bool storeConfig)
         external
         nonReentrant
-        requireSender(install.account)
+        requireSender(binding.account)
         returns (bytes32 policyId)
     {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
-        _checkInstallWindow(install.validAfter, install.validUntil);
+        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
+        _checkInstallWindow(binding.validAfter, binding.validUntil);
 
-        bytes32 structHash = getInstallStructHash(install);
-        policyId = structHash;
+        policyId = getPolicyBindingStructHash(binding);
 
-        PolicyState storage state = _policyState[policyId];
-        if (state.installed) revert PolicyAlreadyInstalled(policyId);
-        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
+        PolicyRecord storage p = _policies[policyId];
+        if (p.installed) revert PolicyAlreadyInstalled(policyId);
+        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        state.installed = true;
-        emit PolicyInstalled(policyId, install.account, install.policy);
+        p.installed = true;
+        if (storeConfig) _storePolicyConfig(policyId, binding, policyConfig);
+        emit PolicyInstalled(policyId, binding.account, binding.policy);
     }
 
     /// @notice Revoke a policy via a direct call from the account.
-    function revokePolicy(PolicyTypes.Install calldata install, bytes calldata policyConfig)
+    function revokePolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
         external
         nonReentrant
-        requireSender(install.account)
+        requireSender(binding.account)
         returns (bytes32 policyId)
     {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
+        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
 
-        bytes32 structHash = getInstallStructHash(install);
-        policyId = structHash;
+        policyId = getPolicyBindingStructHash(binding);
 
-        PolicyState storage state = _policyState[policyId];
-        if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
+        PolicyRecord storage p = _policies[policyId];
+        if (!p.installed) revert PolicyNotInstalled(policyId);
+        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        state.revoked = true;
-        emit PolicyRevoked(policyId, install.account, install.policy);
+        p.revoked = true;
+        emit PolicyRevoked(policyId, binding.account, binding.policy);
     }
 
     /// @notice Execute an action for an installed policy instance.
     /// @dev Policy defines authorization semantics and returns wallet-specific calldata for the account.
     function execute(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         uint48 deadline
     ) external nonReentrant {
-        _checkPolicyConfigHash(install.policyConfigHash, policyConfig);
-        _checkInstallWindow(install.validAfter, install.validUntil);
+        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
+        _checkInstallWindow(binding.validAfter, binding.validUntil);
         _checkDeadline(deadline);
 
-        bytes32 policyId = getInstallStructHash(install);
-        _getActivePolicyState(policyId);
+        bytes32 policyId = getPolicyBindingStructHash(binding);
+        _getActivePolicy(policyId);
 
         (bytes memory accountCallData, bytes memory postCallData) =
-            _policyOnExecute(install.policy, install, policyConfig, policyData, msg.sender);
-        _callAccount(install.account, accountCallData);
-        _postCallPolicy(install.policy, postCallData);
+            _policyOnExecute(binding.policy, binding, policyConfig, policyData, msg.sender);
+        _callAccount(binding.account, accountCallData);
+        _postCallPolicy(binding.policy, postCallData);
 
-        emit Executed(policyId, install.account, install.policy);
+        emit Executed(policyId, binding.account, binding.policy);
     }
 
-    function getInstallStructHash(PolicyTypes.Install calldata install) public pure returns (bytes32) {
+    /// @notice Execute an action for an installed policy instance using a stored policy config.
+    /// @dev Reverts if no config was stored for `policyId`.
+    function executeById(bytes32 policyId, bytes calldata policyData, uint48 deadline) external nonReentrant {
+        PolicyRecord storage p = _getActivePolicy(policyId);
+
+        if (!p.hasStoredPolicyConfig) revert PolicyConfigNotStored(policyId);
+        PolicyTypes.PolicyBinding memory binding = p.binding;
+        bytes memory policyConfig = p.policyConfig;
+
+        _checkInstallWindow(p.binding.validAfter, p.binding.validUntil);
+        _checkDeadline(deadline);
+
+        (bytes memory accountCallData, bytes memory postCallData) =
+            Policy(binding.policy).onExecute(binding, policyConfig, policyData, msg.sender);
+        _callAccount(binding.account, accountCallData);
+        _postCallPolicy(binding.policy, postCallData);
+
+        emit Executed(policyId, binding.account, binding.policy);
+    }
+
+    function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                INSTALL_TYPEHASH,
-                install.account,
-                install.policy,
-                install.policyConfigHash,
-                install.validAfter,
-                install.validUntil,
-                install.salt
+                POLICY_BINDING_TYPEHASH,
+                binding.account,
+                binding.policy,
+                binding.policyConfigHash,
+                binding.validAfter,
+                binding.validUntil,
+                binding.salt
             )
         );
     }
@@ -180,10 +211,21 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (currentTimestamp > deadline) revert DeadlineExceeded(currentTimestamp, deadline);
     }
 
-    function _getActivePolicyState(bytes32 policyId) internal view returns (PolicyState storage state) {
-        state = _policyState[policyId];
-        if (!state.installed) revert PolicyNotInstalled(policyId);
-        if (state.revoked) revert PolicyAlreadyRevoked(policyId);
+    function _getActivePolicy(bytes32 policyId) internal view returns (PolicyRecord storage p) {
+        p = _policies[policyId];
+        if (!p.installed) revert PolicyNotInstalled(policyId);
+        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+    }
+
+    function _storePolicyConfig(
+        bytes32 policyId,
+        PolicyTypes.PolicyBinding calldata binding,
+        bytes calldata policyConfig
+    ) internal {
+        PolicyRecord storage p = _policies[policyId];
+        p.hasStoredPolicyConfig = true;
+        p.binding = binding;
+        p.policyConfig = policyConfig;
     }
 
     function _callAccount(address account, bytes memory accountCallData) internal {
@@ -193,13 +235,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     function _policyOnExecute(
         address policy,
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
     ) internal returns (bytes memory, bytes memory) {
         (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(install, policyConfig, policyData, caller);
+            Policy(policy).onExecute(binding, policyConfig, policyData, caller);
         return (accountCallData, postCallData);
     }
 

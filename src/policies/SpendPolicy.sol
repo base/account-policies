@@ -89,7 +89,7 @@ contract SpendPolicy is EIP712, Policy {
 
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
     function onExecute(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
@@ -100,12 +100,12 @@ contract SpendPolicy is EIP712, Policy {
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
-        if (sp.account != install.account) revert InvalidPolicyConfigAccount(sp.account, install.account);
+        if (sp.account != binding.account) revert InvalidPolicyConfigAccount(sp.account, binding.account);
 
         if (caller != sp.spender) revert Unauthorized(caller);
 
         (uint160 value, bytes memory prepData) = abi.decode(policyData, (uint160, bytes));
-        bytes32 policyId = _getPolicyId(install);
+        bytes32 policyId = _getPolicyId(binding);
         _useSpendPermission(policyId, sp, value);
 
         // Token-specific behavior (approvals, balance abstraction, native ETH transfer, etc.) is handled by the spend
@@ -211,18 +211,18 @@ contract SpendPolicy is EIP712, Policy {
         );
     }
 
-    function _getPolicyId(PolicyTypes.Install calldata install) internal pure returns (bytes32) {
+    function _getPolicyId(PolicyTypes.PolicyBinding calldata binding) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 keccak256(
-                    "Install(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
+                    "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
                 ),
-                install.account,
-                install.policy,
-                install.policyConfigHash,
-                install.validAfter,
-                install.validUntil,
-                install.salt
+                binding.account,
+                binding.policy,
+                binding.policyConfigHash,
+                binding.validAfter,
+                binding.validUntil,
+                binding.salt
             )
         );
     }

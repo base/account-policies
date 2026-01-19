@@ -91,7 +91,7 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -100,8 +100,8 @@ contract SwapPolicyTest is Test {
             salt: 123
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
@@ -110,7 +110,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -141,7 +141,7 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -150,8 +150,8 @@ contract SwapPolicyTest is Test {
             salt: 456
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
@@ -162,7 +162,7 @@ contract SwapPolicyTest is Test {
         bytes memory innerError =
             abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut);
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.AccountCallFailed.selector, address(swapPolicy), innerError));
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
     }
 
     function test_happyPath_mockSwapTarget_amountInEqualsMaxAmountIn() public {
@@ -185,7 +185,7 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -194,8 +194,8 @@ contract SwapPolicyTest is Test {
             salt: 999
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
@@ -204,7 +204,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -252,7 +252,7 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(forkAccount),
             policy: address(forkSwapPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -262,7 +262,7 @@ contract SwapPolicyTest is Test {
         });
 
         vm.prank(address(forkAccount));
-        forkPolicyManager.installPolicy(install, policyConfig);
+        forkPolicyManager.installPolicy(binding, policyConfig, false);
 
         address[] memory path = new address[](2);
         path[0] = usdc;
@@ -276,7 +276,7 @@ contract SwapPolicyTest is Test {
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
         vm.prank(executor);
-        forkPolicyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        forkPolicyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 afterWeth = IERC20(weth).balanceOf(address(forkAccount));
@@ -286,8 +286,8 @@ contract SwapPolicyTest is Test {
         assertEq(IERC20(usdc).allowance(address(forkAccount), router), 0);
     }
 
-    function _signInstall(PolicyTypes.Install memory install) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getInstallStructHash(install);
+    function _signInstall(PolicyTypes.PolicyBinding memory binding) internal view returns (bytes memory) {
+        bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

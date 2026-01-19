@@ -62,7 +62,7 @@ contract SwapPolicy is Policy {
     }
 
     function onExecute(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
@@ -74,7 +74,7 @@ contract SwapPolicy is Policy {
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
+        if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
         if (caller != cfg.executor) revert Unauthorized(caller);
 

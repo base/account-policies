@@ -10,7 +10,7 @@ import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
 
 interface IPolicyManagerLike {
-    function getInstallStructHash(PolicyTypes.Install calldata install) external pure returns (bytes32);
+    function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) external pure returns (bytes32);
     function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
@@ -94,7 +94,7 @@ contract MorphoLendPolicy is EIP712, Policy {
     }
 
     function onExecute(
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
@@ -105,7 +105,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.account != install.account) revert InvalidPolicyConfigAccount(cfg.account, install.account);
+        if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
         if (cfg.executor == address(0)) revert ZeroExecutor();
         if (cfg.morpho == address(0)) revert ZeroMorpho();
         if (cfg.marketParams.loanToken == address(0) || cfg.marketParams.collateralToken == address(0)) {
@@ -118,13 +118,13 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         if (pd.data.assets > cfg.maxSupply) revert AmountTooHigh(pd.data.assets, cfg.maxSupply);
 
-        bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getInstallStructHash(install);
+        bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getPolicyBindingStructHash(binding);
         if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
         _usedNonces[policyId][pd.data.nonce] = true;
 
         if (caller != cfg.executor) {
             bytes32 payloadHash = keccak256(abi.encode(pd.data));
-            bytes32 digest = _getExecutionDigest(policyId, install, payloadHash, pd.data.nonce);
+            bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash, pd.data.nonce);
             bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
                 .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
             if (!ok) revert Unauthorized(caller);
@@ -162,14 +162,14 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     function _getExecutionDigest(
         bytes32 policyId,
-        PolicyTypes.Install calldata install,
+        PolicyTypes.PolicyBinding calldata binding,
         bytes32 policyDataHash,
         uint256 nonce
     ) internal view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    EXECUTION_TYPEHASH, policyId, install.account, install.policyConfigHash, policyDataHash, nonce
+                    EXECUTION_TYPEHASH, policyId, binding.account, binding.policyConfigHash, policyDataHash, nonce
                 )
             )
         );

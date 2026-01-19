@@ -93,7 +93,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         });
         bytes memory policyConfig = abi.encode(sp);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(spendPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -102,13 +102,13 @@ contract SpendPermissionHookHappyPathTest is Test {
             salt: 123
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(account)), allowance - spendValue);
         assertEq(token.balanceOf(spender), spendValue);
@@ -138,7 +138,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         });
         bytes memory policyConfig = abi.encode(sp);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(spendPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -147,13 +147,13 @@ contract SpendPermissionHookHappyPathTest is Test {
             salt: 456
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(address(account).balance, allowance - spendValue);
         assertEq(spender.balance, spendValue);
@@ -189,7 +189,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         });
         bytes memory policyConfig = abi.encode(sp);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(spendPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -198,13 +198,13 @@ contract SpendPermissionHookHappyPathTest is Test {
             salt: 777
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         bytes memory policyData = abi.encode(spendValue, bytes(""));
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(subAccount)), allowance - spendValue);
         assertEq(token.balanceOf(address(account)), 0);
@@ -235,7 +235,7 @@ contract SpendPermissionHookHappyPathTest is Test {
         });
         bytes memory policyConfig = abi.encode(sp);
 
-        PolicyTypes.Install memory install = PolicyTypes.Install({
+        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(spendPolicy),
             policyConfigHash: keccak256(policyConfig),
@@ -244,8 +244,8 @@ contract SpendPermissionHookHappyPathTest is Test {
             salt: 888
         });
 
-        bytes memory userSig = _signInstall(install);
-        policyManager.installPolicyWithSignature(install, policyConfig, userSig);
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
 
         // MagicSpendSpendHook binds the withdraw nonce to the low 128 bits of the spend-permission hash.
         bytes32 permissionHash = spendPolicy.getHash(sp);
@@ -266,15 +266,15 @@ contract SpendPermissionHookHappyPathTest is Test {
         bytes memory policyData = abi.encode(spendValue, prepData);
 
         vm.prank(spender);
-        policyManager.execute(install, policyConfig, policyData, uint48(block.timestamp + 60));
+        policyManager.execute(binding, policyConfig, policyData, uint48(block.timestamp + 60));
 
         assertEq(token.balanceOf(address(magicSpend)), allowance - spendValue);
         assertEq(token.balanceOf(address(account)), 0);
         assertEq(token.balanceOf(spender), spendValue);
     }
 
-    function _signInstall(PolicyTypes.Install memory install) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getInstallStructHash(install);
+    function _signInstall(PolicyTypes.PolicyBinding memory binding) internal view returns (bytes memory) {
+        bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
