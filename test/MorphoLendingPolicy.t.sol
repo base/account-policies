@@ -25,7 +25,7 @@ contract MorphoLendPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
     bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
-        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash,uint256 nonce)"
+        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)"
     );
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
@@ -235,7 +235,7 @@ contract MorphoLendPolicyTest is Test {
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
         bytes memory payload = abi.encode(ld);
-        bytes32 execDigest = _getPolicyExecutionDigest(binding, payload, ld.nonce);
+        bytes32 execDigest = _getPolicyExecutionDigest(binding, payload);
         bytes memory sig = _signExecution(execDigest);
         bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
 
@@ -272,11 +272,11 @@ contract MorphoLendPolicyTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _getPolicyExecutionDigest(
-        PolicyTypes.PolicyBinding memory binding_,
-        bytes memory payload,
-        uint256 nonce
-    ) internal view returns (bytes32) {
+    function _getPolicyExecutionDigest(PolicyTypes.PolicyBinding memory binding_, bytes memory payload)
+        internal
+        view
+        returns (bytes32)
+    {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding_);
         bytes32 structHash = keccak256(
             abi.encode(
@@ -284,8 +284,7 @@ contract MorphoLendPolicyTest is Test {
                 policyId,
                 binding_.account,
                 binding_.policyConfigHash,
-                keccak256(payload),
-                nonce
+                keccak256(payload)
             )
         );
         return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);

@@ -52,9 +52,8 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     address public immutable POLICY_MANAGER;
     // TODO: do we create a shared policy base class for policies that want to enable signature-based execution?
-    bytes32 public constant EXECUTION_TYPEHASH = keccak256(
-        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash,uint256 nonce)"
-    );
+    bytes32 public constant EXECUTION_TYPEHASH =
+        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
 
     // Cumulative accounting is per policy instance (policyId) in loan-token units.
     // We only ever increment these (conservative).
@@ -124,7 +123,7 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         if (caller != cfg.executor) {
             bytes32 payloadHash = keccak256(abi.encode(pd.data));
-            bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash, pd.data.nonce);
+            bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash);
             bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
                 .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
             if (!ok) revert Unauthorized(caller);
@@ -160,17 +159,14 @@ contract MorphoLendPolicy is EIP712, Policy {
         postCallData = "";
     }
 
-    function _getExecutionDigest(
-        bytes32 policyId,
-        PolicyTypes.PolicyBinding calldata binding,
-        bytes32 policyDataHash,
-        uint256 nonce
-    ) internal view returns (bytes32) {
+    function _getExecutionDigest(bytes32 policyId, PolicyTypes.PolicyBinding calldata binding, bytes32 policyDataHash)
+        internal
+        view
+        returns (bytes32)
+    {
         return _hashTypedData(
             keccak256(
-                abi.encode(
-                    EXECUTION_TYPEHASH, policyId, binding.account, binding.policyConfigHash, policyDataHash, nonce
-                )
+                abi.encode(EXECUTION_TYPEHASH, policyId, binding.account, binding.policyConfigHash, policyDataHash)
             )
         );
     }
