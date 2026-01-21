@@ -71,6 +71,7 @@ contract SpendPolicy is EIP712, Policy {
     error ExceededSpendPermission(uint256 value, uint256 allowance);
     error NativeTokenTransferFailed(address to, uint256 value);
     error Unauthorized(address caller);
+    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -87,6 +88,27 @@ contract SpendPolicy is EIP712, Policy {
 
     receive() external payable {}
 
+    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+        policyConfig;
+    }
+
+    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+    }
+
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
     function onExecute(
         PolicyTypes.PolicyBinding calldata binding,
@@ -99,6 +121,11 @@ contract SpendPolicy is EIP712, Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
         if (sp.account != binding.account) revert InvalidPolicyConfigAccount(sp.account, binding.account);
 

@@ -26,6 +26,7 @@ contract SwapPolicy is Policy {
     error TokenOutBalanceTooLow(uint256 initialBalance, uint256 finalBalance, uint256 minAmountOut);
     error InvalidSender(address sender, address expected);
     error Unauthorized(address caller);
+    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
     address public immutable POLICY_MANAGER;
 
@@ -61,6 +62,27 @@ contract SwapPolicy is Policy {
         POLICY_MANAGER = policyManager;
     }
 
+    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+        policyConfig;
+    }
+
+    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+    }
+
     function onExecute(
         PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
@@ -73,6 +95,11 @@ contract SwapPolicy is Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();

@@ -40,6 +40,7 @@ interface IMorpho {
 contract MorphoLendPolicy is EIP712, Policy {
     error InvalidSender(address sender, address expected);
     error InvalidPolicyConfigAccount(address actual, address expected);
+    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error ZeroAmount();
     error AmountTooHigh(uint256 amount, uint256 maxAmount);
     error CumulativeAmountTooHigh(uint256 nextTotal, uint256 maxTotal);
@@ -92,6 +93,27 @@ contract MorphoLendPolicy is EIP712, Policy {
         POLICY_MANAGER = policyManager;
     }
 
+    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+        policyConfig;
+    }
+
+    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
+        external
+        view
+        override
+        requireSender(POLICY_MANAGER)
+    {
+        binding;
+        policyId;
+    }
+
     function onExecute(
         PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
@@ -103,6 +125,11 @@ contract MorphoLendPolicy is EIP712, Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
         if (cfg.executor == address(0)) revert ZeroExecutor();

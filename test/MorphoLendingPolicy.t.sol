@@ -91,7 +91,7 @@ contract MorphoLendPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
     }
 
     function test_morphoPolicy_supplyOnly() public {
@@ -120,14 +120,15 @@ contract MorphoLendPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(localBinding);
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
 
         loanToken.mint(address(account), 2 ether);
 
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(MorphoLendPolicy.AmountTooHigh.selector, 2 ether, 1 ether));
         policyManager.execute(
-            localBinding,
+            policyId,
             localPolicyConfig,
             abi.encode(
                 MorphoLendPolicy.PolicyData({
@@ -138,7 +139,7 @@ contract MorphoLendPolicyTest is Test {
         );
     }
 
-    function test_morphoPolicy_executeById_usesStoredConfig() public {
+    function test_morphoPolicy_executeByPolicyId_usesStoredConfig() public {
         bytes memory storedPolicyConfig = policyConfig;
         PolicyTypes.PolicyBinding memory storedBinding = PolicyTypes.PolicyBinding({
             account: address(account),
@@ -151,7 +152,7 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(storedBinding);
 
         bytes memory userSig = _signInstall(storedBinding);
-        policyManager.installPolicyWithSignature(storedBinding, storedPolicyConfig, userSig, true);
+        policyManager.installPolicyWithSignature(storedBinding, storedPolicyConfig, userSig);
 
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
@@ -160,7 +161,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
 
         vm.prank(executor);
-        policyManager.executeById(policyId, policyData);
+        policyManager.execute(policyId, storedPolicyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
         assertEq(loanToken.allowance(address(account), address(morpho)), 0);
@@ -179,12 +180,12 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         bytes memory userSig = _signInstall(localBinding);
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyConfigNotStored.selector, policyId));
-        policyManager.executeById(policyId, hex"");
+        vm.expectRevert();
+        policyManager.execute(policyId, hex"", hex"");
 
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, hex"", true);
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, hex"");
 
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
@@ -193,7 +194,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory execPolicyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
 
         vm.prank(executor);
-        policyManager.executeById(policyId, execPolicyData);
+        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
         assertEq(loanToken.balanceOf(address(account)), 0);
     }
 
@@ -210,13 +211,13 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         vm.prank(address(account));
-        policyManager.installPolicy(localBinding, localPolicyConfig, false);
+        policyManager.installPolicy(localBinding, localPolicyConfig);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyConfigNotStored.selector, policyId));
-        policyManager.executeById(policyId, hex"");
+        vm.expectRevert();
+        policyManager.execute(policyId, hex"", hex"");
 
         vm.prank(address(account));
-        policyManager.installPolicy(localBinding, localPolicyConfig, true);
+        policyManager.installPolicy(localBinding, localPolicyConfig);
 
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
@@ -225,7 +226,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory execPolicyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
 
         vm.prank(executor);
-        policyManager.executeById(policyId, execPolicyData);
+        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
         assertEq(loanToken.balanceOf(address(account)), 0);
     }
 
@@ -240,8 +241,9 @@ contract MorphoLendPolicyTest is Test {
         bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
 
         address relayer = vm.addr(uint256(keccak256("relayer")));
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(relayer);
-        policyManager.execute(binding, policyConfig, policyData);
+        policyManager.execute(policyId, policyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
         assertEq(loanToken.allowance(address(account), address(morpho)), 0);
@@ -250,18 +252,19 @@ contract MorphoLendPolicyTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(
                 MorphoLendPolicy.ExecutionNonceAlreadyUsed.selector,
-                policyManager.getPolicyBindingStructHash(binding),
+                policyId,
                 ld.nonce
             )
         );
-        policyManager.execute(binding, policyConfig, policyData);
+        policyManager.execute(policyId, policyConfig, policyData);
     }
 
     function _exec(uint256 assets) internal {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(executor);
         policyManager.execute(
-            binding,
+            policyId,
             policyConfig,
             abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}))
         );

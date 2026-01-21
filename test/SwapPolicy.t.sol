@@ -101,16 +101,17 @@ contract SwapPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
         );
         bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(binding, policyConfig, policyData);
+        policyManager.execute(policyId, policyConfig, policyData);
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -151,18 +152,19 @@ contract SwapPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
         );
         bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
 
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(executor);
         bytes memory innerError =
             abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut);
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.AccountCallFailed.selector, address(swapPolicy), innerError));
-        policyManager.execute(binding, policyConfig, policyData);
+        policyManager.execute(policyId, policyConfig, policyData);
     }
 
     function test_happyPath_mockSwapTarget_amountInEqualsMaxAmountIn() public {
@@ -195,16 +197,17 @@ contract SwapPolicyTest is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, false);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
 
         bytes memory swapData = abi.encodeWithSelector(
             MockSwapTarget.swap.selector, address(tokenIn), address(tokenOut), address(account), amountIn, amountOut
         );
         bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(binding, policyConfig, policyData);
+        policyManager.execute(policyId, policyConfig, policyData);
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -262,7 +265,7 @@ contract SwapPolicyTest is Test {
         });
 
         vm.prank(address(forkAccount));
-        forkPolicyManager.installPolicy(binding, policyConfig, false);
+        forkPolicyManager.installPolicy(binding, policyConfig);
 
         address[] memory path = new address[](2);
         path[0] = usdc;
@@ -271,12 +274,13 @@ contract SwapPolicyTest is Test {
             IUniswapV2Router.swapExactTokensForTokens.selector, amountIn, 0, path, address(forkAccount), block.timestamp
         );
         bytes memory policyData = abi.encode(SwapPolicy.PolicyData({amountIn: amountIn, swapData: swapData}));
+        bytes32 policyId = forkPolicyManager.getPolicyBindingStructHash(binding);
 
         uint256 beforeUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
         vm.prank(executor);
-        forkPolicyManager.execute(binding, policyConfig, policyData);
+        forkPolicyManager.execute(policyId, policyConfig, policyData);
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 afterWeth = IERC20(weth).balanceOf(address(forkAccount));

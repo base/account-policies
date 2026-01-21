@@ -34,7 +34,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyNotInstalled(bytes32 policyId);
     error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
-    error PolicyConfigNotStored(bytes32 policyId);
     error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
     error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
     error AccountCallFailed(address account, bytes returnData);
@@ -43,9 +42,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     struct PolicyRecord {
         bool installed;
         bool revoked;
-        bool hasStoredPolicyConfig;
         PolicyTypes.PolicyBinding binding;
-        bytes policyConfig;
     }
 
     mapping(bytes32 policyId => PolicyRecord) internal _policies;
@@ -68,10 +65,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function installPolicyWithSignature(
         PolicyTypes.PolicyBinding calldata binding,
         bytes calldata policyConfig,
-        bytes calldata userSig,
-        bool storeConfig
+        bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
-        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig, storeConfig);
+        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig);
         policyId = id;
         if (!isNewInstall) return policyId;
 
@@ -81,76 +77,51 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         }
 
         p.installed = true;
-        if (storeConfig) _storePolicyConfig(policyId, binding, policyConfig);
+        p.binding = binding;
+        _onInstall(binding, policyId, policyConfig);
         emit PolicyInstalled(policyId, binding.account, binding.policy);
     }
 
     /// @notice Install a policy via a direct call from the account.
-    function installPolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig, bool storeConfig)
+    function installPolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
         external
         nonReentrant
         requireSender(binding.account)
         returns (bytes32 policyId)
     {
-        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig, storeConfig);
+        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig);
         policyId = id;
         if (!isNewInstall) return policyId;
 
         p.installed = true;
-        if (storeConfig) _storePolicyConfig(policyId, binding, policyConfig);
+        p.binding = binding;
+        _onInstall(binding, policyId, policyConfig);
         emit PolicyInstalled(policyId, binding.account, binding.policy);
     }
 
     /// @notice Revoke a policy via a direct call from the account.
-    function revokePolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
-        external
-        nonReentrant
-        requireSender(binding.account)
-        returns (bytes32 policyId)
-    {
-        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
-
-        policyId = getPolicyBindingStructHash(binding);
-
+    function revokePolicy(bytes32 policyId) external nonReentrant returns (PolicyTypes.PolicyBinding memory binding) {
         PolicyRecord storage p = _policies[policyId];
         if (!p.installed) revert PolicyNotInstalled(policyId);
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
+        binding = p.binding;
+        _requireSender(binding.account);
+
         p.revoked = true;
+        Policy(binding.policy).onRevoke(binding, policyId);
         emit PolicyRevoked(policyId, binding.account, binding.policy);
     }
 
     /// @notice Execute an action for an installed policy instance.
-    /// @dev Policy defines authorization semantics and returns wallet-specific calldata for the account.
-    function execute(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig, bytes calldata policyData)
-        external
-        nonReentrant
-    {
-        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
-        _checkInstallWindow(binding.validAfter, binding.validUntil);
-
-        bytes32 policyId = getPolicyBindingStructHash(binding);
-        _validateActivePolicy(policyId);
-
-        (bytes memory accountCallData, bytes memory postCallData) =
-            _policyOnExecute(binding.policy, binding, policyConfig, policyData, msg.sender);
-        _callAccount(binding.account, accountCallData);
-        _postCallPolicy(binding.policy, postCallData);
-
-        emit PolicyExecuted(policyId, binding.account, binding.policy);
-    }
-
-    /// @notice Execute an action for an installed policy instance using a stored policy config.
-    /// @dev Reverts if no config was stored for `policyId`.
-    function executeById(bytes32 policyId, bytes calldata policyData) external nonReentrant {
+    /// @dev `policyConfig` is an opaque policy-defined config blob (often the full preimage bytes; may be empty).
+    ///      Policies MUST validate that any supplied config preimage matches what was authorized in the binding.
+    function execute(bytes32 policyId, bytes calldata policyConfig, bytes calldata policyData) external nonReentrant {
         PolicyRecord storage p = _policies[policyId];
         _validateActivePolicy(p, policyId);
 
-        if (!p.hasStoredPolicyConfig) revert PolicyConfigNotStored(policyId);
         PolicyTypes.PolicyBinding memory binding = p.binding;
-        bytes memory policyConfig = p.policyConfig;
-
-        _checkInstallWindow(p.binding.validAfter, p.binding.validUntil);
+        _checkInstallWindow(binding.validAfter, binding.validUntil);
 
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(binding.policy).onExecute(binding, policyConfig, policyData, msg.sender);
@@ -195,8 +166,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
     }
 
-    function _install(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig, bool storeConfig)
+    function _install(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
         internal
+        view
         returns (bytes32 policyId, PolicyRecord storage p, bool isNewInstall)
     {
         policyId = getPolicyBindingStructHash(binding);
@@ -204,10 +176,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
         if (p.installed) {
-            if (storeConfig && !p.hasStoredPolicyConfig) {
-                _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
-                _storePolicyConfig(policyId, binding, policyConfig);
-            }
             return (policyId, p, false);
         }
 
@@ -216,32 +184,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return (policyId, p, true);
     }
 
-    function _storePolicyConfig(
-        bytes32 policyId,
-        PolicyTypes.PolicyBinding calldata binding,
-        bytes calldata policyConfig
-    ) internal {
-        PolicyRecord storage p = _policies[policyId];
-        p.hasStoredPolicyConfig = true;
-        p.binding = binding;
-        p.policyConfig = policyConfig;
-    }
-
     function _callAccount(address account, bytes memory accountCallData) internal {
         (bool success, bytes memory returnData) = account.call(accountCallData);
         if (!success) revert AccountCallFailed(account, returnData);
     }
 
-    function _policyOnExecute(
-        address policy,
-        PolicyTypes.PolicyBinding calldata binding,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
-        address caller
-    ) internal returns (bytes memory, bytes memory) {
-        (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(binding, policyConfig, policyData, caller);
-        return (accountCallData, postCallData);
+    function _onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
+        internal
+    {
+        Policy(binding.policy).onInstall(binding, policyId, policyConfig);
     }
 
     function _postCallPolicy(address policy, bytes memory postCallData) internal {
