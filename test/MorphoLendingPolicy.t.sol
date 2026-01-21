@@ -8,10 +8,10 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {PolicyTypes} from "../src/PolicyTypes.sol";
-import {MorphoLendPolicy, MarketParams} from "../src/policies/MorphoLendPolicy.sol";
+import {MorphoLendPolicy} from "../src/policies/MorphoLendPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
-import {MockMorpho} from "./mocks/MockMorpho.sol";
+import {MockMorphoVault} from "./mocks/MockMorpho.sol";
 
 contract MintableToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
@@ -37,11 +37,8 @@ contract MorphoLendPolicyTest is Test {
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
     MorphoLendPolicy internal policy;
-    MockMorpho internal morpho;
+    MockMorphoVault internal vault;
     MintableToken internal loanToken;
-    MintableToken internal collateralToken;
-
-    MarketParams internal market;
     bytes internal policyConfig;
     PolicyTypes.PolicyBinding internal binding;
 
@@ -60,24 +57,14 @@ contract MorphoLendPolicyTest is Test {
         account.addOwnerAddress(address(policyManager));
 
         loanToken = new MintableToken("Loan", "LOAN");
-        collateralToken = new MintableToken("Collateral", "COLL");
-        morpho = new MockMorpho();
-
-        market = MarketParams({
-            loanToken: address(loanToken),
-            collateralToken: address(collateralToken),
-            oracle: address(0xBEEF),
-            irm: address(0xCAFE),
-            lltv: 8e17 // 80%
-        });
+        vault = new MockMorphoVault(address(loanToken));
 
         MorphoLendPolicy.Config memory cfg = MorphoLendPolicy.Config({
             account: address(account),
             executor: executor,
-            morpho: address(morpho),
-            marketParams: market,
-            maxSupply: 1_000_000 ether,
-            maxCumulativeSupply: 0
+            vault: address(vault),
+            maxDeposit: 1_000_000 ether,
+            maxCumulativeDeposit: 0
         });
 
         policyConfig = abi.encode(cfg);
@@ -102,12 +89,12 @@ contract MorphoLendPolicyTest is Test {
 
         _exec(supplyAmt);
         assertEq(loanToken.balanceOf(address(account)), 0);
-        assertEq(loanToken.allowance(address(account), address(morpho)), 0);
+        assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
     function test_morphoPolicy_enforcesMaxSupply() public {
         MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
-        cfg.maxSupply = 1 ether;
+        cfg.maxDeposit = 1 ether;
 
         bytes memory localPolicyConfig = abi.encode(cfg);
         PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
@@ -125,18 +112,11 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), 2 ether);
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 2 ether, nonce: 1});
+        bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(MorphoLendPolicy.AmountTooHigh.selector, 2 ether, 1 ether));
-        policyManager.execute(
-            policyId,
-            localPolicyConfig,
-            abi.encode(
-                MorphoLendPolicy.PolicyData({
-                    data: MorphoLendPolicy.LendData({assets: 2 ether, nonce: 1}),
-                    signature: bytes("")
-                })
-            )
-        );
+        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
     }
 
     function test_morphoPolicy_executeByPolicyId_usesStoredConfig() public {
@@ -158,13 +138,13 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), supplyAmt);
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
-        bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
+        bytes memory policyData = _encodePolicyDataWithSig(storedBinding, ld);
 
         vm.prank(executor);
         policyManager.execute(policyId, storedPolicyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
-        assertEq(loanToken.allowance(address(account), address(morpho)), 0);
+        assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
     function test_morphoPolicy_canStoreConfigLaterViaIdempotentInstallWithSignature() public {
@@ -191,7 +171,7 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), supplyAmt);
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
-        bytes memory execPolicyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
+        bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
 
         vm.prank(executor);
         policyManager.execute(policyId, localPolicyConfig, execPolicyData);
@@ -223,7 +203,7 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), supplyAmt);
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
-        bytes memory execPolicyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}));
+        bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
 
         vm.prank(executor);
         policyManager.execute(policyId, localPolicyConfig, execPolicyData);
@@ -246,7 +226,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(policyId, policyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
-        assertEq(loanToken.allowance(address(account), address(morpho)), 0);
+        assertEq(loanToken.allowance(address(account), address(vault)), 0);
 
         vm.prank(relayer);
         vm.expectRevert(
@@ -262,12 +242,19 @@ contract MorphoLendPolicyTest is Test {
     function _exec(uint256 assets) internal {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+        bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
         vm.prank(executor);
-        policyManager.execute(
-            policyId,
-            policyConfig,
-            abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: bytes("")}))
-        );
+        policyManager.execute(policyId, policyConfig, policyData);
+    }
+
+    function _encodePolicyDataWithSig(PolicyTypes.PolicyBinding memory binding_, MorphoLendPolicy.LendData memory ld)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 execDigest = _getPolicyExecutionDigest(binding_, abi.encode(ld));
+        bytes memory sig = _signExecution(execDigest);
+        return abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
     }
 
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {

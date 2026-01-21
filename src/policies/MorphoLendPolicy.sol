@@ -14,28 +14,14 @@ interface IPolicyManagerLike {
     function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
-/// @dev Morpho Blue `MarketParams` struct.
-struct MarketParams {
-    address loanToken;
-    address collateralToken;
-    address oracle;
-    address irm;
-    uint256 lltv;
+/// @dev Minimal vault interface (ERC-4626 style) used by this policy.
+interface IMorphoVault {
+    function asset() external view returns (address);
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
 }
 
-/// @dev Minimal Morpho Blue interface used by this policy.
-interface IMorpho {
-    function supply(
-        MarketParams calldata marketParams,
-        uint256 assets,
-        uint256 shares,
-        address onBehalf,
-        bytes calldata data
-    ) external returns (uint256 assetsSupplied, uint256 sharesSupplied);
-}
-
-/// @notice Morpho lend-only policy (supply-only).
-/// @dev Intentionally conservative: fixed market, fixed onBehalf (the account), bounded amount, approval reset,
+/// @notice Morpho vault deposit policy.
+/// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
 ///      and optional cumulative cap.
 contract MorphoLendPolicy is EIP712, Policy {
     error InvalidSender(address sender, address expected);
@@ -44,9 +30,8 @@ contract MorphoLendPolicy is EIP712, Policy {
     error ZeroAmount();
     error AmountTooHigh(uint256 amount, uint256 maxAmount);
     error CumulativeAmountTooHigh(uint256 nextTotal, uint256 maxTotal);
-    error ZeroMorpho();
+    error ZeroVault();
     error ZeroExecutor();
-    error InvalidMarket();
     error Unauthorized(address caller);
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
     error ZeroNonce();
@@ -64,10 +49,9 @@ contract MorphoLendPolicy is EIP712, Policy {
     struct Config {
         address account;
         address executor;
-        address morpho;
-        MarketParams marketParams;
-        uint256 maxSupply;
-        uint256 maxCumulativeSupply; // Optional cumulative budget (denominated in the loan token's units). 0 disables the cumulative cap.
+        address vault;
+        uint256 maxDeposit;
+        uint256 maxCumulativeDeposit; // Optional cumulative budget (denominated in the vault asset units). 0 disables the cumulative cap.
     }
 
     struct LendData {
@@ -133,33 +117,29 @@ contract MorphoLendPolicy is EIP712, Policy {
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
         if (cfg.executor == address(0)) revert ZeroExecutor();
-        if (cfg.morpho == address(0)) revert ZeroMorpho();
-        if (cfg.marketParams.loanToken == address(0) || cfg.marketParams.collateralToken == address(0)) {
-            revert InvalidMarket();
-        }
+        if (cfg.vault == address(0)) revert ZeroVault();
 
         PolicyData memory pd = abi.decode(policyData, (PolicyData));
         if (pd.data.assets == 0) revert ZeroAmount();
         if (pd.data.nonce == 0) revert ZeroNonce();
 
-        if (pd.data.assets > cfg.maxSupply) revert AmountTooHigh(pd.data.assets, cfg.maxSupply);
+        if (pd.data.assets > cfg.maxDeposit) revert AmountTooHigh(pd.data.assets, cfg.maxDeposit);
 
         bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getPolicyBindingStructHash(binding);
         if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
-        _usedNonces[policyId][pd.data.nonce] = true;
 
-        if (caller != cfg.executor) {
-            bytes32 payloadHash = keccak256(abi.encode(pd.data));
-            bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash);
-            bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
-                .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
-            if (!ok) revert Unauthorized(caller);
-        }
+        bytes32 payloadHash = keccak256(abi.encode(pd.data));
+        bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash);
+        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
+            .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
+        if (!ok) revert Unauthorized(caller);
+
+        _usedNonces[policyId][pd.data.nonce] = true;
 
         _consumeBudget(policyId, cfg, pd.data.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
-            _buildMorphoCall(cfg, pd.data.assets);
+            _buildVaultDepositCall(cfg, pd.data.assets);
 
         // Build wallet call plan:
         // - approve
@@ -199,24 +179,24 @@ contract MorphoLendPolicy is EIP712, Policy {
     }
 
     function _consumeBudget(bytes32 policyId, Config memory cfg, uint256 assets) internal {
-        if (cfg.maxCumulativeSupply == 0) return;
+        if (cfg.maxCumulativeDeposit == 0) return;
 
         uint256 nextTotal = _cumulativeSupplied[policyId] + assets;
-        if (nextTotal > cfg.maxCumulativeSupply) revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeSupply);
+        if (nextTotal > cfg.maxCumulativeDeposit) revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeDeposit);
         _cumulativeSupplied[policyId] = nextTotal;
     }
 
-    function _buildMorphoCall(Config memory cfg, uint256 assets)
+    function _buildVaultDepositCall(Config memory cfg, uint256 assets)
         internal
-        pure
+        view
         returns (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender)
     {
-        target = cfg.morpho;
+        target = cfg.vault;
         value = 0;
 
-        approvalToken = cfg.marketParams.loanToken;
-        approvalSpender = cfg.morpho;
-        callData = abi.encodeWithSelector(IMorpho.supply.selector, cfg.marketParams, assets, 0, cfg.account, bytes(""));
+        approvalToken = IMorphoVault(cfg.vault).asset();
+        approvalSpender = cfg.vault;
+        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, cfg.account);
         return (target, value, callData, approvalToken, approvalSpender);
     }
 
