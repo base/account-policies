@@ -8,8 +8,8 @@ library PolicyTypes {
         address account;
         address policy;
         bytes32 policyConfigHash;
-        uint48 validAfter;
-        uint48 validUntil;
+        uint40 validAfter;
+        uint40 validUntil;
         uint256 salt;
     }
 }

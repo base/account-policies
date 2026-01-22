@@ -40,11 +40,11 @@ contract MorphoLendPolicy is EIP712, Policy {
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
 
+    mapping(bytes32 policyId => bytes32 configHash) internal _configHashes;
     RecurringAllowance.State internal _depositLimitState;
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
     struct Config {
-        address account;
         address executor;
         address vault;
         RecurringAllowance.Limit depositLimit;
@@ -73,29 +73,30 @@ contract MorphoLendPolicy is EIP712, Policy {
         POLICY_MANAGER = policyManager;
     }
 
-    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
+    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
         external
         view
         override
         requireSender(POLICY_MANAGER)
     {
-        binding;
-        policyId;
-        policyConfig;
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        if (cfg.executor == address(0)) revert ZeroExecutor();
+        if (cfg.vault == address(0)) revert ZeroVault();
+        _configHashes[policyId] = keccak256(abi.encode(account, policyConfig));
     }
 
-    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
+    function onRevoke(bytes32 policyId, address account, address caller)
         external
         view
         override
         requireSender(POLICY_MANAGER)
     {
-        binding;
-        policyId;
+        delete _configHashes[policyId];
     }
 
     function onExecute(
-        PolicyTypes.PolicyBinding calldata binding,
+        bytes32 policyId,
+        address account,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
@@ -105,25 +106,20 @@ contract MorphoLendPolicy is EIP712, Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        bytes32 configHash = keccak256(account, policyConfig);
+        if (configHash != _configHashes[policyId]) {
+            revert PolicyConfigHashMismatch(configHash, _configHashes[policyId]);
         }
 
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
-        if (cfg.executor == address(0)) revert ZeroExecutor();
-        if (cfg.vault == address(0)) revert ZeroVault();
-
         PolicyData memory pd = abi.decode(policyData, (PolicyData));
+
         if (pd.data.assets == 0) revert ZeroAmount();
         if (pd.data.nonce == 0) revert ZeroNonce();
-
-        bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getPolicyBindingStructHash(binding);
         if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
 
         bytes32 payloadHash = keccak256(abi.encode(pd.data));
-        bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash);
+        bytes32 digest = _getExecutionDigest(policyId, account, configHash, payloadHash);
         bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
             .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
         if (!ok) revert Unauthorized(caller);
@@ -160,16 +156,12 @@ contract MorphoLendPolicy is EIP712, Policy {
         postCallData = "";
     }
 
-    function _getExecutionDigest(bytes32 policyId, PolicyTypes.PolicyBinding calldata binding, bytes32 policyDataHash)
+    function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
         internal
         view
         returns (bytes32)
     {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(EXECUTION_TYPEHASH, policyId, binding.account, binding.policyConfigHash, policyDataHash)
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
     }
 
     function _buildVaultDepositCall(Config memory cfg, uint256 assets)

@@ -17,7 +17,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice EIP-712 hash of PolicyBinding type.
     bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
-        "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
+        "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint40 validAfter,uint40 validUntil,uint256 salt)"
     );
 
     /// @notice Policy was installed.
@@ -34,18 +34,21 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyNotInstalled(bytes32 policyId);
     error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
-    error BeforeValidAfter(uint48 currentTimestamp, uint48 validAfter);
-    error AfterValidUntil(uint48 currentTimestamp, uint48 validUntil);
-    error AccountCallFailed(address account, bytes returnData);
+    error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
+    error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
+    error ExternalCallFailed(address target, bytes returnData);
     error InvalidSender(address sender, address expected);
 
+    // 1 slot
     struct PolicyRecord {
         bool installed;
         bool revoked;
-        PolicyTypes.PolicyBinding binding;
+        address account;
+        uint40 validAfter;
+        uint40 validUntil;
     }
 
-    mapping(bytes32 policyId => PolicyRecord) internal _policies;
+    mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) internal _policies;
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -67,19 +70,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata policyConfig,
         bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
-        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig);
-        policyId = id;
-        if (!isNewInstall) return policyId;
-
+        policyId = getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(policyId);
         if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(binding.account, digest, userSig)) {
             revert InvalidSignature();
         }
 
-        p.installed = true;
-        p.binding = binding;
-        _onInstall(binding, policyId, policyConfig);
-        emit PolicyInstalled(policyId, binding.account, binding.policy);
+        return _install(binding, policyConfig);
     }
 
     /// @notice Install a policy via a direct call from the account.
@@ -89,116 +86,82 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         requireSender(binding.account)
         returns (bytes32 policyId)
     {
-        (bytes32 id, PolicyRecord storage p, bool isNewInstall) = _install(binding, policyConfig);
-        policyId = id;
-        if (!isNewInstall) return policyId;
-
-        p.installed = true;
-        p.binding = binding;
-        _onInstall(binding, policyId, policyConfig);
-        emit PolicyInstalled(policyId, binding.account, binding.policy);
+        return _install(binding, policyConfig);
     }
 
     /// @notice Revoke a policy via a direct call from the account.
-    function revokePolicy(bytes32 policyId) external nonReentrant returns (PolicyTypes.PolicyBinding memory binding) {
-        PolicyRecord storage p = _policies[policyId];
+    function revokePolicy(address policy, bytes32 policyId) external nonReentrant returns (bool revoked) {
+        PolicyRecord storage p = _policies[policy][policyId];
         if (!p.installed) revert PolicyNotInstalled(policyId);
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        binding = p.binding;
-        _requireSender(binding.account);
-
         p.revoked = true;
-        Policy(binding.policy).onRevoke(binding, policyId);
-        emit PolicyRevoked(policyId, binding.account, binding.policy);
+        Policy(policy).onRevoke(policyId, p.account, msg.sender);
+        emit PolicyRevoked(policyId, p.account, policy);
+        return true;
     }
 
     /// @notice Execute an action for an installed policy instance.
     /// @dev `policyConfig` is an opaque policy-defined config blob (often the full preimage bytes; may be empty).
     ///      Policies MUST validate that any supplied config preimage matches what was authorized in the binding.
-    function execute(bytes32 policyId, bytes calldata policyConfig, bytes calldata policyData) external nonReentrant {
-        PolicyRecord storage p = _policies[policyId];
-        _validateActivePolicy(p, policyId);
+    function execute(address policy, bytes32 policyId, bytes calldata policyConfig, bytes calldata policyData)
+        external
+        nonReentrant
+    {
+        PolicyRecord storage p = _policies[policy][policyId];
+        if (!p.installed) revert PolicyNotInstalled(policyId);
+        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        PolicyTypes.PolicyBinding memory binding = p.binding;
-        _checkInstallWindow(binding.validAfter, binding.validUntil);
+        _checkInstallWindow(p.validAfter, p.validUntil);
 
         (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(binding.policy).onExecute(binding, policyConfig, policyData, msg.sender);
-        _callAccount(binding.account, accountCallData);
-        _postCallPolicy(binding.policy, postCallData);
+            Policy(policy).onExecute(policyId, p.account, policyConfig, policyData, msg.sender);
+        _externalCall(p.account, accountCallData);
+        _externalCall(policy, postCallData);
 
-        emit PolicyExecuted(policyId, binding.account, binding.policy);
+        emit PolicyExecuted(policyId, p.account, policy);
     }
 
     function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                POLICY_BINDING_TYPEHASH,
-                binding.account,
-                binding.policy,
-                binding.policyConfigHash,
-                binding.validAfter,
-                binding.validUntil,
-                binding.salt
-            )
-        );
-    }
-
-    function _checkPolicyConfigHash(bytes32 expected, bytes calldata policyConfig) internal pure {
-        bytes32 actual = keccak256(policyConfig);
-        if (actual != expected) revert PolicyConfigHashMismatch(actual, expected);
-    }
-
-    function _checkInstallWindow(uint48 validAfter, uint48 validUntil) internal view {
-        uint48 currentTimestamp = uint48(block.timestamp);
-        if (validAfter != 0 && currentTimestamp < validAfter) revert BeforeValidAfter(currentTimestamp, validAfter);
-        if (validUntil != 0 && currentTimestamp >= validUntil) revert AfterValidUntil(currentTimestamp, validUntil);
-    }
-
-    function _validateActivePolicy(bytes32 policyId) internal view {
-        PolicyRecord storage p = _policies[policyId];
-        _validateActivePolicy(p, policyId);
-    }
-
-    function _validateActivePolicy(PolicyRecord storage p, bytes32 policyId) internal view {
-        if (!p.installed) revert PolicyNotInstalled(policyId);
-        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+        return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
     }
 
     function _install(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
         internal
-        view
-        returns (bytes32 policyId, PolicyRecord storage p, bool isNewInstall)
+        returns (bytes32 policyId)
     {
         policyId = getPolicyBindingStructHash(binding);
-        p = _policies[policyId];
+        PolicyRecord storage p = _policies[binding.policy][policyId];
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        if (p.installed) {
-            return (policyId, p, false);
+        if (p.installed) return policyId;
+
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
         }
-
-        _checkPolicyConfigHash(binding.policyConfigHash, policyConfig);
         _checkInstallWindow(binding.validAfter, binding.validUntil);
-        return (policyId, p, true);
+
+        p.installed = true;
+        p.account = binding.account;
+        p.validAfter = binding.validAfter;
+        p.validUntil = binding.validUntil;
+        Policy(binding.policy).onInstall(policyId, binding.account, policyConfig, msg.sender);
+        emit PolicyInstalled(policyId, binding.account, binding.policy);
+
+        return policyId;
     }
 
-    function _callAccount(address account, bytes memory accountCallData) internal {
-        (bool success, bytes memory returnData) = account.call(accountCallData);
-        if (!success) revert AccountCallFailed(account, returnData);
+    function _externalCall(address target, bytes memory data) internal {
+        if (data.length == 0) return;
+        (bool success, bytes memory returnData) = target.call(data);
+        if (!success) revert ExternalCallFailed(target, returnData);
     }
 
-    function _onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
-        internal
-    {
-        Policy(binding.policy).onInstall(binding, policyId, policyConfig);
-    }
-
-    function _postCallPolicy(address policy, bytes memory postCallData) internal {
-        if (postCallData.length == 0) return;
-        (bool success, bytes memory returnData) = policy.call(postCallData);
-        if (!success) revert AccountCallFailed(policy, returnData);
+    function _checkInstallWindow(uint40 validAfter, uint40 validUntil) internal view {
+        uint40 currentTimestamp = uint40(block.timestamp);
+        if (validAfter != 0 && currentTimestamp < validAfter) revert BeforeValidAfter(currentTimestamp, validAfter);
+        if (validUntil != 0 && currentTimestamp >= validUntil) revert AfterValidUntil(currentTimestamp, validUntil);
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
@@ -206,4 +169,3 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         version = "1";
     }
 }
-
