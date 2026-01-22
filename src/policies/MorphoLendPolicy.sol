@@ -73,7 +73,6 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
         external
-        view
         override
         requireSender(POLICY_MANAGER)
     {
@@ -85,7 +84,6 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     function onRevoke(bytes32 policyId, address account, address caller)
         external
-        view
         override
         requireSender(POLICY_MANAGER)
     {

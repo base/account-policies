@@ -131,6 +131,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, p.account, policy);
     }
 
+    function getAccountForPolicy(address policy, bytes32 policyId) external view returns (address account) {
+        return _policies[policy][policyId].account;
+    }
+
     function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
         return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
     }
