@@ -4,7 +4,6 @@ pragma solidity ^0.8.23;
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {Policy} from "./Policy.sol";
-import {PolicyManager} from "../PolicyManager.sol";
 
 /// @notice Allow executors to send any tokens from account to allowed recipients per-user.
 contract AllowlistedSendPolicy is Policy {
@@ -50,7 +49,7 @@ contract AllowlistedSendPolicy is Policy {
         if (!isRecipientAllowed[account][recipient]) revert Unauthorized(recipient);
 
         address target;
-        address value;
+        uint256 value;
         bytes memory data;
         if (token == NATIVE_TOKEN) {
             target = recipient;
