@@ -8,6 +8,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
+import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 interface IPolicyManagerLike {
     function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) external pure returns (bytes32);
@@ -28,8 +29,6 @@ contract MorphoLendPolicy is EIP712, Policy {
     error InvalidPolicyConfigAccount(address actual, address expected);
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error ZeroAmount();
-    error AmountTooHigh(uint256 amount, uint256 maxAmount);
-    error CumulativeAmountTooHigh(uint256 nextTotal, uint256 maxTotal);
     error ZeroVault();
     error ZeroExecutor();
     error Unauthorized(address caller);
@@ -41,17 +40,14 @@ contract MorphoLendPolicy is EIP712, Policy {
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
 
-    // Cumulative accounting is per policy instance (policyId) in loan-token units.
-    // We only ever increment these (conservative).
-    mapping(bytes32 policyId => uint256) internal _cumulativeSupplied;
+    RecurringAllowance.State internal _depositLimitState;
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
     struct Config {
         address account;
         address executor;
         address vault;
-        uint256 maxDeposit;
-        uint256 maxCumulativeDeposit; // Optional cumulative budget (denominated in the vault asset units). 0 disables the cumulative cap.
+        RecurringAllowance.Limit depositLimit;
     }
 
     struct LendData {
@@ -123,8 +119,6 @@ contract MorphoLendPolicy is EIP712, Policy {
         if (pd.data.assets == 0) revert ZeroAmount();
         if (pd.data.nonce == 0) revert ZeroNonce();
 
-        if (pd.data.assets > cfg.maxDeposit) revert AmountTooHigh(pd.data.assets, cfg.maxDeposit);
-
         bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getPolicyBindingStructHash(binding);
         if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
 
@@ -136,7 +130,7 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         _usedNonces[policyId][pd.data.nonce] = true;
 
-        _consumeBudget(policyId, cfg, pd.data.assets);
+        RecurringAllowance.useLimit(_depositLimitState, policyId, cfg.depositLimit, pd.data.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
             _buildVaultDepositCall(cfg, pd.data.assets);
@@ -176,14 +170,6 @@ contract MorphoLendPolicy is EIP712, Policy {
                 abi.encode(EXECUTION_TYPEHASH, policyId, binding.account, binding.policyConfigHash, policyDataHash)
             )
         );
-    }
-
-    function _consumeBudget(bytes32 policyId, Config memory cfg, uint256 assets) internal {
-        if (cfg.maxCumulativeDeposit == 0) return;
-
-        uint256 nextTotal = _cumulativeSupplied[policyId] + assets;
-        if (nextTotal > cfg.maxCumulativeDeposit) revert CumulativeAmountTooHigh(nextTotal, cfg.maxCumulativeDeposit);
-        _cumulativeSupplied[policyId] = nextTotal;
     }
 
     function _buildVaultDepositCall(Config memory cfg, uint256 assets)

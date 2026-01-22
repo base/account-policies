@@ -9,6 +9,7 @@ import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {MorphoLendPolicy} from "../src/policies/MorphoLendPolicy.sol";
+import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoVault} from "./mocks/MockMorpho.sol";
@@ -63,8 +64,12 @@ contract MorphoLendPolicyTest is Test {
             account: address(account),
             executor: executor,
             vault: address(vault),
-            maxDeposit: 1_000_000 ether,
-            maxCumulativeDeposit: 0
+            depositLimit: RecurringAllowance.Limit({
+                allowance: 1_000_000 ether,
+                period: 1 days,
+                start: uint48(block.timestamp),
+                end: type(uint48).max
+            })
         });
 
         policyConfig = abi.encode(cfg);
@@ -92,9 +97,9 @@ contract MorphoLendPolicyTest is Test {
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
-    function test_morphoPolicy_enforcesMaxSupply() public {
+    function test_morphoPolicy_enforcesRecurringLimit() public {
         MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
-        cfg.maxDeposit = 1 ether;
+        cfg.depositLimit.allowance = 1 ether;
 
         bytes memory localPolicyConfig = abi.encode(cfg);
         PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
@@ -115,8 +120,60 @@ contract MorphoLendPolicyTest is Test {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 2 ether, nonce: 1});
         bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
         vm.prank(executor);
-        vm.expectRevert(abi.encodeWithSelector(MorphoLendPolicy.AmountTooHigh.selector, 2 ether, 1 ether));
+        vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 2 ether, 1 ether));
         policyManager.execute(policyId, localPolicyConfig, execPolicyData);
+    }
+
+    function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
+        MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
+        cfg.depositLimit.allowance = 100 ether;
+        cfg.depositLimit.period = 1 days;
+        cfg.depositLimit.start = uint48(block.timestamp);
+        cfg.depositLimit.end = type(uint48).max;
+
+        bytes memory localPolicyConfig = abi.encode(cfg);
+        PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            policyConfigHash: keccak256(localPolicyConfig),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 9999
+        });
+
+        bytes memory userSig = _signInstall(localBinding);
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
+
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
+
+        loanToken.mint(address(account), 200 ether);
+
+        // First period: spend 60, then try to spend 50 (should exceed 100).
+        vm.prank(executor);
+        policyManager.execute(
+            policyId,
+            localPolicyConfig,
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 60 ether, nonce: 1}))
+        );
+
+        bytes memory execPolicyData2 =
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 2}));
+        vm.prank(executor);
+        vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 110 ether, 100 ether));
+        policyManager.execute(
+            policyId,
+            localPolicyConfig,
+            execPolicyData2
+        );
+
+        // Next period: spend succeeds again.
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(executor);
+        policyManager.execute(
+            policyId,
+            localPolicyConfig,
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 3}))
+        );
     }
 
     function test_morphoPolicy_executeByPolicyId_usesStoredConfig() public {
