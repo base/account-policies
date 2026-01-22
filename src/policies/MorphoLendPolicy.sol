@@ -40,7 +40,7 @@ contract MorphoLendPolicy is EIP712, Policy {
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
 
-    mapping(bytes32 policyId => bytes32 configHash) internal _configHashes;
+    mapping(bytes32 policyId => mapping(address account => bytes32 configHash)) internal _configHashes;
     RecurringAllowance.State internal _depositLimitState;
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
@@ -82,7 +82,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.executor == address(0)) revert ZeroExecutor();
         if (cfg.vault == address(0)) revert ZeroVault();
-        _configHashes[policyId] = keccak256(abi.encode(account, policyConfig));
+        _configHashes[policyId][account] = keccak256(policyConfig);
     }
 
     function onRevoke(bytes32 policyId, address account, address caller)
@@ -91,7 +91,8 @@ contract MorphoLendPolicy is EIP712, Policy {
         override
         requireSender(POLICY_MANAGER)
     {
-        delete _configHashes[policyId];
+        if (caller != account) revert Unauthorized(caller);
+        delete _configHashes[policyId][account];
     }
 
     function onExecute(
@@ -106,9 +107,9 @@ contract MorphoLendPolicy is EIP712, Policy {
         requireSender(POLICY_MANAGER)
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
-        bytes32 configHash = keccak256(account, policyConfig);
-        if (configHash != _configHashes[policyId]) {
-            revert PolicyConfigHashMismatch(configHash, _configHashes[policyId]);
+        bytes32 configHash = _configHashes[policyId][account];
+        if (configHash != keccak256(policyConfig)) {
+            revert PolicyConfigHashMismatch(configHash, keccak256(policyConfig));
         }
 
         Config memory cfg = abi.decode(policyConfig, (Config));
