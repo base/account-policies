@@ -9,6 +9,7 @@ import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {MorphoLendPolicy} from "../src/policies/MorphoLendPolicy.sol";
+import {AOAPolicy} from "../src/policies/AOAPolicy.sol";
 import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
@@ -60,9 +61,7 @@ contract MorphoLendPolicyTest is Test {
         loanToken = new MintableToken("Loan", "LOAN");
         vault = new MockMorphoVault(address(loanToken));
 
-        MorphoLendPolicy.Config memory cfg = MorphoLendPolicy.Config({
-            account: address(account),
-            executor: executor,
+        MorphoLendPolicy.MorphoConfig memory morphoCfg = MorphoLendPolicy.MorphoConfig({
             vault: address(vault),
             depositLimit: RecurringAllowance.Limit({
                 allowance: 1_000_000 ether,
@@ -72,7 +71,10 @@ contract MorphoLendPolicyTest is Test {
             })
         });
 
-        policyConfig = abi.encode(cfg);
+        policyConfig = abi.encode(
+            AOAPolicy.AOAConfig({account: address(account), executor: executor}),
+            abi.encode(morphoCfg)
+        );
         binding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -98,10 +100,12 @@ contract MorphoLendPolicyTest is Test {
     }
 
     function test_morphoPolicy_enforcesRecurringLimit() public {
-        MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
+        (AOAPolicy.AOAConfig memory aoa, bytes memory policySpecific) =
+            abi.decode(policyConfig, (AOAPolicy.AOAConfig, bytes));
+        MorphoLendPolicy.MorphoConfig memory cfg = abi.decode(policySpecific, (MorphoLendPolicy.MorphoConfig));
         cfg.depositLimit.allowance = 1 ether;
 
-        bytes memory localPolicyConfig = abi.encode(cfg);
+        bytes memory localPolicyConfig = abi.encode(aoa, abi.encode(cfg));
         PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -125,13 +129,15 @@ contract MorphoLendPolicyTest is Test {
     }
 
     function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
-        MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
+        (AOAPolicy.AOAConfig memory aoa, bytes memory policySpecific) =
+            abi.decode(policyConfig, (AOAPolicy.AOAConfig, bytes));
+        MorphoLendPolicy.MorphoConfig memory cfg = abi.decode(policySpecific, (MorphoLendPolicy.MorphoConfig));
         cfg.depositLimit.allowance = 100 ether;
         cfg.depositLimit.period = 1 days;
         cfg.depositLimit.start = uint48(block.timestamp);
         cfg.depositLimit.end = type(uint48).max;
 
-        bytes memory localPolicyConfig = abi.encode(cfg);
+        bytes memory localPolicyConfig = abi.encode(aoa, abi.encode(cfg));
         PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -275,7 +281,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory payload = abi.encode(ld);
         bytes32 execDigest = _getPolicyExecutionDigest(binding, payload);
         bytes memory sig = _signExecution(execDigest);
-        bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
+        bytes memory policyData = abi.encode(payload, sig);
 
         address relayer = vm.addr(uint256(keccak256("relayer")));
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
@@ -311,7 +317,7 @@ contract MorphoLendPolicyTest is Test {
     {
         bytes32 execDigest = _getPolicyExecutionDigest(binding_, abi.encode(ld));
         bytes memory sig = _signExecution(execDigest);
-        return abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
+        return abi.encode(abi.encode(ld), sig);
     }
 
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {

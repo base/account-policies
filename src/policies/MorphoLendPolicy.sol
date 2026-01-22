@@ -5,14 +5,12 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {PolicyTypes} from "../PolicyTypes.sol";
-import {Policy} from "./Policy.sol";
+import {AOAPolicy} from "./AOAPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 interface IPolicyManagerLike {
     function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) external pure returns (bytes32);
-    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
 /// @dev Minimal vault interface (ERC-4626 style) used by this policy.
@@ -24,18 +22,13 @@ interface IMorphoVault {
 /// @notice Morpho vault deposit policy.
 /// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
 ///      and optional cumulative cap.
-contract MorphoLendPolicy is EIP712, Policy {
-    error InvalidSender(address sender, address expected);
-    error InvalidPolicyConfigAccount(address actual, address expected);
-    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
+contract MorphoLendPolicy is EIP712, AOAPolicy {
     error ZeroAmount();
     error ZeroVault();
-    error ZeroExecutor();
     error Unauthorized(address caller);
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
     error ZeroNonce();
 
-    address public immutable POLICY_MANAGER;
     // TODO: do we create a shared policy base class for policies that want to enable signature-based execution?
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
@@ -43,9 +36,7 @@ contract MorphoLendPolicy is EIP712, Policy {
     RecurringAllowance.State internal _depositLimitState;
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
-    struct Config {
-        address account;
-        address executor;
+    struct MorphoConfig {
         address vault;
         RecurringAllowance.Limit depositLimit;
     }
@@ -55,96 +46,43 @@ contract MorphoLendPolicy is EIP712, Policy {
         uint256 nonce; // Policy-defined execution nonce (used for replay protection and for signed execution intents).
     }
 
-    struct PolicyData {
-        LendData data;
-        bytes signature;
-    }
+    constructor(address policyManager) AOAPolicy(policyManager) {}
 
-    modifier requireSender(address sender) {
-        _requireSender(sender);
-        _;
-    }
-
-    function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
-    }
-
-    constructor(address policyManager) {
-        POLICY_MANAGER = policyManager;
-    }
-
-    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-    {
-        binding;
-        policyId;
-        policyConfig;
-    }
-
-    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-    {
-        binding;
-        policyId;
-    }
-
-    function onExecute(
+    function _onAOAExecute(
         PolicyTypes.PolicyBinding calldata binding,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
+        AOAConfig memory aoa,
+        bytes memory policySpecificConfig,
+        bytes memory actionData,
+        bytes memory signature,
         address caller
-    )
-        external
-        override
-        requireSender(POLICY_MANAGER)
-        returns (bytes memory accountCallData, bytes memory postCallData)
-    {
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
-        }
-
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
-        if (cfg.executor == address(0)) revert ZeroExecutor();
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
         if (cfg.vault == address(0)) revert ZeroVault();
 
-        PolicyData memory pd = abi.decode(policyData, (PolicyData));
-        if (pd.data.assets == 0) revert ZeroAmount();
-        if (pd.data.nonce == 0) revert ZeroNonce();
+        LendData memory ld = abi.decode(actionData, (LendData));
+        if (ld.assets == 0) revert ZeroAmount();
+        if (ld.nonce == 0) revert ZeroNonce();
 
         bytes32 policyId = IPolicyManagerLike(POLICY_MANAGER).getPolicyBindingStructHash(binding);
-        if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
+        if (_usedNonces[policyId][ld.nonce]) revert ExecutionNonceAlreadyUsed(policyId, ld.nonce);
 
-        bytes32 payloadHash = keccak256(abi.encode(pd.data));
+        bytes32 payloadHash = keccak256(actionData);
         bytes32 digest = _getExecutionDigest(policyId, binding, payloadHash);
-        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
-            .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
-        if (!ok) revert Unauthorized(caller);
+        if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
 
-        _usedNonces[policyId][pd.data.nonce] = true;
+        _usedNonces[policyId][ld.nonce] = true;
 
-        RecurringAllowance.useLimit(_depositLimitState, policyId, cfg.depositLimit, pd.data.assets);
+        RecurringAllowance.useLimit(_depositLimitState, policyId, cfg.depositLimit, ld.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
-            _buildVaultDepositCall(cfg, pd.data.assets);
+            _buildVaultDepositCall(cfg, aoa.account, ld.assets);
 
-        // Build wallet call plan:
-        // - approve
-        // - protocol call
-        // - approve(0)
         if (approvalToken != address(0) && approvalSpender != address(0)) {
             CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
             calls[0] = CoinbaseSmartWallet.Call({
                 target: approvalToken,
                 value: 0,
-                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, pd.data.assets)
+                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, ld.assets)
             });
             calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
             calls[2] = CoinbaseSmartWallet.Call({
@@ -172,7 +110,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         );
     }
 
-    function _buildVaultDepositCall(Config memory cfg, uint256 assets)
+    function _buildVaultDepositCall(MorphoConfig memory cfg, address receiver, uint256 assets)
         internal
         view
         returns (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender)
@@ -182,7 +120,7 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         approvalToken = IMorphoVault(cfg.vault).asset();
         approvalSpender = cfg.vault;
-        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, cfg.account);
+        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, receiver);
         return (target, value, callData, approvalToken, approvalSpender);
     }
 
