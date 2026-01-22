@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {PolicyTypes} from "../PolicyTypes.sol";
-
 /// @notice A policy defines authorization semantics and returns a wallet call plan.
 interface Policy {
     /// @notice Policy hook invoked during installation.

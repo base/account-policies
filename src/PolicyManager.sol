@@ -5,7 +5,6 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
-import {PolicyTypes} from "./PolicyTypes.sol";
 import {Policy} from "./policies/Policy.sol";
 
 /// @title PolicyManager
@@ -39,6 +38,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error ExternalCallFailed(address target, bytes returnData);
     error InvalidSender(address sender, address expected);
 
+    /// @notice Policy binding parameters authorized by the account.
+    struct PolicyBinding {
+        address account;
+        address policy;
+        uint40 validAfter;
+        uint40 validUntil;
+        uint256 salt;
+        bytes32 policyConfigHash;
+    }
+
     // 1 slot
     struct PolicyRecord {
         bool installed;
@@ -66,7 +75,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Install a policy via a signature from the account.
     /// @dev Compatible with ERC-6492 signatures including side effects.
     function installPolicyWithSignature(
-        PolicyTypes.PolicyBinding calldata binding,
+        PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata userSig
     ) external nonReentrant returns (bytes32 policyId) {
@@ -80,7 +89,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Install a policy via a direct call from the account.
-    function installPolicy(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
+    function installPolicy(PolicyBinding calldata binding, bytes calldata policyConfig)
         external
         nonReentrant
         requireSender(binding.account)
@@ -122,14 +131,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, p.account, policy);
     }
 
-    function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) public pure returns (bytes32) {
+    function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
         return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
     }
 
-    function _install(PolicyTypes.PolicyBinding calldata binding, bytes calldata policyConfig)
-        internal
-        returns (bytes32 policyId)
-    {
+    function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyBindingStructHash(binding);
         PolicyRecord storage p = _policies[binding.policy][policyId];
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);

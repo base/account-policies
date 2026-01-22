@@ -6,12 +6,10 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
-import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 interface IPolicyManagerLike {
-    function getPolicyBindingStructHash(PolicyTypes.PolicyBinding calldata binding) external pure returns (bytes32);
     function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
 }
 
