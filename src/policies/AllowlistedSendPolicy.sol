@@ -6,34 +6,19 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {Policy} from "./Policy.sol";
 import {PolicyManager} from "../PolicyManager.sol";
 
-/// @notice Morpho vault deposit policy.
-/// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
-///      and optional cumulative cap.
+/// @notice Allow executors to send any tokens from account to allowed recipients per-user.
 contract AllowlistedSendPolicy is Policy {
-    struct Config {
-        address executor;
-        address[] initialRecipients;
-    }
-
-    struct ExecuteParams {
-        address recipient;
-        address token;
-        uint256 amount;
-    }
-
     mapping(bytes32 policyId => address executor) public executors;
-    mapping(bytes32 policyId => mapping(address recipient => bool allowed)) public isRecipientAllowed;
+    mapping(address account => mapping(address recipient => bool allowed)) public isRecipientAllowed;
 
-    event AllowlistUpdated(bytes32 indexed policyId, address indexed account, address indexed recipient, bool allowed);
+    event AllowlistUpdated(address indexed account, address indexed recipient, bool allowed);
 
     constructor(address policyManager) Policy(policyManager) {}
 
-    function updateAllowlist(bytes32 policyId, address recipient, bool allowed) external {
-        address account = POLICY_MANAGER.getAccountForPolicy(address(this), policyId);
-        _requireSender(account);
-
-        isRecipientAllowed[policyId][recipient] = allowed;
-        emit AllowlistUpdated(policyId, account, recipient, allowed);
+    // To approve policy, batch calls from account this contract to update recipient allowlist and PolicyManager to approve executor.
+    function updateAllowlist(address recipient, bool allowed) external {
+        isRecipientAllowed[msg.sender][recipient] = allowed;
+        emit AllowlistUpdated(msg.sender, recipient, allowed);
     }
 
     function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
@@ -41,13 +26,8 @@ contract AllowlistedSendPolicy is Policy {
         override
         onlyPolicyManager
     {
-        if (caller != account) revert InvalidSender(caller, account);
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        executors[policyId] = cfg.executor;
-        for (uint256 i = 0; i < cfg.initialRecipients.length; i++) {
-            isRecipientAllowed[policyId][cfg.initialRecipients[i]] = true;
-            emit AllowlistUpdated(policyId, account, cfg.initialRecipients[i], true);
-        }
+        address executor = abi.decode(policyConfig, (address));
+        executors[policyId] = executor;
     }
 
     function onRevoke(bytes32 policyId, address account, address caller) external override onlyPolicyManager {
@@ -58,26 +38,26 @@ contract AllowlistedSendPolicy is Policy {
     function onExecute(
         bytes32 policyId,
         address account,
-        bytes calldata policyConfig,
+        bytes calldata, // policyConfig
         bytes calldata executeParams,
         address caller
     ) external override onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
         if (caller != executors[policyId]) revert InvalidSender(caller, executors[policyId]);
 
-        ExecuteParams memory params = abi.decode(executeParams, (ExecuteParams));
-        if (params.token == address(0)) revert ZeroToken();
-        if (params.amount == 0) revert ZeroAmount();
-        if (!isRecipientAllowed[policyId][params.recipient]) revert Unauthorized(caller);
+        (uint256 amount, address token, address recipient) = abi.decode(executeParams, (uint256, address, address));
+        if (amount == 0) revert ZeroAmount();
+        if (token == address(0)) revert ZeroToken();
+        if (!isRecipientAllowed[account][recipient]) revert Unauthorized(recipient);
 
         address target;
         address value;
         bytes memory data;
-        if (params.token == NATIVE_TOKEN) {
-            target = params.recipient;
-            value = params.amount;
+        if (token == NATIVE_TOKEN) {
+            target = recipient;
+            value = amount;
         } else {
-            target = params.token;
-            data = abi.encodeWithSelector(IERC20.transfer.selector, params.recipient, params.amount);
+            target = token;
+            data = abi.encodeWithSelector(IERC20.transfer.selector, recipient, amount);
         }
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, target, value, data);
     }
