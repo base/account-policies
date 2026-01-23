@@ -8,7 +8,6 @@ import {ERC165Checker} from "openzeppelin-contracts/contracts/utils/introspectio
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-import {PolicyTypes} from "../PolicyTypes.sol";
 import {SpendHook} from "../SpendPermissionSpendHooks/SpendHook.sol";
 import {Policy} from "./Policy.sol";
 
@@ -40,11 +39,8 @@ contract SpendPolicy is EIP712, Policy {
         "SpendPermission(address account,address spender,address token,uint160 allowance,uint48 period,uint48 start,uint48 end,uint256 salt,bytes extraData,address spendHook,bytes spendHookConfig)"
     );
 
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
-    address public immutable POLICY_MANAGER;
-
     mapping(bytes32 policyId => PeriodSpend) internal _lastUpdatedPeriod;
+    mapping(bytes32 policyId => bytes32 configHash) internal _configHashes;
 
     event SpendPermissionUsed(
         bytes32 indexed policyId,
@@ -54,7 +50,6 @@ contract SpendPolicy is EIP712, Policy {
         PeriodSpend periodSpend
     );
 
-    error InvalidSender(address sender, address expected);
     error ERC721TokenNotSupported(address token);
     error SpendPermissionNotCallableForNativeToken();
     error MissingSpendHookForNativeToken();
@@ -73,66 +68,41 @@ contract SpendPolicy is EIP712, Policy {
     error Unauthorized(address caller);
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
-    modifier requireSender(address sender) {
-        _requireSender(sender);
-        _;
-    }
-
-    function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
-    }
-
-    constructor(address policyManager) {
-        POLICY_MANAGER = policyManager;
-    }
+    constructor(address policyManager) Policy(policyManager) {}
 
     receive() external payable {}
 
-    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-    {
-        binding;
-        policyId;
-        policyConfig;
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal override {
+        caller;
+        _configHashes[policyId] = keccak256(policyConfig);
+        SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
+        if (sp.account != account) revert InvalidPolicyConfigAccount(sp.account, account);
     }
 
-    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-    {
-        binding;
-        policyId;
+    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
+        if (caller != account) revert InvalidSender(caller, account);
+        delete _configHashes[policyId];
+        delete _lastUpdatedPeriod[policyId];
     }
 
     /// @dev `policyConfig` is encoded SpendPermission. `policyData` encodes `(uint160 value, bytes prepData)`.
-    function onExecute(
-        PolicyTypes.PolicyBinding calldata binding,
+    function _onExecute(
+        bytes32 policyId,
+        address account,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    )
-        external
-        override
-        requireSender(POLICY_MANAGER)
-        returns (bytes memory accountCallData, bytes memory postCallData)
-    {
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
-        }
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        bytes32 expected = _configHashes[policyId];
+        bytes32 actual = keccak256(policyConfig);
+        if (expected != actual) revert PolicyConfigHashMismatch(actual, expected);
 
         SpendPermission memory sp = abi.decode(policyConfig, (SpendPermission));
-        if (sp.account != binding.account) revert InvalidPolicyConfigAccount(sp.account, binding.account);
+        if (sp.account != account) revert InvalidPolicyConfigAccount(sp.account, account);
 
         if (caller != sp.spender) revert Unauthorized(caller);
 
         (uint160 value, bytes memory prepData) = abi.decode(policyData, (uint160, bytes));
-        bytes32 policyId = _getPolicyId(binding);
         _useSpendPermission(policyId, sp, value);
 
         // Token-specific behavior (approvals, balance abstraction, native ETH transfer, etc.) is handled by the spend
@@ -159,7 +129,7 @@ contract SpendPolicy is EIP712, Policy {
 
     function afterExecute(address account, address token, address recipient, uint160 value)
         external
-        requireSender(POLICY_MANAGER)
+        onlyPolicyManager
     {
         if (token != NATIVE_TOKEN) {
             IERC20(token).safeTransferFrom(account, recipient, value);
@@ -235,22 +205,6 @@ contract SpendPolicy is EIP712, Policy {
             sp.spender,
             sp.token,
             PeriodSpend({start: current.start, end: current.end, spend: value})
-        );
-    }
-
-    function _getPolicyId(PolicyTypes.PolicyBinding calldata binding) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256(
-                    "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint48 validAfter,uint48 validUntil,uint256 salt)"
-                ),
-                binding.account,
-                binding.policy,
-                binding.policyConfigHash,
-                binding.validAfter,
-                binding.validUntil,
-                binding.salt
-            )
         );
     }
 
