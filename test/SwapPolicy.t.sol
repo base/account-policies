@@ -8,7 +8,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
-import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {SwapPolicy} from "../src/policies/SwapPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
@@ -91,13 +90,13 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
-            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 123
+            salt: 123,
+            policyConfigHash: keccak256(policyConfig)
         });
 
         bytes memory userSig = _signInstall(binding);
@@ -111,7 +110,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(policyId, policyConfig, policyData);
+        policyManager.execute(address(swapPolicy), policyId, policyConfig, policyData);
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -142,13 +141,13 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
-            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 456
+            salt: 456,
+            policyConfigHash: keccak256(policyConfig)
         });
 
         bytes memory userSig = _signInstall(binding);
@@ -161,10 +160,8 @@ contract SwapPolicyTest is Test {
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(executor);
-        bytes memory innerError =
-            abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut);
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.AccountCallFailed.selector, address(swapPolicy), innerError));
-        policyManager.execute(policyId, policyConfig, policyData);
+        vm.expectRevert(abi.encodeWithSelector(SwapPolicy.TokenOutBalanceTooLow.selector, 0, amountOut, expectedMinOut));
+        policyManager.execute(address(swapPolicy), policyId, policyConfig, policyData);
     }
 
     function test_happyPath_mockSwapTarget_amountInEqualsMaxAmountIn() public {
@@ -187,13 +184,13 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(swapPolicy),
-            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 999
+            salt: 999,
+            policyConfigHash: keccak256(policyConfig)
         });
 
         bytes memory userSig = _signInstall(binding);
@@ -207,7 +204,7 @@ contract SwapPolicyTest is Test {
 
         uint256 beforeOut = tokenOut.balanceOf(address(account));
         vm.prank(executor);
-        policyManager.execute(policyId, policyConfig, policyData);
+        policyManager.execute(address(swapPolicy), policyId, policyConfig, policyData);
         uint256 afterOut = tokenOut.balanceOf(address(account));
 
         assertEq(afterOut - beforeOut, amountOut);
@@ -255,13 +252,13 @@ contract SwapPolicyTest is Test {
         });
         bytes memory policyConfig = abi.encode(cfg);
 
-        PolicyTypes.PolicyBinding memory binding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
             account: address(forkAccount),
             policy: address(forkSwapPolicy),
-            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 4242
+            salt: 4242,
+            policyConfigHash: keccak256(policyConfig)
         });
 
         vm.prank(address(forkAccount));
@@ -280,7 +277,7 @@ contract SwapPolicyTest is Test {
         uint256 beforeWeth = IERC20(weth).balanceOf(address(forkAccount));
 
         vm.prank(executor);
-        forkPolicyManager.execute(policyId, policyConfig, policyData);
+        forkPolicyManager.execute(address(forkSwapPolicy), policyId, policyConfig, policyData);
 
         uint256 afterUsdc = IERC20(usdc).balanceOf(address(forkAccount));
         uint256 afterWeth = IERC20(weth).balanceOf(address(forkAccount));
@@ -290,7 +287,7 @@ contract SwapPolicyTest is Test {
         assertEq(IERC20(usdc).allowance(address(forkAccount), router), 0);
     }
 
-    function _signInstall(PolicyTypes.PolicyBinding memory binding) internal view returns (bytes memory) {
+    function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);

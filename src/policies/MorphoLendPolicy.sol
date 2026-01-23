@@ -9,10 +9,6 @@ import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
 import {Policy} from "./Policy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
-interface IPolicyManagerLike {
-    function PUBLIC_ERC6492_VALIDATOR() external view returns (PublicERC6492Validator);
-}
-
 /// @dev Minimal vault interface (ERC-4626 style) used by this policy.
 interface IMorphoVault {
     function asset() external view returns (address);
@@ -23,8 +19,6 @@ interface IMorphoVault {
 /// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
 ///      and optional cumulative cap.
 contract MorphoLendPolicy is EIP712, Policy {
-    error InvalidSender(address sender, address expected);
-    error InvalidPolicyConfigAccount(address actual, address expected);
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error ZeroAmount();
     error ZeroVault();
@@ -33,8 +27,6 @@ contract MorphoLendPolicy is EIP712, Policy {
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
     error ZeroNonce();
 
-    address public immutable POLICY_MANAGER;
-    // TODO: do we create a shared policy base class for policies that want to enable signature-based execution?
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
 
@@ -58,51 +50,31 @@ contract MorphoLendPolicy is EIP712, Policy {
         bytes signature;
     }
 
-    modifier requireSender(address sender) {
-        _requireSender(sender);
-        _;
-    }
+    constructor(address policyManager) Policy(policyManager) {}
 
-    function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
-    }
-
-    constructor(address policyManager) {
-        POLICY_MANAGER = policyManager;
-    }
-
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
-        external
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
         override
-        requireSender(POLICY_MANAGER)
     {
+        caller;
         Config memory cfg = abi.decode(policyConfig, (Config));
         if (cfg.executor == address(0)) revert ZeroExecutor();
         if (cfg.vault == address(0)) revert ZeroVault();
         _configHashes[policyId][account] = keccak256(policyConfig);
     }
 
-    function onRevoke(bytes32 policyId, address account, address caller)
-        external
-        override
-        requireSender(POLICY_MANAGER)
-    {
+    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
         if (caller != account) revert Unauthorized(caller);
         delete _configHashes[policyId][account];
     }
 
-    function onExecute(
+    function _onExecute(
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    )
-        external
-        override
-        requireSender(POLICY_MANAGER)
-        returns (bytes memory accountCallData, bytes memory postCallData)
-    {
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         bytes32 configHash = _configHashes[policyId][account];
         if (configHash != keccak256(policyConfig)) {
             revert PolicyConfigHashMismatch(configHash, keccak256(policyConfig));
@@ -117,7 +89,7 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         bytes32 payloadHash = keccak256(abi.encode(pd.data));
         bytes32 digest = _getExecutionDigest(policyId, account, configHash, payloadHash);
-        bool ok = IPolicyManagerLike(POLICY_MANAGER).PUBLIC_ERC6492_VALIDATOR()
+        bool ok = POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR()
             .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
         if (!ok) revert Unauthorized(caller);
 
@@ -126,25 +98,19 @@ contract MorphoLendPolicy is EIP712, Policy {
         RecurringAllowance.useLimit(_depositLimitState, policyId, cfg.depositLimit, pd.data.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
-            _buildVaultDepositCall(cfg, pd.data.assets);
+            _buildVaultDepositCall(cfg, account, pd.data.assets);
 
         // Build wallet call plan:
         // - approve
         // - protocol call
-        // - approve(0)
         if (approvalToken != address(0) && approvalSpender != address(0)) {
-            CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
+            CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
             calls[0] = CoinbaseSmartWallet.Call({
                 target: approvalToken,
                 value: 0,
                 data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, pd.data.assets)
             });
             calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
-            calls[2] = CoinbaseSmartWallet.Call({
-                target: approvalToken,
-                value: 0,
-                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, 0)
-            });
             accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
         } else {
             accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, target, value, callData);
@@ -161,7 +127,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
     }
 
-    function _buildVaultDepositCall(Config memory cfg, uint256 assets)
+    function _buildVaultDepositCall(Config memory cfg, address receiver, uint256 assets)
         internal
         view
         returns (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender)
@@ -171,7 +137,7 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         approvalToken = IMorphoVault(cfg.vault).asset();
         approvalSpender = cfg.vault;
-        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, cfg.account);
+        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, receiver);
         return (target, value, callData, approvalToken, approvalSpender);
     }
 

@@ -20,16 +20,25 @@ abstract contract Policy {
         _;
     }
 
+    // TODO: consider public view that returns the policy config decoding?
+
     /// @notice Policy hook invoked during installation.
     /// @dev MUST revert if the policy refuses the installation.
     ///
     /// `policyId` is the EIP-712 struct hash of `binding` as computed by `PolicyManager`.
     /// `policyConfig` is the full config preimage bytes that match `binding.policyConfigHash`.
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) external virtual;
+    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        external
+        onlyPolicyManager
+    {
+        _onInstall(policyId, account, policyConfig, caller);
+    }
 
     /// @notice Policy hook invoked during revocation.
     /// @dev Called by `PolicyManager` after the binding has been marked revoked.
-    function onRevoke(bytes32 policyId, address account, address caller) external virtual;
+    function onRevoke(bytes32 policyId, address account, address caller) external onlyPolicyManager {
+        _onRevoke(policyId, account, caller);
+    }
 
     /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
     /// @dev MUST revert on unauthorized execution.
@@ -41,7 +50,21 @@ abstract contract Policy {
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    ) external virtual returns (bytes memory accountCallData, bytes memory postCallData);
+    ) external onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
+        return _onExecute(policyId, account, policyConfig, policyData, caller);
+    }
+
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
+
+    function _onRevoke(bytes32 policyId, address account, address caller) internal virtual;
+
+    function _onExecute(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        address caller
+    ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     function _requireSender(address sender) internal view {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);

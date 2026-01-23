@@ -2,11 +2,16 @@
 pragma solidity ^0.8.23;
 
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {Policy} from "./Policy.sol";
 
 /// @notice Allow executors to send any tokens from account to allowed recipients per-user.
 contract AllowlistedSendPolicy is Policy {
+    error ZeroAmount();
+    error ZeroToken();
+    error Unauthorized(address caller);
+
     mapping(bytes32 policyId => address executor) public executors;
     mapping(address account => mapping(address recipient => bool allowed)) public isRecipientAllowed;
 
@@ -20,27 +25,29 @@ contract AllowlistedSendPolicy is Policy {
         emit AllowlistUpdated(msg.sender, recipient, allowed);
     }
 
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
-        external
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
         override
-        onlyPolicyManager
     {
+        account;
+        caller;
         address executor = abi.decode(policyConfig, (address));
         executors[policyId] = executor;
     }
 
-    function onRevoke(bytes32 policyId, address account, address caller) external override onlyPolicyManager {
+    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
         if (caller != account) revert InvalidSender(caller, account);
         delete executors[policyId];
     }
 
-    function onExecute(
+    function _onExecute(
         bytes32 policyId,
         address account,
         bytes calldata, // policyConfig
         bytes calldata executeParams,
         address caller
-    ) external override onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        postCallData;
         if (caller != executors[policyId]) revert InvalidSender(caller, executors[policyId]);
 
         (uint256 amount, address token, address recipient) = abi.decode(executeParams, (uint256, address, address));

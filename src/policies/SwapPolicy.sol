@@ -5,7 +5,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
-import {PolicyTypes} from "../PolicyTypes.sol";
 import {Policy} from "./Policy.sol";
 
 /// @notice Policy that allows an executor to execute a constrained ERC20->(something) swap on a fixed
@@ -24,11 +23,10 @@ contract SwapPolicy is Policy {
     error AmountInTooHigh(uint256 amountIn, uint256 maxAmountIn);
     error ZeroMaxAmountIn();
     error TokenOutBalanceTooLow(uint256 initialBalance, uint256 finalBalance, uint256 minAmountOut);
-    error InvalidSender(address sender, address expected);
     error Unauthorized(address caller);
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
-    address public immutable POLICY_MANAGER;
+    mapping(bytes32 policyId => bytes32 configHash) internal _configHashes;
 
     struct Config {
         address account;
@@ -49,59 +47,39 @@ contract SwapPolicy is Policy {
         bytes swapData;
     }
 
-    modifier requireSender(address sender) {
-        _requireSender(sender);
-        _;
-    }
+    constructor(address policyManager) Policy(policyManager) {}
 
-    function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
-    }
-
-    constructor(address policyManager) {
-        POLICY_MANAGER = policyManager;
-    }
-
-    function onInstall(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId, bytes calldata policyConfig)
-        external
-        view
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
         override
-        requireSender(POLICY_MANAGER)
     {
-        binding;
-        policyId;
-        policyConfig;
+        caller;
+        // Store the authorized config hash so execution can validate config preimages without manager storage.
+        _configHashes[policyId] = keccak256(policyConfig);
+
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        if (cfg.account != account) revert InvalidPolicyConfigAccount(cfg.account, account);
+        if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
     }
 
-    function onRevoke(PolicyTypes.PolicyBinding calldata binding, bytes32 policyId)
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-    {
-        binding;
-        policyId;
+    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
+        if (caller != account) revert InvalidSender(caller, account);
+        delete _configHashes[policyId];
     }
 
-    function onExecute(
-        PolicyTypes.PolicyBinding calldata binding,
+    function _onExecute(
+        bytes32 policyId,
+        address account,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    )
-        external
-        view
-        override
-        requireSender(POLICY_MANAGER)
-        returns (bytes memory accountCallData, bytes memory postCallData)
-    {
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
-        }
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        bytes32 expected = _configHashes[policyId];
+        bytes32 actual = keccak256(policyConfig);
+        if (expected != actual) revert PolicyConfigHashMismatch(actual, expected);
 
         Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.account != binding.account) revert InvalidPolicyConfigAccount(cfg.account, binding.account);
+        if (cfg.account != account) revert InvalidPolicyConfigAccount(cfg.account, account);
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
         if (caller != cfg.executor) revert Unauthorized(caller);
 
@@ -140,7 +118,7 @@ contract SwapPolicy is Policy {
     function afterExecute(address account, address tokenOut, uint256 initialOutBalance, uint256 minAmountOut)
         external
         view
-        requireSender(POLICY_MANAGER)
+        onlyPolicyManager
     {
         uint256 finalOutBalance = IERC20(tokenOut).balanceOf(account);
         if (finalOutBalance < initialOutBalance + minAmountOut) {

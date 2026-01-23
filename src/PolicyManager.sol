@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
@@ -33,6 +34,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyNotInstalled(bytes32 policyId);
     error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
+    error Unauthorized(address caller);
     error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
     error ExternalCallFailed(address target, bytes returnData);
@@ -57,7 +59,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint40 validUntil;
     }
 
-    mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) internal _policies;
+    mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) internal _policies; // TODO: make this public? or consider a getter for certain things. like pass config, get policy id, whether installed, etc.
 
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -101,11 +103,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Revoke a policy via a direct call from the account.
     function revokePolicy(address policy, bytes32 policyId) external nonReentrant returns (bool revoked) {
         PolicyRecord storage p = _policies[policy][policyId];
-        if (!p.installed) revert PolicyNotInstalled(policyId);
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
-
         p.revoked = true;
-        Policy(policy).onRevoke(policyId, p.account, msg.sender);
+        try Policy(policy).onRevoke(policyId, p.account, msg.sender) {}
+        catch {
+            if (msg.sender != p.account) revert Unauthorized(msg.sender);
+        }
         emit PolicyRevoked(policyId, p.account, policy);
         return true;
     }
@@ -135,6 +138,47 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _policies[policy][policyId].account;
     }
 
+    /// @notice Convenience alias: compute the `policyId` for a binding.
+    function getPolicyId(PolicyBinding calldata binding) external pure returns (bytes32 policyId) {
+        return getPolicyBindingStructHash(binding);
+    }
+
+    /// @notice Return raw policy record fields for a policy instance.
+    function getPolicyRecord(address policy, bytes32 policyId)
+        external
+        view
+        returns (bool installed, bool revoked, address account, uint40 validAfter, uint40 validUntil)
+    {
+        PolicyRecord storage p = _policies[policy][policyId];
+        return (p.installed, p.revoked, p.account, p.validAfter, p.validUntil);
+    }
+
+    /// @notice True if the policy is installed (even if revoked).
+    function isPolicyInstalled(address policy, bytes32 policyId) external view returns (bool) {
+        return _policies[policy][policyId].installed;
+    }
+
+    /// @notice True if the policy has been revoked.
+    function isPolicyRevoked(address policy, bytes32 policyId) external view returns (bool) {
+        return _policies[policy][policyId].revoked;
+    }
+
+    /// @notice True if the policy is installed and not revoked.
+    function isPolicyActive(address policy, bytes32 policyId) external view returns (bool) {
+        PolicyRecord storage p = _policies[policy][policyId];
+        return p.installed && !p.revoked;
+    }
+
+    /// @notice True if the policy is installed, not revoked, and currently within its valid install window.
+    function isPolicyActiveNow(address policy, bytes32 policyId) external view returns (bool) {
+        PolicyRecord storage p = _policies[policy][policyId];
+        if (!p.installed || p.revoked) return false;
+        uint40 ts = uint40(block.timestamp);
+        if (p.validAfter != 0 && ts < p.validAfter) return false;
+        if (p.validUntil != 0 && ts >= p.validUntil) return false;
+        return true;
+    }
+
     function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
         return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
     }
@@ -144,7 +188,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         PolicyRecord storage p = _policies[binding.policy][policyId];
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        if (p.installed) return policyId;
+        if (p.installed) revert PolicyAlreadyInstalled(policyId);
 
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != binding.policyConfigHash) {
@@ -164,8 +208,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     function _externalCall(address target, bytes memory data) internal {
         if (data.length == 0) return;
-        (bool success, bytes memory returnData) = target.call(data);
-        if (!success) revert ExternalCallFailed(target, returnData);
+        Address.functionCall(target, data);
     }
 
     function _checkInstallWindow(uint40 validAfter, uint40 validUntil) internal view {

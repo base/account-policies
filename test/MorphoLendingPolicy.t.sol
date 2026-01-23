@@ -7,7 +7,6 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
-import {PolicyTypes} from "../src/PolicyTypes.sol";
 import {MorphoLendPolicy} from "../src/policies/MorphoLendPolicy.sol";
 import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 
@@ -41,7 +40,7 @@ contract MorphoLendPolicyTest is Test {
     MockMorphoVault internal vault;
     MintableToken internal loanToken;
     bytes internal policyConfig;
-    PolicyTypes.PolicyBinding internal binding;
+    PolicyManager.PolicyBinding internal binding;
 
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
@@ -61,7 +60,6 @@ contract MorphoLendPolicyTest is Test {
         vault = new MockMorphoVault(address(loanToken));
 
         MorphoLendPolicy.Config memory cfg = MorphoLendPolicy.Config({
-            account: address(account),
             executor: executor,
             vault: address(vault),
             depositLimit: RecurringAllowance.Limit({
@@ -73,13 +71,13 @@ contract MorphoLendPolicyTest is Test {
         });
 
         policyConfig = abi.encode(cfg);
-        binding = PolicyTypes.PolicyBinding({
+        binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(policyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 111
+            salt: 111,
+            policyConfigHash: keccak256(policyConfig)
         });
 
         bytes memory userSig = _signInstall(binding);
@@ -102,13 +100,13 @@ contract MorphoLendPolicyTest is Test {
         cfg.depositLimit.allowance = 1 ether;
 
         bytes memory localPolicyConfig = abi.encode(cfg);
-        PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(localPolicyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 222
+            salt: 222,
+            policyConfigHash: keccak256(localPolicyConfig)
         });
 
         bytes memory userSig = _signInstall(localBinding);
@@ -121,7 +119,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 2 ether, 1 ether));
-        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
+        policyManager.execute(address(policy), policyId, localPolicyConfig, execPolicyData);
     }
 
     function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
@@ -132,13 +130,13 @@ contract MorphoLendPolicyTest is Test {
         cfg.depositLimit.end = type(uint48).max;
 
         bytes memory localPolicyConfig = abi.encode(cfg);
-        PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(localPolicyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 9999
+            salt: 9999,
+            policyConfigHash: keccak256(localPolicyConfig)
         });
 
         bytes memory userSig = _signInstall(localBinding);
@@ -151,6 +149,7 @@ contract MorphoLendPolicyTest is Test {
         // First period: spend 60, then try to spend 50 (should exceed 100).
         vm.prank(executor);
         policyManager.execute(
+            address(policy),
             policyId,
             localPolicyConfig,
             _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 60 ether, nonce: 1}))
@@ -160,16 +159,13 @@ contract MorphoLendPolicyTest is Test {
             _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 2}));
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 110 ether, 100 ether));
-        policyManager.execute(
-            policyId,
-            localPolicyConfig,
-            execPolicyData2
-        );
+        policyManager.execute(address(policy), policyId, localPolicyConfig, execPolicyData2);
 
         // Next period: spend succeeds again.
         vm.warp(block.timestamp + 1 days);
         vm.prank(executor);
         policyManager.execute(
+            address(policy),
             policyId,
             localPolicyConfig,
             _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 3}))
@@ -178,13 +174,13 @@ contract MorphoLendPolicyTest is Test {
 
     function test_morphoPolicy_executeByPolicyId_usesStoredConfig() public {
         bytes memory storedPolicyConfig = policyConfig;
-        PolicyTypes.PolicyBinding memory storedBinding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory storedBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(storedPolicyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 333
+            salt: 333,
+            policyConfigHash: keccak256(storedPolicyConfig)
         });
         bytes32 policyId = policyManager.getPolicyBindingStructHash(storedBinding);
 
@@ -198,73 +194,49 @@ contract MorphoLendPolicyTest is Test {
         bytes memory policyData = _encodePolicyDataWithSig(storedBinding, ld);
 
         vm.prank(executor);
-        policyManager.execute(policyId, storedPolicyConfig, policyData);
+        policyManager.execute(address(policy), policyId, storedPolicyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
-    function test_morphoPolicy_canStoreConfigLaterViaIdempotentInstallWithSignature() public {
+    function test_morphoPolicy_reinstallWithSignature_reverts() public {
         bytes memory localPolicyConfig = policyConfig;
-        PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(localPolicyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 444
+            salt: 444,
+            policyConfigHash: keccak256(localPolicyConfig)
         });
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         bytes memory userSig = _signInstall(localBinding);
         policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
 
-        vm.expectRevert();
-        policyManager.execute(policyId, hex"", hex"");
-
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, hex"");
-
-        uint256 supplyAmt = 100 ether;
-        loanToken.mint(address(account), supplyAmt);
-
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
-        bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
-
-        vm.prank(executor);
-        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
-        assertEq(loanToken.balanceOf(address(account)), 0);
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, policyId));
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
     }
 
-    function test_morphoPolicy_canStoreConfigLaterViaIdempotentDirectInstall() public {
+    function test_morphoPolicy_reinstallDirect_reverts() public {
         bytes memory localPolicyConfig = policyConfig;
-        PolicyTypes.PolicyBinding memory localBinding = PolicyTypes.PolicyBinding({
+        PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
-            policyConfigHash: keccak256(localPolicyConfig),
             validAfter: 0,
             validUntil: 0,
-            salt: 555
+            salt: 555,
+            policyConfigHash: keccak256(localPolicyConfig)
         });
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         vm.prank(address(account));
         policyManager.installPolicy(localBinding, localPolicyConfig);
 
-        vm.expectRevert();
-        policyManager.execute(policyId, hex"", hex"");
-
         vm.prank(address(account));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, policyId));
         policyManager.installPolicy(localBinding, localPolicyConfig);
-
-        uint256 supplyAmt = 100 ether;
-        loanToken.mint(address(account), supplyAmt);
-
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
-        bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
-
-        vm.prank(executor);
-        policyManager.execute(policyId, localPolicyConfig, execPolicyData);
-        assertEq(loanToken.balanceOf(address(account)), 0);
     }
 
     function test_morphoPolicy_executorSig_allowsRelayer_andPreventsReplay() public {
@@ -280,7 +252,7 @@ contract MorphoLendPolicyTest is Test {
         address relayer = vm.addr(uint256(keccak256("relayer")));
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(relayer);
-        policyManager.execute(policyId, policyConfig, policyData);
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
 
         assertEq(loanToken.balanceOf(address(account)), 0);
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
@@ -293,7 +265,7 @@ contract MorphoLendPolicyTest is Test {
                 ld.nonce
             )
         );
-        policyManager.execute(policyId, policyConfig, policyData);
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
     function _exec(uint256 assets) internal {
@@ -301,10 +273,10 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
         vm.prank(executor);
-        policyManager.execute(policyId, policyConfig, policyData);
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    function _encodePolicyDataWithSig(PolicyTypes.PolicyBinding memory binding_, MorphoLendPolicy.LendData memory ld)
+    function _encodePolicyDataWithSig(PolicyManager.PolicyBinding memory binding_, MorphoLendPolicy.LendData memory ld)
         internal
         view
         returns (bytes memory)
@@ -319,7 +291,7 @@ contract MorphoLendPolicyTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _getPolicyExecutionDigest(PolicyTypes.PolicyBinding memory binding_, bytes memory payload)
+    function _getPolicyExecutionDigest(PolicyManager.PolicyBinding memory binding_, bytes memory payload)
         internal
         view
         returns (bytes32)
@@ -337,7 +309,7 @@ contract MorphoLendPolicyTest is Test {
         return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
     }
 
-    function _signInstall(PolicyTypes.PolicyBinding memory binding_) internal view returns (bytes memory) {
+    function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
