@@ -118,6 +118,45 @@ contract SwapPolicyTest is Test {
         assertEq(IERC20(address(tokenIn)).allowance(address(account), address(swapTarget)), 0);
     }
 
+    function test_policyId_matchesEip712StructHash() public {
+        bytes memory policyConfig = abi.encode(
+            SwapPolicy.Config({
+                account: address(account),
+                executor: executor,
+                tokenIn: address(tokenIn),
+                tokenOut: address(tokenOut),
+                swapTarget: address(swapTarget),
+                swapSelector: MockSwapTarget.swap.selector,
+                maxAmountIn: 1,
+                minAmountOutForMaxAmountIn: 1
+            })
+        );
+
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(swapPolicy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 123,
+            policyConfigHash: keccak256(policyConfig)
+        });
+
+        bytes32 expected = keccak256(
+            abi.encode(
+                policyManager.POLICY_BINDING_TYPEHASH(),
+                binding.account,
+                binding.policy,
+                binding.policyConfigHash,
+                binding.validAfter,
+                binding.validUntil,
+                binding.salt
+            )
+        );
+
+        bytes32 actual = policyManager.getPolicyBindingStructHash(binding);
+        assertEq(actual, expected);
+    }
+
     function test_proratedMinOut_revertsWhenBelowProrated() public {
         uint256 maxAmountIn = 10 ether;
         uint256 minOutForMax = 3 ether;

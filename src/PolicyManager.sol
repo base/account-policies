@@ -180,7 +180,18 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
-        return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
+        // Must match POLICY_BINDING_TYPEHASH field order (EIP-712 struct hashing).
+        return keccak256(
+            abi.encode(
+                POLICY_BINDING_TYPEHASH,
+                binding.account,
+                binding.policy,
+                binding.policyConfigHash,
+                binding.validAfter,
+                binding.validUntil,
+                binding.salt
+            )
+        );
     }
 
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
