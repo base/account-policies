@@ -6,14 +6,9 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 import {PublicERC6492Validator} from "../PublicERC6492Validator.sol";
+import {IMorphoVault} from "../interfaces/morpho/IMorphoVault.sol";
 import {Policy} from "./Policy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
-
-/// @dev Minimal vault interface (ERC-4626 style) used by this policy.
-interface IMorphoVault {
-    function asset() external view returns (address);
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-}
 
 /// @notice Morpho vault deposit policy.
 /// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
