@@ -269,8 +269,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
 
         // Idempotent behavior: installing an already-installed policy instance is a no-op.
-        // - Do not call the policy hook (prevents signature replay from triggering policy-side effects).
-        // - Do not emit an event (prevents indexer noise; callers can treat this as success).
         if (policyRecord.installed) return policyId;
 
         bytes32 actualConfigHash = keccak256(policyConfig);
