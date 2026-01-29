@@ -58,7 +58,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         _configHashes[policyId][account] = keccak256(policyConfig);
     }
 
-    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
+    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
         if (caller != account) revert Unauthorized(caller);
         delete _configHashes[policyId][account];
     }

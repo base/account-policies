@@ -28,8 +28,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Policy was installed.
     event PolicyInstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
-    /// @notice Policy was revoked.
-    event PolicyRevoked(bytes32 indexed policyId, address indexed account, address indexed policy);
+    /// @notice Policy was uninstalled.
+    event PolicyUninstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
     /// @notice Policy execution occurred.
     event PolicyExecuted(bytes32 indexed policyId, address indexed account, address indexed policy);
@@ -37,7 +37,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error InvalidSignature();
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error PolicyNotInstalled(bytes32 policyId);
-    error PolicyAlreadyRevoked(bytes32 policyId);
+    error PolicyIsUninstalled(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
     error InvalidInstallAndExecutePayload();
     error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
@@ -71,7 +71,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     // 1 slot
     struct PolicyRecord {
         bool installed;
-        bool revoked;
+        bool uninstalled;
         address account;
         uint40 validAfter;
         uint40 validUntil;
@@ -118,16 +118,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _install(binding, policyConfig);
     }
 
-    /// @notice Revoke a policy via a direct call from the account.
-    function revokePolicy(address policy, bytes32 policyId) external nonReentrant returns (bool revoked) {
+    /// @notice Uninstall a policy via a direct call from the account.
+    function uninstallPolicy(address policy, bytes32 policyId) external nonReentrant returns (bool uninstalled) {
         PolicyRecord storage p = _policies[policy][policyId];
-        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
-        p.revoked = true;
-        try Policy(policy).onRevoke(policyId, p.account, msg.sender) {}
+        if (p.uninstalled) revert PolicyIsUninstalled(policyId);
+        p.uninstalled = true;
+        try Policy(policy).onUninstall(policyId, p.account, msg.sender) {}
         catch {
             if (msg.sender != p.account) revert Unauthorized(msg.sender);
         }
-        emit PolicyRevoked(policyId, p.account, policy);
+        emit PolicyUninstalled(policyId, p.account, policy);
         return true;
     }
 
@@ -140,7 +140,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     {
         PolicyRecord storage p = _policies[policy][policyId];
         if (!p.installed) revert PolicyNotInstalled(policyId);
-        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+        if (p.uninstalled) revert PolicyIsUninstalled(policyId);
 
         _checkInstallWindow(p.validAfter, p.validUntil);
         _execute(policy, policyId, p.account, policyConfig, policyData, msg.sender);
@@ -157,7 +157,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Idempotent behavior: if already installed, skip installation authorization and execute directly.
         // This avoids brittleness when multiple parties race to "be first" to install.
         if (p.installed) {
-            if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+            if (p.uninstalled) revert PolicyIsUninstalled(policyId);
             _checkInstallWindow(p.validAfter, p.validUntil);
             _execute(policy, policyId, p.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
             return;
@@ -181,7 +181,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Install policy instance and use the installed config/data for execution.
         _install(payload.binding, payload.policyConfig);
         PolicyRecord storage policyRecord = _policies[policy][policyId];
-        if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
+        if (policyRecord.uninstalled) revert PolicyIsUninstalled(policyId);
         _checkInstallWindow(policyRecord.validAfter, policyRecord.validUntil);
 
         _execute(policy, policyId, policyRecord.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
@@ -216,32 +216,32 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function getPolicyRecord(address policy, bytes32 policyId)
         external
         view
-        returns (bool installed, bool revoked, address account, uint40 validAfter, uint40 validUntil)
+        returns (bool installed, bool uninstalled, address account, uint40 validAfter, uint40 validUntil)
     {
         PolicyRecord storage p = _policies[policy][policyId];
-        return (p.installed, p.revoked, p.account, p.validAfter, p.validUntil);
+        return (p.installed, p.uninstalled, p.account, p.validAfter, p.validUntil);
     }
 
-    /// @notice True if the policy is installed (even if revoked).
+    /// @notice True if the policy is installed (even if uninstalled).
     function isPolicyInstalled(address policy, bytes32 policyId) external view returns (bool) {
         return _policies[policy][policyId].installed;
     }
 
-    /// @notice True if the policy has been revoked.
-    function isPolicyRevoked(address policy, bytes32 policyId) external view returns (bool) {
-        return _policies[policy][policyId].revoked;
+    /// @notice True if the policy has been uninstalled.
+    function isPolicyUninstalled(address policy, bytes32 policyId) external view returns (bool) {
+        return _policies[policy][policyId].uninstalled;
     }
 
-    /// @notice True if the policy is installed and not revoked.
+    /// @notice True if the policy is installed and not uninstalled.
     function isPolicyActive(address policy, bytes32 policyId) external view returns (bool) {
         PolicyRecord storage p = _policies[policy][policyId];
-        return p.installed && !p.revoked;
+        return p.installed && !p.uninstalled;
     }
 
-    /// @notice True if the policy is installed, not revoked, and currently within its valid install window.
+    /// @notice True if the policy is installed, not uninstalled, and currently within its valid install window.
     function isPolicyActiveNow(address policy, bytes32 policyId) external view returns (bool) {
         PolicyRecord storage p = _policies[policy][policyId];
-        if (!p.installed || p.revoked) return false;
+        if (!p.installed || p.uninstalled) return false;
         uint40 ts = uint40(block.timestamp);
         if (p.validAfter != 0 && ts < p.validAfter) return false;
         if (p.validUntil != 0 && ts >= p.validUntil) return false;
@@ -266,7 +266,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyBindingStructHash(binding);
         PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
-        if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
+        if (policyRecord.uninstalled) revert PolicyIsUninstalled(policyId);
 
         // Idempotent behavior: installing an already-installed policy instance is a no-op.
         if (policyRecord.installed) return policyId;

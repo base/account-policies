@@ -212,7 +212,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         // Revoke and then install should succeed.
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(address(account));
-        policyManager.revokePolicy(address(policy), policyId);
+        policyManager.uninstallPolicy(address(policy), policyId);
 
         policyManager.installPolicyWithSignature(binding2, cfg2, userSig2);
     }

@@ -52,7 +52,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
     /// @dev One active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
 
-    /// @dev Stored market key per policy instance to support clean revocation.
+    /// @dev Stored market key per policy instance to support clean uninstallation.
     mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
 
     /// @dev Recurring allowance state (budget in collateral units).
@@ -120,7 +120,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
-    function _onRevoke(bytes32 policyId, address account, address caller) internal override {
+    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
         if (caller != account) revert Unauthorized(caller);
 
         bytes32 marketKey = _marketIdByPolicyId[policyId];

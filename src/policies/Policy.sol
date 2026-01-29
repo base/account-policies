@@ -35,9 +35,9 @@ abstract contract Policy {
     }
 
     /// @notice Policy hook invoked during revocation.
-    /// @dev Called by `PolicyManager` after the binding has been marked revoked.
-    function onRevoke(bytes32 policyId, address account, address caller) external onlyPolicyManager {
-        _onRevoke(policyId, account, caller);
+    /// @dev Called by `PolicyManager` after the binding has been marked uninstalled.
+    function onUninstall(bytes32 policyId, address account, address caller) external onlyPolicyManager {
+        _onUninstall(policyId, account, caller);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
@@ -56,7 +56,7 @@ abstract contract Policy {
 
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
 
-    function _onRevoke(bytes32 policyId, address account, address caller) internal virtual;
+    function _onUninstall(bytes32 policyId, address account, address caller) internal virtual;
 
     function _onExecute(
         bytes32 policyId,
