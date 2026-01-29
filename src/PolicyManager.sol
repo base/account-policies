@@ -150,11 +150,18 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @dev This is a typed helper to avoid requiring integrators to deploy a batching contract.
     function executeWithInstall(InstallAndExecutePayload calldata payload) external nonReentrant {
         bytes32 policyId = getPolicyBindingStructHash(payload.binding);
-        PolicyRecord storage p = _policies[payload.binding.policy][policyId];
-        if (p.installed) revert PolicyAlreadyInstalled(policyId);
-
         address policy = payload.binding.policy;
         if (policy == address(0)) revert InvalidInstallAndExecutePayload();
+
+        PolicyRecord storage p = _policies[policy][policyId];
+        // Idempotent behavior: if already installed, skip installation authorization and execute directly.
+        // This avoids brittleness when multiple parties race to "be first" to install.
+        if (p.installed) {
+            if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+            _checkInstallWindow(p.validAfter, p.validUntil);
+            _execute(policy, policyId, p.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
+            return;
+        }
 
         // Verify an execution-bound install signature (cannot be replayed as a plain install).
         if (payload.deadline != 0 && block.timestamp > payload.deadline) {
@@ -261,7 +268,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
         if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        if (policyRecord.installed) revert PolicyAlreadyInstalled(policyId);
+        // Idempotent behavior: installing an already-installed policy instance is a no-op.
+        // - Do not call the policy hook (prevents signature replay from triggering policy-side effects).
+        // - Do not emit an event (prevents indexer noise; callers can treat this as success).
+        if (policyRecord.installed) return policyId;
 
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != binding.policyConfigHash) {

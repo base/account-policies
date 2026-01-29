@@ -200,7 +200,7 @@ contract MorphoLendPolicyTest is Test {
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
-    function test_morphoPolicy_reinstallWithSignature_reverts() public {
+    function test_morphoPolicy_reinstallWithSignature_isIdempotent() public {
         bytes memory localPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -213,13 +213,15 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         bytes memory userSig = _signInstall(localBinding);
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
+        bytes32 first = policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
+        bytes32 second = policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, policyId));
-        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
+        assertEq(first, policyId);
+        assertEq(second, policyId);
+        assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
-    function test_morphoPolicy_reinstallDirect_reverts() public {
+    function test_morphoPolicy_reinstallDirect_isIdempotent() public {
         bytes memory localPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -232,11 +234,14 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
 
         vm.prank(address(account));
-        policyManager.installPolicy(localBinding, localPolicyConfig);
+        bytes32 first = policyManager.installPolicy(localBinding, localPolicyConfig);
 
         vm.prank(address(account));
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, policyId));
-        policyManager.installPolicy(localBinding, localPolicyConfig);
+        bytes32 second = policyManager.installPolicy(localBinding, localPolicyConfig);
+
+        assertEq(first, policyId);
+        assertEq(second, policyId);
+        assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
     function test_morphoPolicy_executorSig_allowsRelayer_andPreventsReplay() public {
