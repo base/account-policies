@@ -20,6 +20,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint40 validAfter,uint40 validUntil,uint256 salt)"
     );
 
+    /// @notice EIP-712 hash of InstallAndExecute type.
+    /// @dev Binds an installation authorization to a specific policy execution (via `policyDataHash`).
+    bytes32 public constant INSTALL_AND_EXECUTE_TYPEHASH =
+        keccak256("InstallAndExecute(bytes32 policyId,bytes32 policyDataHash,uint256 deadline)");
+
     /// @notice Policy was installed.
     event PolicyInstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
@@ -34,6 +39,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyNotInstalled(bytes32 policyId);
     error PolicyAlreadyRevoked(bytes32 policyId);
     error PolicyAlreadyInstalled(bytes32 policyId);
+    error InvalidInstallAndExecutePayload();
+    error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
     error Unauthorized(address caller);
     error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
@@ -48,6 +55,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint40 validUntil;
         uint256 salt;
         bytes32 policyConfigHash;
+    }
+
+    /// @notice Payload used for install+execute in a single call.
+    /// @dev Encoded as `abi.encode(binding, policyConfig, userSig, innerPolicyData, deadline)` and passed via
+    ///      the `policyData` parameter of `execute` when the policy is not yet installed.
+    struct InstallAndExecutePayload {
+        PolicyBinding binding;
+        bytes policyConfig;
+        bytes userSig;
+        bytes innerPolicyData;
+        uint256 deadline;
     }
 
     // 1 slot
@@ -125,13 +143,57 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (p.revoked) revert PolicyAlreadyRevoked(policyId);
 
         _checkInstallWindow(p.validAfter, p.validUntil);
+        _execute(policy, policyId, p.account, policyConfig, policyData, msg.sender);
+    }
 
+    /// @notice Install (with execution-bound authorization) and immediately execute in a single transaction.
+    /// @dev This is a typed helper to avoid requiring integrators to deploy a batching contract.
+    function executeWithInstall(InstallAndExecutePayload calldata payload) external nonReentrant {
+        bytes32 policyId = getPolicyBindingStructHash(payload.binding);
+        PolicyRecord storage p = _policies[payload.binding.policy][policyId];
+        if (p.installed) revert PolicyAlreadyInstalled(policyId);
+
+        address policy = payload.binding.policy;
+        if (policy == address(0)) revert InvalidInstallAndExecutePayload();
+
+        // Verify an execution-bound install signature (cannot be replayed as a plain install).
+        if (payload.deadline != 0 && block.timestamp > payload.deadline) {
+            revert InstallAndExecuteExpired(block.timestamp, payload.deadline);
+        }
+        bytes32 digest = _hashTypedData(
+            keccak256(
+                abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(payload.innerPolicyData), payload.deadline)
+            )
+        );
+        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(
+                payload.binding.account, digest, payload.userSig
+            )) {
+            revert InvalidSignature();
+        }
+
+        // Install policy instance and use the installed config/data for execution.
+        _install(payload.binding, payload.policyConfig);
+        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
+        _checkInstallWindow(policyRecord.validAfter, policyRecord.validUntil);
+
+        _execute(policy, policyId, policyRecord.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
+    }
+
+    function _execute(
+        address policy,
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        address caller
+    ) internal {
         (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(policyId, p.account, policyConfig, policyData, msg.sender);
-        _externalCall(p.account, accountCallData);
+            Policy(policy).onExecute(policyId, account, policyConfig, policyData, caller);
+        _externalCall(account, accountCallData);
         _externalCall(policy, postCallData);
 
-        emit PolicyExecuted(policyId, p.account, policy);
+        emit PolicyExecuted(policyId, account, policy);
     }
 
     function getAccountForPolicy(address policy, bytes32 policyId) external view returns (address account) {
@@ -196,10 +258,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyBindingStructHash(binding);
-        PolicyRecord storage p = _policies[binding.policy][policyId];
-        if (p.revoked) revert PolicyAlreadyRevoked(policyId);
+        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        if (policyRecord.revoked) revert PolicyAlreadyRevoked(policyId);
 
-        if (p.installed) revert PolicyAlreadyInstalled(policyId);
+        if (policyRecord.installed) revert PolicyAlreadyInstalled(policyId);
 
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != binding.policyConfigHash) {
@@ -207,10 +269,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         }
         _checkInstallWindow(binding.validAfter, binding.validUntil);
 
-        p.installed = true;
-        p.account = binding.account;
-        p.validAfter = binding.validAfter;
-        p.validUntil = binding.validUntil;
+        policyRecord.installed = true;
+        policyRecord.account = binding.account;
+        policyRecord.validAfter = binding.validAfter;
+        policyRecord.validUntil = binding.validUntil;
         Policy(binding.policy).onInstall(policyId, binding.account, policyConfig, msg.sender);
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
