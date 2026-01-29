@@ -39,7 +39,7 @@ library RecurringAllowance {
         if (limit.allowance == 0) revert ZeroAllowance();
         if (limit.start >= limit.end) revert InvalidStartEnd(limit.start, limit.end);
 
-        current = _getCurrentPeriod(state, policyId, limit);
+        current = getCurrentPeriod(state, policyId, limit);
         uint256 totalSpend = value + uint256(current.spend);
         if (totalSpend > type(uint160).max) revert SpendValueOverflow(totalSpend);
         if (totalSpend > limit.allowance) revert ExceededAllowance(totalSpend, limit.allowance);
@@ -49,8 +49,16 @@ library RecurringAllowance {
         state.lastUpdated[policyId] = current;
     }
 
-    function _getCurrentPeriod(State storage state, bytes32 policyId, Limit memory limit)
-        private
+    /// @notice Return the most recent stored usage window for `policyId`.
+    /// @dev If `spend == 0`, this may represent "no usage yet" (even if other fields are nonzero).
+    function getLastUpdated(State storage state, bytes32 policyId) internal view returns (PeriodUsage memory) {
+        return state.lastUpdated[policyId];
+    }
+
+    /// @notice Compute the current period window and include stored spend if still active.
+    /// @dev Mirrors the period bucketing used by `useLimit`.
+    function getCurrentPeriod(State storage state, bytes32 policyId, Limit memory limit)
+        internal
         view
         returns (PeriodUsage memory)
     {

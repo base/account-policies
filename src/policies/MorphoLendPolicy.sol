@@ -47,6 +47,27 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     constructor(address policyManager) Policy(policyManager) {}
 
+    /// @notice Return recurring deposit limit usage for a policy instance.
+    /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
+    function getDepositLimitPeriodUsage(bytes32 policyId, address account, bytes calldata policyConfig)
+        external
+        view
+        returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
+    {
+        bytes32 configHash = _configHashes[policyId][account];
+        bytes32 actual = keccak256(policyConfig);
+        if (configHash != actual) revert PolicyConfigHashMismatch(configHash, actual);
+
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
+        current = RecurringAllowance.getCurrentPeriod(_depositLimitState, policyId, cfg.depositLimit);
+    }
+
+    /// @notice Return the last stored recurring deposit usage for a policy instance.
+    function getDepositLimitLastUpdated(bytes32 policyId) external view returns (RecurringAllowance.PeriodUsage memory) {
+        return RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
+    }
+
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
         internal
         override

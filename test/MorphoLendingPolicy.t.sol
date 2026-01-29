@@ -90,9 +90,21 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), supplyAmt);
         assertEq(loanToken.balanceOf(address(account)), supplyAmt);
 
+        // Ergonomics: observe recurring allowance state before/after execution.
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+        (RecurringAllowance.PeriodUsage memory lastBefore, RecurringAllowance.PeriodUsage memory currentBefore) =
+            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+        assertEq(lastBefore.spend, 0);
+        assertEq(currentBefore.spend, 0);
+
         _exec(supplyAmt);
         assertEq(loanToken.balanceOf(address(account)), 0);
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
+
+        (RecurringAllowance.PeriodUsage memory lastAfter, RecurringAllowance.PeriodUsage memory currentAfter) =
+            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+        assertEq(lastAfter.spend, uint160(supplyAmt));
+        assertEq(currentAfter.spend, uint160(supplyAmt));
     }
 
     function test_morphoPolicy_enforcesRecurringLimit() public {

@@ -135,12 +135,24 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
         address relayer = vm.addr(uint256(keccak256("relayer")));
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+
+        // Ergonomics: observe recurring allowance state before/after execution.
+        (RecurringAllowance.PeriodUsage memory lastBefore, RecurringAllowance.PeriodUsage memory currentBefore) =
+            policy.getCollateralLimitPeriodUsage(policyId, policyConfig);
+        assertEq(lastBefore.spend, 0);
+        assertEq(currentBefore.spend, 0);
+
         vm.prank(relayer);
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
 
         Position memory p = morpho.position(marketId, address(account));
         assertEq(uint256(p.collateral), 150 ether);
         assertEq(collateralToken.allowance(address(account), address(morpho)), 0);
+
+        (RecurringAllowance.PeriodUsage memory lastAfter, RecurringAllowance.PeriodUsage memory currentAfter) =
+            policy.getCollateralLimitPeriodUsage(policyId, policyConfig);
+        assertEq(lastAfter.spend, uint160(topUp));
+        assertEq(currentAfter.spend, uint160(topUp));
     }
 
     function test_revertsWhenHealthy_belowTrigger() public {

@@ -90,6 +90,31 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
 
     constructor(address policyManager) Policy(policyManager) {}
 
+    /// @notice Return recurring collateral limit usage for a policy instance.
+    /// @dev Requires the config preimage so the contract can decode `collateralLimit` without storing it.
+    function getCollateralLimitPeriodUsage(bytes32 policyId, bytes calldata policyConfig)
+        external
+        view
+        returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
+    {
+        bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
+
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
+        current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, cfg.collateralLimit);
+    }
+
+    /// @notice Return the last stored recurring collateral usage for a policy instance.
+    function getCollateralLimitLastUpdated(bytes32 policyId)
+        external
+        view
+        returns (RecurringAllowance.PeriodUsage memory)
+    {
+        return RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
+    }
+
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
         internal
         override
