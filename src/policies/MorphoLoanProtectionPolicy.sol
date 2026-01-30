@@ -2,7 +2,9 @@
 pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
@@ -21,9 +23,10 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// - post-protection LTV bounds (min + max)
 /// - recurring allowance budget (in collateral-token units)
 /// - one active policy per (account, marketId)
-contract MorphoLoanProtectionPolicy is EIP712, Policy {
+contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
     error MarketParamsMismatch();
+    error ZeroAdmin();
     error ZeroExecutor();
     error ZeroMorpho();
     error ZeroMarketId();
@@ -88,7 +91,18 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         bytes signature; // executor signature
     }
 
-    constructor(address policyManager) Policy(policyManager) {}
+    constructor(address policyManager, address admin) Policy(policyManager) {
+        if (admin == address(0)) revert ZeroAdmin();
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
 
     function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (, , , uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
@@ -200,7 +214,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
         bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);

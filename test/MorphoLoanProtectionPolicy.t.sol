@@ -10,6 +10,7 @@ import {PolicyManager} from "../src/PolicyManager.sol";
 import {Id, Market, MarketParams, Position} from "../src/interfaces/morpho/BlueTypes.sol";
 import {MorphoLoanProtectionPolicy} from "../src/policies/MorphoLoanProtectionPolicy.sol";
 import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoBlue, MockMorphoOracle} from "./mocks/MockMorphoBlue.sol";
@@ -54,7 +55,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
-        policy = new MorphoLoanProtectionPolicy(address(policyManager));
+        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner);
 
         // PolicyManager must be an owner to call wallet execution methods.
         vm.prank(owner);
@@ -241,6 +242,18 @@ contract MorphoLoanProtectionPolicyTest is Test {
         bytes memory policyData = _encodePolicyData(50 ether, 1, uint256(block.timestamp + 1 days), hex"");
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
+    }
+
+    function test_pause_blocksExecute() public {
+        vm.prank(owner);
+        policy.pause();
+
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+        bytes memory policyData = _encodePolicyData(50 ether, 1, uint256(block.timestamp + 1 days), hex"");
+
+        vm.prank(vm.addr(uint256(keccak256("relayer"))));
+        vm.expectRevert(Pausable.EnforcedPause.selector);
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 

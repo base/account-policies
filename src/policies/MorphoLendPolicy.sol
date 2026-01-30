@@ -2,6 +2,8 @@
 pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
@@ -13,8 +15,9 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// @notice Morpho vault deposit policy.
 /// @dev Intentionally conservative: fixed vault, fixed receiver (the account), bounded amount, approval reset,
 ///      and optional cumulative cap.
-contract MorphoLendPolicy is EIP712, Policy {
+contract MorphoLendPolicy is EIP712, Policy, AccessControl, Pausable {
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
+    error ZeroAdmin();
     error ZeroAmount();
     error ZeroVault();
     error ZeroExecutor();
@@ -45,7 +48,18 @@ contract MorphoLendPolicy is EIP712, Policy {
         bytes signature;
     }
 
-    constructor(address policyManager) Policy(policyManager) {}
+    constructor(address policyManager, address admin) Policy(policyManager) {
+        if (admin == address(0)) revert ZeroAdmin();
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
 
     function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (, , , uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
@@ -125,7 +139,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
         bytes32 configHash = _configHashes[policyId][account];
         if (configHash != keccak256(policyConfig)) {
             revert PolicyConfigHashMismatch(configHash, keccak256(policyConfig));
