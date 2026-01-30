@@ -39,6 +39,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Policy execution occurred.
     event PolicyExecuted(bytes32 indexed policyId, address indexed account, address indexed policy);
 
+    /// @notice Policy installation intent was cancelled before installation.
+    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy);
+
     /// @notice Policy instance was replaced atomically.
     event PolicyReplaced(
         bytes32 indexed oldPolicyId,
@@ -145,6 +148,53 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _install(binding, policyConfig);
     }
 
+    /// @notice Cancel a policy installation intent (including preemptively, before installation).
+    /// @dev This is distinct from uninstallation:
+    /// - If the policy is already installed, this uninstalls it (calling the policy hook and emitting `PolicyUninstalled`).
+    /// - If the policy is not installed, it marks the policyId as uninstalled to permanently block future installs and
+    ///   emits `PolicyCancelled`.
+    ///
+    /// Authorization:
+    /// - If installed: authorization is enforced by the policy's `onUninstall` hook.
+    /// - If not installed: authorization is enforced by the policy's `onCancel` hook.
+    ///
+    /// To "uncancel", the account must sign/install a new binding with a new salt (i.e., a different `policyId`).
+    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig)
+        external
+        nonReentrant
+        returns (bytes32 policyId)
+    {
+        if (binding.policy == address(0)) revert InvalidReplacePolicyPayload();
+        policyId = getPolicyBindingStructHash(binding);
+        PolicyRecord storage p = _policies[binding.policy][policyId];
+
+        // Idempotent behavior: cancelling an already-uninstalled policyId is a no-op.
+        if (p.uninstalled) return policyId;
+
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
+        // If installed, uninstall normally (hook + event) using the caller.
+        if (p.installed) {
+            _uninstall(binding.policy, policyId, policyConfig);
+            return policyId;
+        }
+
+        // Pre-install cancel: enforce policy-defined authorization.
+        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, msg.sender);
+
+        // Mark as uninstalled to permanently block future installs.
+        p.uninstalled = true;
+        p.account = binding.account;
+        p.validAfter = binding.validAfter;
+        p.validUntil = binding.validUntil;
+
+        emit PolicyCancelled(policyId, binding.account, binding.policy);
+        return policyId;
+    }
+
     /// @notice Uninstall a policy, optionally providing `policyConfig`.
     /// @dev `policyConfig` MAY be empty. Policies can use it to authorize non-account uninstallers.
     function uninstallPolicy(address policy, bytes32 policyId, bytes calldata policyConfig)
@@ -158,6 +208,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _uninstall(address policy, bytes32 policyId, bytes memory policyConfig) internal returns (bool uninstalled) {
         PolicyRecord storage p = _policies[policy][policyId];
         if (p.uninstalled) revert PolicyIsUninstalled(policyId);
+        if (!p.installed) revert PolicyNotInstalled(policyId);
         p.uninstalled = true;
         try Policy(policy).onUninstall(policyId, p.account, policyConfig, msg.sender) {}
         catch {

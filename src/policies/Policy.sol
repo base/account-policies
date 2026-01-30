@@ -34,6 +34,16 @@ abstract contract Policy {
         _onInstall(policyId, account, policyConfig, caller);
     }
 
+    /// @notice Policy hook invoked during pre-install cancellation.
+    /// @dev Called by `PolicyManager.cancelPolicy` before installation. Policies can use this hook to authorize who is
+    ///      allowed to cancel a pending installation intent (e.g., executor/guardian derived from `policyConfig`).
+    function onCancel(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        external
+        onlyPolicyManager
+    {
+        _onCancel(policyId, account, policyConfig, caller);
+    }
+
     /// @notice Policy hook invoked during uninstallation.
     /// @dev Called by `PolicyManager` after the binding has been marked uninstalled.
     ///
@@ -65,6 +75,11 @@ abstract contract Policy {
     function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
         internal
         virtual;
+
+    /// @dev Default: only the account can cancel. Policies can override to allow other roles.
+    function _onCancel(bytes32, address account, bytes calldata, address caller) internal virtual {
+        if (caller != account) revert InvalidSender(caller, account);
+    }
 
     function _onExecute(
         bytes32 policyId,

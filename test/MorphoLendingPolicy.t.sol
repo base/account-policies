@@ -317,6 +317,28 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    function test_morphoPolicy_executorCanPreCancelInstallIntent() public {
+        bytes memory localPolicyConfig = policyConfig;
+        PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 9090,
+            policyConfigHash: keccak256(localPolicyConfig)
+        });
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
+
+        // Executor can cancel an uninstalled policyId (preemptively) by presenting the config.
+        vm.prank(executor);
+        policyManager.cancelPolicy(localBinding, localPolicyConfig);
+
+        // Now installation of that exact policyId is blocked.
+        bytes memory userSig = _signInstall(localBinding);
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
+    }
+
     function _exec(uint256 assets) internal {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);

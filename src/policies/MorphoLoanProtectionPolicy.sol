@@ -199,6 +199,15 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         _clearInstallState(policyId, account);
     }
 
+    function _onCancel(bytes32, address account, bytes calldata policyConfig, address caller) internal view override {
+        // Account can always cancel.
+        if (caller == account) return;
+
+        // Executor can cancel if it can be derived from the config.
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        if (caller != cfg.executor) revert Unauthorized(caller);
+    }
+
     function _clearInstallState(bytes32 policyId, address account) internal {
         bytes32 marketKey = _marketIdByPolicyId[policyId];
         if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
