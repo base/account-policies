@@ -90,6 +90,24 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
 
     constructor(address policyManager) Policy(policyManager) {}
 
+    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+        (, , , uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        start = uint48(validAfter);
+        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
+    }
+
+    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+        internal
+        view
+        returns (RecurringAllowance.Limit memory)
+    {
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        if (limit.start == 0 && limit.end == 0) {
+            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+        }
+        return limit;
+    }
+
     /// @notice Return recurring collateral limit usage for a policy instance.
     /// @dev Requires the config preimage so the contract can decode `collateralLimit` without storing it.
     function getCollateralLimitPeriodUsage(bytes32 policyId, bytes calldata policyConfig)
@@ -102,6 +120,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
 
         Config memory cfg = abi.decode(policyConfig, (Config));
+        cfg.collateralLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.collateralLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, cfg.collateralLimit);
     }
@@ -193,7 +212,8 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         _enforceLtvBounds(cfg, account, pd.data.topUpAssets);
 
         // Enforce recurring budget in collateral-token units.
-        RecurringAllowance.useLimit(_collateralLimitState, policyId, cfg.collateralLimit, pd.data.topUpAssets);
+        RecurringAllowance.Limit memory collateralLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.collateralLimit);
+        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, pd.data.topUpAssets);
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)

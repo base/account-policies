@@ -110,8 +110,8 @@ contract MorphoLoanProtectionPolicyTest is Test {
             collateralLimit: RecurringAllowance.Limit({
                 allowance: 500 ether,
                 period: 7 days,
-                start: uint48(block.timestamp),
-                end: type(uint48).max
+                start: 0,
+                end: 0
             })
         });
         policyConfig = abi.encode(cfg);

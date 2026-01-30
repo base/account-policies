@@ -65,8 +65,8 @@ contract MorphoLendPolicyTest is Test {
             depositLimit: RecurringAllowance.Limit({
                 allowance: 1_000_000 ether,
                 period: 1 days,
-                start: uint48(block.timestamp),
-                end: type(uint48).max
+                start: 0,
+                end: 0
             })
         });
 

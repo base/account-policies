@@ -47,6 +47,24 @@ contract MorphoLendPolicy is EIP712, Policy {
 
     constructor(address policyManager) Policy(policyManager) {}
 
+    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+        (, , , uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        start = uint48(validAfter);
+        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
+    }
+
+    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+        internal
+        view
+        returns (RecurringAllowance.Limit memory)
+    {
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        if (limit.start == 0 && limit.end == 0) {
+            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+        }
+        return limit;
+    }
+
     /// @notice Return recurring deposit limit usage for a policy instance.
     /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
     function getDepositLimitPeriodUsage(bytes32 policyId, address account, bytes calldata policyConfig)
@@ -59,6 +77,7 @@ contract MorphoLendPolicy is EIP712, Policy {
         if (configHash != actual) revert PolicyConfigHashMismatch(configHash, actual);
 
         Config memory cfg = abi.decode(policyConfig, (Config));
+        cfg.depositLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.depositLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(_depositLimitState, policyId, cfg.depositLimit);
     }
@@ -127,7 +146,8 @@ contract MorphoLendPolicy is EIP712, Policy {
 
         _usedNonces[policyId][pd.data.nonce] = true;
 
-        RecurringAllowance.useLimit(_depositLimitState, policyId, cfg.depositLimit, pd.data.assets);
+        RecurringAllowance.Limit memory depositLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.depositLimit);
+        RecurringAllowance.useLimit(_depositLimitState, policyId, depositLimit, pd.data.assets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
             _buildVaultDepositCall(cfg, account, pd.data.assets);
