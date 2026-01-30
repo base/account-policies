@@ -257,6 +257,80 @@ contract MorphoLoanProtectionPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    function test_replacePolicyWithSignature_canReplaceInSingleTx_forSameMarket() public {
+        // Install a second instance for the same (account, market) via replace.
+        MorphoLoanProtectionPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLoanProtectionPolicy.Config));
+        bytes memory cfg2 = abi.encode(cfg);
+        PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 333,
+            policyConfigHash: keccak256(cfg2)
+        });
+
+        bytes32 oldPolicyId = policyManager.getPolicyBindingStructHash(binding);
+        bytes32 newPolicyId = policyManager.getPolicyBindingStructHash(binding2);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory replaceSig = _signReplace(address(policy), oldPolicyId, newPolicyId, deadline);
+
+        PolicyManager.ReplacePolicyPayload memory payload = PolicyManager.ReplacePolicyPayload({
+            oldPolicy: address(policy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: "",
+            newBinding: binding2,
+            newPolicyConfig: cfg2,
+            userSig: replaceSig,
+            deadline: deadline
+        });
+
+        // Replace is submitted by a relayer.
+        vm.prank(vm.addr(uint256(keccak256("relayer"))));
+        policyManager.replacePolicyWithSignature(payload);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(policy), oldPolicyId));
+        assertTrue(policyManager.isPolicyInstalled(address(policy), newPolicyId));
+        assertFalse(policyManager.isPolicyUninstalled(address(policy), newPolicyId));
+
+        // A third install for the same market should revert again (new instance is now active).
+        PolicyManager.PolicyBinding memory binding3 = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 444,
+            policyConfigHash: keccak256(cfg2)
+        });
+        bytes memory userSig3 = _signInstall(binding3);
+        vm.expectRevert(); // PolicyAlreadyInstalledForMarket(...)
+        policyManager.installPolicyWithSignature(binding3, cfg2, userSig3);
+    }
+
+    function _signReplace(address oldPolicy, bytes32 oldPolicyId, bytes32 newPolicyId, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                policyManager.REPLACE_POLICY_TYPEHASH(),
+                address(account),
+                oldPolicy,
+                oldPolicyId,
+                newPolicyId,
+                deadline
+            )
+        );
+        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
+        bytes32 replaySafeDigest = account.replaySafeHash(digest);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        return account.wrapSignature(0, signature);
+    }
+
     function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline, bytes memory callbackData)
         internal
         view
