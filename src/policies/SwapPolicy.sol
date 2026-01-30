@@ -62,7 +62,7 @@ contract SwapPolicy is Policy {
         if (cfg.maxAmountIn == 0) revert ZeroMaxAmountIn();
     }
 
-    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
+    function _onUninstall(bytes32 policyId, address account, bytes calldata, address caller) internal override {
         if (caller != account) revert InvalidSender(caller, account);
         delete _configHashes[policyId];
     }

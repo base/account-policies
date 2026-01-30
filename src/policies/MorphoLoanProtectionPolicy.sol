@@ -145,9 +145,28 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy {
         _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
-    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
-        if (caller != account) revert Unauthorized(caller);
+    function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
+        override
+    {
+        // Account can always uninstall (config optional).
+        if (caller == account) {
+            _clearInstallState(policyId, account);
+            return;
+        }
 
+        // Non-account uninstallers must provide the installed config preimage.
+        bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
+
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        if (caller != cfg.executor) revert Unauthorized(caller);
+
+        _clearInstallState(policyId, account);
+    }
+
+    function _clearInstallState(bytes32 policyId, address account) internal {
         bytes32 marketKey = _marketIdByPolicyId[policyId];
         if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
             delete _activePolicyByMarket[account][marketKey];

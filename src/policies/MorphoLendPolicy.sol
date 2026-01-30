@@ -79,8 +79,24 @@ contract MorphoLendPolicy is EIP712, Policy {
         _configHashes[policyId][account] = keccak256(policyConfig);
     }
 
-    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
-        if (caller != account) revert Unauthorized(caller);
+    function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
+        override
+    {
+        // Account can always uninstall (config optional).
+        if (caller == account) {
+            delete _configHashes[policyId][account];
+            return;
+        }
+
+        // Non-account uninstallers must provide the installed config preimage.
+        bytes32 expectedHash = _configHashes[policyId][account];
+        bytes32 actualHash = keccak256(policyConfig);
+        if (expectedHash != actualHash) revert PolicyConfigHashMismatch(actualHash, expectedHash);
+
+        Config memory cfg = abi.decode(policyConfig, (Config));
+        if (caller != cfg.executor) revert Unauthorized(caller);
+
         delete _configHashes[policyId][account];
     }
 

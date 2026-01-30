@@ -79,7 +79,7 @@ contract SpendPolicy is EIP712, Policy {
         if (sp.account != account) revert InvalidPolicyConfigAccount(sp.account, account);
     }
 
-    function _onUninstall(bytes32 policyId, address account, address caller) internal override {
+    function _onUninstall(bytes32 policyId, address account, bytes calldata, address caller) internal override {
         if (caller != account) revert InvalidSender(caller, account);
         delete _configHashes[policyId];
         delete _lastUpdatedPeriod[policyId];

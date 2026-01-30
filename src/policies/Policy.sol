@@ -34,10 +34,16 @@ abstract contract Policy {
         _onInstall(policyId, account, policyConfig, caller);
     }
 
-    /// @notice Policy hook invoked during revocation.
+    /// @notice Policy hook invoked during uninstallation.
     /// @dev Called by `PolicyManager` after the binding has been marked uninstalled.
-    function onUninstall(bytes32 policyId, address account, address caller) external onlyPolicyManager {
-        _onUninstall(policyId, account, caller);
+    ///
+    /// `policyConfig` MAY be empty. Policies can use it to re-hydrate authorization (e.g., dynamic executors)
+    /// without requiring additional stored state.
+    function onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        external
+        onlyPolicyManager
+    {
+        _onUninstall(policyId, account, policyConfig, caller);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
@@ -56,7 +62,9 @@ abstract contract Policy {
 
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
 
-    function _onUninstall(bytes32 policyId, address account, address caller) internal virtual;
+    function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
+        virtual;
 
     function _onExecute(
         bytes32 policyId,

@@ -118,12 +118,21 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _install(binding, policyConfig);
     }
 
-    /// @notice Uninstall a policy via a direct call from the account.
-    function uninstallPolicy(address policy, bytes32 policyId) external nonReentrant returns (bool uninstalled) {
+    /// @notice Uninstall a policy, optionally providing `policyConfig`.
+    /// @dev `policyConfig` MAY be empty. Policies can use it to authorize non-account uninstallers.
+    function uninstallPolicy(address policy, bytes32 policyId, bytes calldata policyConfig)
+        external
+        nonReentrant
+        returns (bool uninstalled)
+    {
+        return _uninstall(policy, policyId, policyConfig);
+    }
+
+    function _uninstall(address policy, bytes32 policyId, bytes memory policyConfig) internal returns (bool uninstalled) {
         PolicyRecord storage p = _policies[policy][policyId];
         if (p.uninstalled) revert PolicyIsUninstalled(policyId);
         p.uninstalled = true;
-        try Policy(policy).onUninstall(policyId, p.account, msg.sender) {}
+        try Policy(policy).onUninstall(policyId, p.account, policyConfig, msg.sender) {}
         catch {
             if (msg.sender != p.account) revert Unauthorized(msg.sender);
         }

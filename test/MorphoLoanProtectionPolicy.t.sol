@@ -224,9 +224,24 @@ contract MorphoLoanProtectionPolicyTest is Test {
         // Revoke and then install should succeed.
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(address(account));
-        policyManager.uninstallPolicy(address(policy), policyId);
+        policyManager.uninstallPolicy(address(policy), policyId, "");
 
         policyManager.installPolicyWithSignature(binding2, cfg2, userSig2);
+    }
+
+    function test_executorCanUninstall() public {
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+
+        vm.prank(executor);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
+
+        // Execution should now be blocked by the manager.
+        bytes memory policyData = _encodePolicyData(50 ether, 1, uint256(block.timestamp + 1 days), hex"");
+        vm.prank(vm.addr(uint256(keccak256("relayer"))));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
     function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline, bytes memory callbackData)

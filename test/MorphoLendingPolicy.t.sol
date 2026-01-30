@@ -256,6 +256,23 @@ contract MorphoLendPolicyTest is Test {
         assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
+    function test_morphoPolicy_executorCanUninstall() public {
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+
+        vm.prank(executor);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
+
+        // Execution should now be blocked by the manager.
+        loanToken.mint(address(account), 1 ether);
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 1 ether, nonce: 1});
+        bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
+        vm.prank(executor);
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        policyManager.execute(address(policy), policyId, policyConfig, policyData);
+    }
+
     function test_morphoPolicy_executorSig_allowsRelayer_andPreventsReplay() public {
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
