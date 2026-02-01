@@ -8,6 +8,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {MorphoLendPolicy} from "../src/policies/MorphoLendPolicy.sol";
+import {AOAPolicy} from "../src/policies/AOAPolicy.sol";
 import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
@@ -60,6 +61,48 @@ contract MorphoLendPolicyTest is Test {
         loanToken = new MintableToken("Loan", "LOAN");
         vault = new MockMorphoVault(address(loanToken));
 
+        bytes memory policySpecificConfig = abi.encode(
+            MorphoLendPolicy.MorphoConfig({
+                vault: address(vault),
+                depositLimit: RecurringAllowance.Limit({allowance: 1_000_000 ether, period: 1 days, start: 0, end: 0})
+            })
+        );
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+
+        PolicyManager.PolicyBinding memory binding_ = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 111,
+            policyConfigHash: keccak256(policyConfig)
+        });
+        binding = binding_;
+
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
+    }
+
+    function _decodePolicyConfig(bytes memory policyConfig_)
+        internal
+        pure
+        returns (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg)
+    {
+        bytes memory policySpecificConfig;
+        (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
+        cfg = abi.decode(policySpecificConfig, (MorphoLendPolicy.MorphoConfig));
+    }
+
+    function _encodePolicyConfig(AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(aoa, abi.encode(cfg));
+    }
+
+    // (Old config constructor removed; policyConfig/binding now built above.)
+    /*
         MorphoLendPolicy.Config memory cfg = MorphoLendPolicy.Config({
             executor: executor,
             vault: address(vault),
@@ -81,9 +124,7 @@ contract MorphoLendPolicyTest is Test {
             policyConfigHash: keccak256(policyConfig)
         });
 
-        bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
-    }
+    */
 
     function test_morphoPolicy_supplyOnly() public {
         uint256 supplyAmt = 100 ether;
@@ -109,10 +150,9 @@ contract MorphoLendPolicyTest is Test {
     }
 
     function test_morphoPolicy_enforcesRecurringLimit() public {
-        MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
+        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 1 ether;
-
-        bytes memory localPolicyConfig = abi.encode(cfg);
+        bytes memory localPolicyConfig = _encodePolicyConfig(aoa, cfg);
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -136,13 +176,13 @@ contract MorphoLendPolicyTest is Test {
     }
 
     function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
-        MorphoLendPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLendPolicy.Config));
+        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 100 ether;
         cfg.depositLimit.period = 1 days;
-        cfg.depositLimit.start = uint48(block.timestamp);
-        cfg.depositLimit.end = type(uint48).max;
+        cfg.depositLimit.start = 0;
+        cfg.depositLimit.end = 0;
 
-        bytes memory localPolicyConfig = abi.encode(cfg);
+        bytes memory localPolicyConfig = _encodePolicyConfig(aoa, cfg);
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -296,7 +336,7 @@ contract MorphoLendPolicyTest is Test {
         bytes memory payload = abi.encode(ld);
         bytes32 execDigest = _getPolicyExecutionDigest(binding, payload);
         bytes memory sig = _signExecution(execDigest);
-        bytes memory policyData = abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
+        bytes memory policyData = abi.encode(abi.encode(ld), sig);
 
         address relayer = vm.addr(uint256(keccak256("relayer")));
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
@@ -354,7 +394,7 @@ contract MorphoLendPolicyTest is Test {
     {
         bytes32 execDigest = _getPolicyExecutionDigest(binding_, abi.encode(ld));
         bytes memory sig = _signExecution(execDigest);
-        return abi.encode(MorphoLendPolicy.PolicyData({data: ld, signature: sig}));
+        return abi.encode(abi.encode(ld), sig);
     }
 
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {

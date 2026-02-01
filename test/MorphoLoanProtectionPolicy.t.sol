@@ -9,6 +9,7 @@ import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../src/PolicyManager.sol";
 import {Id, Market, MarketParams, Position} from "../src/interfaces/morpho/BlueTypes.sol";
 import {MorphoLoanProtectionPolicy} from "../src/policies/MorphoLoanProtectionPolicy.sol";
+import {AOAPolicy} from "../src/policies/AOAPolicy.sol";
 import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
@@ -100,22 +101,19 @@ contract MorphoLoanProtectionPolicyTest is Test {
         // Fund wallet with collateral for top-ups.
         collateralToken.mint(address(account), 1_000 ether);
 
-        MorphoLoanProtectionPolicy.Config memory cfg = MorphoLoanProtectionPolicy.Config({
-            executor: executor,
-            morpho: address(morpho),
-            marketId: marketId,
-            marketParams: marketParams,
-            triggerLtv: 0.70e18,
-            minPostProtectionLtv: 0.45e18,
-            maxPostProtectionLtv: 0.60e18,
-            collateralLimit: RecurringAllowance.Limit({
-                allowance: 500 ether,
-                period: 7 days,
-                start: 0,
-                end: 0
+        bytes memory policySpecificConfig = abi.encode(
+            MorphoLoanProtectionPolicy.MorphoConfig({
+                morpho: address(morpho),
+                marketId: marketId,
+                marketParams: marketParams,
+                triggerLtv: 0.70e18,
+                minPostProtectionLtv: 0.45e18,
+                maxPostProtectionLtv: 0.60e18,
+                collateralLimit: RecurringAllowance.Limit({allowance: 500 ether, period: 7 days, start: 0, end: 0})
             })
-        });
-        policyConfig = abi.encode(cfg);
+        );
+        policyConfig =
+            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -128,6 +126,16 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
         bytes memory userSig = _signInstall(binding);
         policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
+    }
+
+    function _decodePolicyConfig(bytes memory policyConfig_)
+        internal
+        pure
+        returns (AOAPolicy.AOAConfig memory aoa, MorphoLoanProtectionPolicy.MorphoConfig memory cfg)
+    {
+        bytes memory policySpecificConfig;
+        (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
+        cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.MorphoConfig));
     }
 
     function test_happyPath_topUpCollateral_enforcesLtvBounds_andResetsApproval() public {
@@ -207,8 +215,8 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
     function test_onePolicyPerMarket_enforced_andRevocationUnlocks() public {
         // Attempt to install another policy instance for the same (account, market).
-        MorphoLoanProtectionPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLoanProtectionPolicy.Config));
-        bytes memory cfg2 = abi.encode(cfg);
+        (, MorphoLoanProtectionPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -259,8 +267,8 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
     function test_replacePolicyWithSignature_canReplaceInSingleTx_forSameMarket() public {
         // Install a second instance for the same (account, market) via replace.
-        MorphoLoanProtectionPolicy.Config memory cfg = abi.decode(policyConfig, (MorphoLoanProtectionPolicy.Config));
-        bytes memory cfg2 = abi.encode(cfg);
+        (, MorphoLoanProtectionPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -368,7 +376,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
             deadline: deadline,
             callbackData: callbackData
         });
-        return abi.encode(MorphoLoanProtectionPolicy.PolicyData({data: pd, signature: sig}));
+        return abi.encode(abi.encode(pd), sig);
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {

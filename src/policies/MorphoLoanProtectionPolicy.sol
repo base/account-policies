@@ -2,9 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
@@ -12,7 +10,7 @@ import {Id, Market, MarketParams, Position} from "../interfaces/morpho/BlueTypes
 import {IMorphoBlue} from "../interfaces/morpho/IMorphoBlue.sol";
 import {IOracle} from "../interfaces/morpho/IOracle.sol";
 
-import {Policy} from "./Policy.sol";
+import {AOAPolicy} from "./AOAPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 /// @notice Morpho Blue liquidation-protection policy: supplies collateral when LTV is high.
@@ -23,11 +21,8 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// - post-protection LTV bounds (min + max)
 /// - recurring allowance budget (in collateral-token units)
 /// - one active policy per (account, marketId)
-contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
-    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
+contract MorphoLoanProtectionPolicy is EIP712, AOAPolicy {
     error MarketParamsMismatch();
-    error ZeroAdmin();
-    error ZeroExecutor();
     error ZeroMorpho();
     error ZeroMarketId();
     error ZeroAmount();
@@ -49,9 +44,6 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
     bytes32 public constant TOP_UP_DATA_TYPEHASH =
         keccak256("TopUpData(uint256 topUpAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
 
-    /// @dev Active config hash per policy instance.
-    mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
-
     /// @dev One active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
 
@@ -64,8 +56,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
     /// @dev Replay protection for executor intents.
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
-    struct Config {
-        address executor;
+    struct MorphoConfig {
         address morpho;
         Id marketId;
         MarketParams marketParams;
@@ -86,26 +77,10 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         bytes callbackData; // forwarded to Morpho's callback (optional)
     }
 
-    struct PolicyData {
-        TopUpData data;
-        bytes signature; // executor signature
-    }
-
-    constructor(address policyManager, address admin) Policy(policyManager) {
-        if (admin == address(0)) revert ZeroAdmin();
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-    }
-
-    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pause();
-    }
-
-    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _unpause();
-    }
+    constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
     function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
-        (, , , uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
@@ -129,11 +104,12 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         view
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
     {
-        bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
+        _requireConfigHash(policyId, policyConfig);
+        address account = POLICY_MANAGER.getAccountForPolicy(address(this), policyId);
+        (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
+        aoa; // silence unused warning
 
-        Config memory cfg = abi.decode(policyConfig, (Config));
+        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
         cfg.collateralLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.collateralLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, cfg.collateralLimit);
@@ -148,13 +124,11 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         return RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
     }
 
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoa, bytes memory policySpecificConfig)
         internal
         override
     {
-        caller;
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        if (cfg.executor == address(0)) revert ZeroExecutor();
+        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
         if (cfg.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(cfg.marketId) == bytes32(0)) revert ZeroMarketId();
 
@@ -169,43 +143,15 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(cfg.marketId);
-        if (_activePolicyByMarket[account][marketKey] != bytes32(0)) {
-            revert PolicyAlreadyInstalledForMarket(account, cfg.marketId);
+        if (_activePolicyByMarket[aoa.account][marketKey] != bytes32(0)) {
+            revert PolicyAlreadyInstalledForMarket(aoa.account, cfg.marketId);
         }
-        _activePolicyByMarket[account][marketKey] = policyId;
+        _activePolicyByMarket[aoa.account][marketKey] = policyId;
         _marketIdByPolicyId[policyId] = marketKey;
-
-        _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
-    function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
-        internal
-        override
-    {
-        // Account can always uninstall (config optional).
-        if (caller == account) {
-            _clearInstallState(policyId, account);
-            return;
-        }
-
-        // Non-account uninstallers must provide the installed config preimage.
-        bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
-
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        if (caller != cfg.executor) revert Unauthorized(caller);
-
+    function _onAOAUninstall(bytes32 policyId, address account, address) internal override {
         _clearInstallState(policyId, account);
-    }
-
-    function _onCancel(bytes32, address account, bytes calldata policyConfig, address caller) internal view override {
-        // Account can always cancel.
-        if (caller == account) return;
-
-        // Executor can cancel if it can be derived from the config.
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        if (caller != cfg.executor) revert Unauthorized(caller);
     }
 
     function _clearInstallState(bytes32 policyId, address account) internal {
@@ -214,47 +160,46 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
             delete _activePolicyByMarket[account][marketKey];
         }
         delete _marketIdByPolicyId[policyId];
-        delete _configHashByPolicyId[policyId];
     }
 
-    function _onExecute(
+    function _onAOAExecute(
         bytes32 policyId,
-        address account,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
+        AOAConfig memory aoa,
+        bytes memory policySpecificConfig,
+        bytes memory actionData,
+        bytes memory signature,
         address caller
-    ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
+        TopUpData memory data = abi.decode(actionData, (TopUpData));
+
         bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (expectedConfigHash != actualConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, expectedConfigHash);
-
-        Config memory cfg = abi.decode(policyConfig, (Config));
-        PolicyData memory pd = abi.decode(policyData, (PolicyData));
-
-        _validatePolicyData(policyId, account, expectedConfigHash, cfg, pd, caller);
-        _enforceLtvBounds(cfg, account, pd.data.topUpAssets);
+        _validatePolicyData(policyId, aoa.account, expectedConfigHash, aoa.executor, data, signature, caller);
+        _enforceLtvBounds(cfg, aoa.account, data.topUpAssets);
 
         // Enforce recurring budget in collateral-token units.
-        RecurringAllowance.Limit memory collateralLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.collateralLimit);
-        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, pd.data.topUpAssets);
+        RecurringAllowance.Limit memory collateralLimit =
+            _applyInstallWindowBoundsIfUnset(policyId, cfg.collateralLimit);
+        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, data.topUpAssets);
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)
         // - morpho.supplyCollateral(marketParams, amount, account, callbackData)
-        //
-        // Note: We intentionally do NOT reset approval to 0; when approving exactly `amount`, a compliant ERC-20
-        // will have its allowance fully consumed by Morpho's `transferFrom`.
         CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
         calls[0] = CoinbaseSmartWallet.Call({
             target: cfg.marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, cfg.morpho, pd.data.topUpAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, cfg.morpho, data.topUpAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
             target: cfg.morpho,
             value: 0,
             data: abi.encodeWithSelector(
-                IMorphoBlue.supplyCollateral.selector, cfg.marketParams, pd.data.topUpAssets, account, pd.data.callbackData
+                IMorphoBlue.supplyCollateral.selector,
+                cfg.marketParams,
+                data.topUpAssets,
+                aoa.account,
+                data.callbackData
             )
         });
 
@@ -266,34 +211,35 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         bytes32 policyId,
         address account,
         bytes32 expectedConfigHash,
-        Config memory cfg,
-        PolicyData memory pd,
+        address executor,
+        TopUpData memory data,
+        bytes memory signature,
         address caller
     ) internal {
-        if (pd.data.topUpAssets == 0) revert ZeroAmount();
-        if (pd.data.nonce == 0) revert ZeroNonce();
-        if (pd.data.deadline != 0 && block.timestamp > pd.data.deadline) {
-            revert SignatureExpired(block.timestamp, pd.data.deadline);
+        if (data.topUpAssets == 0) revert ZeroAmount();
+        if (data.nonce == 0) revert ZeroNonce();
+        if (data.deadline != 0 && block.timestamp > data.deadline) {
+            revert SignatureExpired(block.timestamp, data.deadline);
         }
-        if (_usedNonces[policyId][pd.data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, pd.data.nonce);
+        if (_usedNonces[policyId][data.nonce]) revert ExecutionNonceAlreadyUsed(policyId, data.nonce);
 
-        bytes32 callbackHash = keccak256(pd.data.callbackData);
-        bytes32 topUpDataHash = keccak256(
-            abi.encode(TOP_UP_DATA_TYPEHASH, pd.data.topUpAssets, pd.data.nonce, pd.data.deadline, callbackHash)
-        );
+        bytes32 callbackHash = keccak256(data.callbackData);
+        bytes32 topUpDataHash =
+            keccak256(abi.encode(TOP_UP_DATA_TYPEHASH, data.topUpAssets, data.nonce, data.deadline, callbackHash));
 
         bytes32 digest = _getExecutionDigest(policyId, account, expectedConfigHash, topUpDataHash);
-        bool ok = POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR()
-            .isValidSignatureNowAllowSideEffects(cfg.executor, digest, pd.signature);
+        bool ok = _isValidExecutorSig(executor, digest, signature);
         if (!ok) revert Unauthorized(caller);
 
-        _usedNonces[policyId][pd.data.nonce] = true;
+        _usedNonces[policyId][data.nonce] = true;
     }
 
-    function _enforceLtvBounds(Config memory cfg, address account, uint256 topUpAssets) internal view {
+    function _enforceLtvBounds(MorphoConfig memory cfg, address account, uint256 topUpAssets) internal view {
         (uint256 currentLtv, uint256 projectedLtv) = _computeLtvPair(cfg, account, topUpAssets);
         if (currentLtv < cfg.triggerLtv) revert HealthyPosition(currentLtv, cfg.triggerLtv);
-        if (projectedLtv > cfg.maxPostProtectionLtv) revert ProjectedLtvTooHigh(projectedLtv, cfg.maxPostProtectionLtv);
+        if (projectedLtv > cfg.maxPostProtectionLtv) {
+            revert ProjectedLtvTooHigh(projectedLtv, cfg.maxPostProtectionLtv);
+        }
         if (projectedLtv < cfg.minPostProtectionLtv) revert ProjectedLtvTooLow(projectedLtv, cfg.minPostProtectionLtv);
     }
 
@@ -305,7 +251,7 @@ contract MorphoLoanProtectionPolicy is EIP712, Policy, AccessControl, Pausable {
         return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
     }
 
-    function _computeLtvPair(Config memory cfg, address account, uint256 topUpAssets)
+    function _computeLtvPair(MorphoConfig memory cfg, address account, uint256 topUpAssets)
         internal
         view
         returns (uint256 currentLtvWad, uint256 projectedLtvWad)
