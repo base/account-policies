@@ -13,7 +13,7 @@ contract CancelNoopPolicy is Policy {
     constructor(address policyManager) Policy(policyManager) {}
 
     function _onInstall(bytes32, address, bytes calldata, address) internal override {}
-    function _onUninstall(bytes32, address, bytes calldata, address) internal override {}
+    function _onUninstall(bytes32, address, bytes calldata, bytes calldata, address) internal override {}
     function _onExecute(bytes32, address, bytes calldata, bytes calldata, address)
         internal
         override
@@ -65,7 +65,7 @@ contract PolicyManagerCancelTest is Test {
 
         // Account can cancel before installation.
         vm.prank(address(account));
-        policyManager.cancelPolicy(binding, policyConfig);
+        policyManager.cancelPolicy(binding, policyConfig, "");
 
         // Now any attempt to install this exact policyId must revert.
         bytes memory userSig = _signInstall(binding);
@@ -91,7 +91,7 @@ contract PolicyManagerCancelTest is Test {
         assertTrue(policyManager.isPolicyActive(address(policy), policyId));
 
         vm.prank(address(account));
-        policyManager.cancelPolicy(binding, policyConfig);
+        policyManager.cancelPolicy(binding, policyConfig, "");
 
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
         assertFalse(policyManager.isPolicyActive(address(policy), policyId));

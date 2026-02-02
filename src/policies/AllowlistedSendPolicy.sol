@@ -35,7 +35,7 @@ contract AllowlistedSendPolicy is Policy {
         executors[policyId] = executor;
     }
 
-    function _onUninstall(bytes32 policyId, address account, bytes calldata, address caller) internal override {
+    function _onUninstall(bytes32 policyId, address account, bytes calldata, bytes calldata, address caller) internal override {
         if (caller != account) revert InvalidSender(caller, account);
         delete executors[policyId];
     }

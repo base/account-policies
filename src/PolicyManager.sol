@@ -159,9 +159,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// - If not installed: authorization is enforced by the policy's `onCancel` hook.
     ///
     /// To "uncancel", the account must sign/install a new binding with a new salt (i.e., a different `policyId`).
-    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig)
+    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes calldata cancelData)
         external
         nonReentrant
+        returns (bytes32 policyId)
+    {
+        return _cancelPolicy(binding, policyConfig, cancelData);
+    }
+
+    function _cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes memory cancelData)
+        internal
         returns (bytes32 policyId)
     {
         if (binding.policy == address(0)) revert InvalidReplacePolicyPayload();
@@ -178,12 +185,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         // If installed, uninstall normally (hook + event) using the caller.
         if (p.installed) {
-            _uninstall(binding.policy, policyId, policyConfig);
+            _uninstall(binding.policy, policyId, policyConfig, cancelData);
             return policyId;
         }
 
         // Pre-install cancel: enforce policy-defined authorization.
-        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, msg.sender);
+        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, cancelData, msg.sender);
 
         // Mark as uninstalled to permanently block future installs.
         p.uninstalled = true;
@@ -197,26 +204,30 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Uninstall a policy, optionally providing `policyConfig`.
     /// @dev `policyConfig` MAY be empty. Policies can use it to authorize non-account uninstallers.
-    function uninstallPolicy(address policy, bytes32 policyId, bytes calldata policyConfig)
+    function uninstallPolicy(address policy, bytes32 policyId, bytes calldata policyConfig, bytes calldata uninstallData)
         external
         nonReentrant
         returns (bool uninstalled)
     {
-        return _uninstall(policy, policyId, policyConfig);
+        return _uninstall(policy, policyId, policyConfig, uninstallData);
     }
 
-    function _uninstall(address policy, bytes32 policyId, bytes memory policyConfig) internal returns (bool uninstalled) {
+    function _uninstall(address policy, bytes32 policyId, bytes memory policyConfig, bytes memory uninstallData)
+        internal
+        returns (bool uninstalled)
+    {
         PolicyRecord storage p = _policies[policy][policyId];
         if (p.uninstalled) revert PolicyIsUninstalled(policyId);
         if (!p.installed) revert PolicyNotInstalled(policyId);
         p.uninstalled = true;
-        try Policy(policy).onUninstall(policyId, p.account, policyConfig, msg.sender) {}
+        try Policy(policy).onUninstall(policyId, p.account, policyConfig, uninstallData, msg.sender) {}
         catch {
             if (msg.sender != p.account) revert Unauthorized(msg.sender);
         }
         emit PolicyUninstalled(policyId, p.account, policy);
         return true;
     }
+
 
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by account signature).
     /// @dev Uses a dedicated EIP-712 typed message so the signature cannot be replayed as a plain install.
@@ -278,7 +289,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (!p.installed) revert PolicyNotInstalled(policyId);
 
         p.uninstalled = true;
-        Policy(policy).onUninstall(policyId, p.account, policyConfig, caller);
+        Policy(policy).onUninstall(policyId, p.account, policyConfig, "", caller);
         emit PolicyUninstalled(policyId, p.account, policy);
     }
 

@@ -37,11 +37,17 @@ abstract contract Policy {
     /// @notice Policy hook invoked during pre-install cancellation.
     /// @dev Called by `PolicyManager.cancelPolicy` before installation. Policies can use this hook to authorize who is
     ///      allowed to cancel a pending installation intent (e.g., executor/guardian derived from `policyConfig`).
-    function onCancel(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+    function onCancel(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata cancelData,
+        address caller
+    )
         external
         onlyPolicyManager
     {
-        _onCancel(policyId, account, policyConfig, caller);
+        _onCancel(policyId, account, policyConfig, cancelData, caller);
     }
 
     /// @notice Policy hook invoked during uninstallation.
@@ -49,11 +55,17 @@ abstract contract Policy {
     ///
     /// `policyConfig` MAY be empty. Policies can use it to re-hydrate authorization (e.g., dynamic executors)
     /// without requiring additional stored state.
-    function onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+    function onUninstall(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata uninstallData,
+        address caller
+    )
         external
         onlyPolicyManager
     {
-        _onUninstall(policyId, account, policyConfig, caller);
+        _onUninstall(policyId, account, policyConfig, uninstallData, caller);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
@@ -72,12 +84,18 @@ abstract contract Policy {
 
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
 
-    function _onUninstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+    function _onUninstall(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata uninstallData,
+        address caller
+    )
         internal
         virtual;
 
     /// @dev Default: only the account can cancel. Policies can override to allow other roles.
-    function _onCancel(bytes32, address account, bytes calldata, address caller) internal virtual {
+    function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {
         if (caller != account) revert InvalidSender(caller, account);
     }
 

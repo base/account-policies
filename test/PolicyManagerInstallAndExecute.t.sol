@@ -25,7 +25,7 @@ contract NoopPolicy is Policy {
         _configHash[policyId] = keccak256(policyConfig);
     }
 
-    function _onUninstall(bytes32, address, bytes calldata, address) internal override {}
+    function _onUninstall(bytes32, address, bytes calldata, bytes calldata, address) internal override {}
 
     function _onExecute(bytes32 policyId, address, bytes calldata policyConfig, bytes calldata, address caller)
         internal

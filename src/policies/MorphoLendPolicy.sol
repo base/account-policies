@@ -3,7 +3,6 @@ pragma solidity ^0.8.23;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
-import {EIP712} from "solady/utils/EIP712.sol";
 
 import {IMorphoVault} from "../interfaces/morpho/IMorphoVault.sol";
 import {AOAPolicy} from "./AOAPolicy.sol";
@@ -11,10 +10,9 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 /// @notice Morpho vault deposit policy.
 /// @dev Fixed vault, fixed receiver (the account), bounded amount.
-contract MorphoLendPolicy is EIP712, AOAPolicy {
+contract MorphoLendPolicy is AOAPolicy {
     error ZeroAmount();
     error ZeroVault();
-    error Unauthorized(address caller);
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
     error ZeroNonce();
 

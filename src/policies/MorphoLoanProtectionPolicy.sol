@@ -4,7 +4,6 @@ pragma solidity ^0.8.23;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
-import {EIP712} from "solady/utils/EIP712.sol";
 
 import {Id, Market, MarketParams, Position} from "../interfaces/morpho/BlueTypes.sol";
 import {IMorphoBlue} from "../interfaces/morpho/IMorphoBlue.sol";
@@ -21,14 +20,13 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// - post-protection LTV bounds (min + max)
 /// - recurring allowance budget (in collateral-token units)
 /// - one active policy per (account, marketId)
-contract MorphoLoanProtectionPolicy is EIP712, AOAPolicy {
+contract MorphoLoanProtectionPolicy is AOAPolicy {
     error MarketParamsMismatch();
     error ZeroMorpho();
     error ZeroMarketId();
     error ZeroAmount();
     error ZeroNonce();
     error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
-    error Unauthorized(address caller);
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
     error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
     error ProjectedLtvTooHigh(uint256 projectedLtv, uint256 maxPostLtv);

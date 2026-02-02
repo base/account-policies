@@ -301,7 +301,7 @@ contract MorphoLendPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
         vm.prank(executor);
-        policyManager.uninstallPolicy(address(policy), policyId, policyConfig);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig, "");
 
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
 
@@ -312,6 +312,24 @@ contract MorphoLendPolicyTest is Test {
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
+    }
+
+    function test_morphoPolicy_executorSig_allowsRelayedUninstall() public {
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash =
+            keccak256(abi.encode(policy.AOA_UNINSTALL_TYPEHASH(), policyId, address(account), keccak256(policyConfig), deadline));
+        bytes32 digest = _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
+        bytes memory sig = _signExecution(digest);
+
+        bytes memory uninstallData = abi.encode(sig, deadline);
+
+        address relayer = vm.addr(uint256(keccak256("relayer")));
+        vm.prank(relayer);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig, uninstallData);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
     }
 
     function test_morphoPolicy_pause_blocksExecute() public {
@@ -371,7 +389,7 @@ contract MorphoLendPolicyTest is Test {
 
         // Executor can cancel an uninstalled policyId (preemptively) by presenting the config.
         vm.prank(executor);
-        policyManager.cancelPolicy(localBinding, localPolicyConfig);
+        policyManager.cancelPolicy(localBinding, localPolicyConfig, "");
 
         // Now installation of that exact policyId is blocked.
         bytes memory userSig = _signInstall(localBinding);

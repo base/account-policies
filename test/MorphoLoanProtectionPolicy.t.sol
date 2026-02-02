@@ -233,7 +233,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         // Revoke and then install should succeed.
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(address(account));
-        policyManager.uninstallPolicy(address(policy), policyId, "");
+        policyManager.uninstallPolicy(address(policy), policyId, "", "");
 
         policyManager.installPolicyWithSignature(binding2, cfg2, userSig2);
     }
@@ -242,7 +242,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
         vm.prank(executor);
-        policyManager.uninstallPolicy(address(policy), policyId, policyConfig);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig, "");
 
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
 
@@ -251,6 +251,25 @@ contract MorphoLoanProtectionPolicyTest is Test {
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
+    }
+
+    function test_executorSig_allowsRelayedUninstall() public {
+        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash =
+            keccak256(abi.encode(policy.AOA_UNINSTALL_TYPEHASH(), policyId, address(account), keccak256(policyConfig), deadline));
+        bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        bytes memory uninstallData = abi.encode(sig, deadline);
+
+        address relayer = vm.addr(uint256(keccak256("relayer")));
+        vm.prank(relayer);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig, uninstallData);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
     }
 
     function test_pause_blocksExecute() public {
