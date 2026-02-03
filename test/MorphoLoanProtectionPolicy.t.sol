@@ -105,7 +105,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
             MorphoLoanProtectionPolicy.MorphoConfig({
                 morpho: address(morpho),
                 marketId: marketId,
-                marketParams: marketParams,
                 triggerLtv: 0.70e18,
                 minPostProtectionLtv: 0.45e18,
                 maxPostProtectionLtv: 0.60e18,
