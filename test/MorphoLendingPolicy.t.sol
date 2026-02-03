@@ -303,6 +303,10 @@ contract MorphoLendPolicyTest is Test {
         vm.prank(executor);
         policyManager.uninstallPolicy(address(policy), policyId, policyConfig, "");
 
+        // Idempotent: second uninstall is a no-op.
+        vm.prank(executor);
+        policyManager.uninstallPolicy(address(policy), policyId, policyConfig, "");
+
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
 
         // Execution should now be blocked by the manager.
