@@ -100,7 +100,12 @@ For example: a swap policy can snapshot balances before the wallet call, then ve
 
 ### Uninstall
 
-Uninstall revokes an **installed** policy instance and tombstones it permanently. Policies define who may uninstall and what proof/context they require.
+Uninstall revokes an **installed** policy instance and tombstones it permanently.
+
+Importantly, uninstall is addressed by **instance identifier**, not by a full binding:
+
+- `uninstallPolicy(policy, policyId, ...)` takes `(policy, policyId)` where `policyId = hash(binding)`.
+- It does *not* take the full `PolicyBinding` fields; those fields may not be available to relayers/indexers once an instance is installed.
 
 The manager provides one global guarantee: **The account can always uninstall its own installed policy instances.**
 
@@ -113,12 +118,13 @@ Cancellation revokes an installation **intent**, including **preemptively before
 
 This is intentionally distinct from uninstall:
 
-* `uninstallPolicy` is installed-lifecycle only.  
-* `cancelPolicy` handles pre-install intents and has full context (binding \+ config) so policies can authenticate cancellers even when nothing is installed yet.
+* `uninstallPolicy` is installed-lifecycle only and is addressed by `(policy, policyId)`.  
+* `cancelPolicy` handles pre-install intents and is addressed by the full `(binding, policyConfig)` so the manager can compute the `policyId` and enforce that the provided config matches the binding commitment.
 
 Pre-install cancel behavior:
 
-* verifies config matches the binding’s hash  
+* computes `policyId = hash(binding)`  
+* verifies `keccak256(policyConfig) == binding.policyConfigHash`  
 * calls `policy.onCancel(...)` (policy-defined authorization)  
 * tombstones the `policyId` permanently
 
