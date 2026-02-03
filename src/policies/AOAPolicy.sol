@@ -7,7 +7,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 
 import {Policy} from "./Policy.sol";
 
-/// @notice Template-method base for "Automated On-chain Actions" (AOA) policies.
+/// @notice Template-method base for "Automated Onchain Actions" (AOA) policies.
 /// @dev Enforces canonical ABI encoding shapes by owning the internal hook implementations:
 ///      - policyConfig = abi.encode(AOAConfig{account,executor}, bytes policySpecificConfig)
 ///      - policyData   = abi.encode(bytes actionData, bytes signature)
@@ -73,10 +73,14 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
     /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
     function _isValidExecutorSig(address executor, bytes32 digest, bytes memory signature) internal returns (bool) {
-        return POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
+        return
+            POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal override {
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+        internal
+        override
+    {
         caller;
         _storeConfigHash(policyId, policyConfig);
         (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
@@ -89,11 +93,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes calldata policyConfig,
         bytes calldata uninstallData,
         address caller
-    )
-        internal
-        virtual
-        override
-    {
+    ) internal virtual override {
         // Account can always uninstall without providing config.
         if (caller == account) {
             _onAOAUninstall(policyId, account, caller);
@@ -114,7 +114,9 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
                 revert UninstallSignatureExpired(block.timestamp, deadline);
             }
             bytes32 digest = _hashTypedData(
-                keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline))
+                keccak256(
+                    abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline)
+                )
             );
             if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
         }
@@ -123,10 +125,13 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         _deleteConfigHash(policyId);
     }
 
-    function _onCancel(bytes32 policyId, address account, bytes calldata policyConfig, bytes calldata cancelData, address caller)
-        internal
-        override
-    {
+    function _onCancel(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata cancelData,
+        address caller
+    ) internal override {
         // Account can always cancel.
         if (caller == account) return;
 

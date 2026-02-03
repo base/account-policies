@@ -20,8 +20,6 @@ abstract contract Policy {
         _;
     }
 
-    // TODO: consider public view that returns the policy config decoding?
-
     /// @notice Policy hook invoked during installation.
     /// @dev MUST revert if the policy refuses the installation.
     ///
@@ -43,10 +41,7 @@ abstract contract Policy {
         bytes calldata policyConfig,
         bytes calldata cancelData,
         address caller
-    )
-        external
-        onlyPolicyManager
-    {
+    ) external onlyPolicyManager {
         _onCancel(policyId, account, policyConfig, cancelData, caller);
     }
 
@@ -61,10 +56,7 @@ abstract contract Policy {
         bytes calldata policyConfig,
         bytes calldata uninstallData,
         address caller
-    )
-        external
-        onlyPolicyManager
-    {
+    ) external onlyPolicyManager {
         _onUninstall(policyId, account, policyConfig, uninstallData, caller);
     }
 
@@ -90,9 +82,7 @@ abstract contract Policy {
         bytes calldata policyConfig,
         bytes calldata uninstallData,
         address caller
-    )
-        internal
-        virtual;
+    ) internal virtual;
 
     /// @dev Default: only the account can cancel. Policies can override to allow other roles.
     function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {

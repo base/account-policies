@@ -12,62 +12,7 @@ import {Policy} from "./policies/Policy.sol";
 /// @notice Wallet-agnostic module that installs policies authorized by the account and executes policy-prepared
 ///         calldata on the account.
 contract PolicyManager is EIP712, ReentrancyGuard {
-    /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
-    PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
-
-    /// @notice EIP-712 hash of PolicyBinding type.
-    bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
-        "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint40 validAfter,uint40 validUntil,uint256 salt)"
-    );
-
-    /// @notice EIP-712 hash of InstallAndExecute type.
-    /// @dev Binds an installation authorization to a specific policy execution (via `policyDataHash`).
-    bytes32 public constant INSTALL_AND_EXECUTE_TYPEHASH =
-        keccak256("InstallAndExecute(bytes32 policyId,bytes32 policyDataHash,uint256 deadline)");
-
-    /// @notice EIP-712 hash of ReplacePolicy type.
-    /// @dev Binds an uninstallation authorization to a specific new policy installation.
-    bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
-        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
-    );
-
-    /// @notice Policy was installed.
-    event PolicyInstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
-
-    /// @notice Policy was uninstalled.
-    event PolicyUninstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
-
-    /// @notice Policy execution occurred.
-    event PolicyExecuted(bytes32 indexed policyId, address indexed account, address indexed policy);
-
-    /// @notice Policy installation intent was cancelled before installation.
-    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy);
-
-    /// @notice Policy instance was replaced atomically.
-    event PolicyReplaced(
-        bytes32 indexed oldPolicyId,
-        bytes32 indexed newPolicyId,
-        address indexed account,
-        address oldPolicy,
-        address newPolicy
-    );
-
-    error InvalidSignature();
-    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
-    error PolicyNotInstalled(bytes32 policyId);
-    error PolicyIsUninstalled(bytes32 policyId);
-    error PolicyAlreadyInstalled(bytes32 policyId);
-    error ReplacePolicyExpired(uint256 currentTimestamp, uint256 deadline);
-    error InvalidReplacePolicyPayload();
-    error InvalidCancelPolicyPayload();
-    error InvalidInstallAndExecutePayload();
-    error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
-    error Unauthorized(address caller);
-    error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
-    error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
-    error ExternalCallFailed(address target, bytes returnData);
-    error InvalidSender(address sender, address expected);
-
+    // Type declarations
     /// @notice Policy binding parameters authorized by the account.
     struct PolicyBinding {
         address account;
@@ -109,21 +54,79 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint40 validUntil;
     }
 
+    // State variables
+    /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
+    PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
+
+    /// @notice EIP-712 hash of PolicyBinding type.
+    bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
+        "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint40 validAfter,uint40 validUntil,uint256 salt)"
+    );
+
+    /// @notice EIP-712 hash of InstallAndExecute type.
+    /// @dev Binds an installation authorization to a specific policy execution (via `policyDataHash`).
+    bytes32 public constant INSTALL_AND_EXECUTE_TYPEHASH =
+        keccak256("InstallAndExecute(bytes32 policyId,bytes32 policyDataHash,uint256 deadline)");
+
+    /// @notice EIP-712 hash of ReplacePolicy type.
+    /// @dev Binds an uninstallation authorization to a specific new policy installation.
+    bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
+        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
+    );
+
     mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) internal _policies; // TODO: make this public? or consider a getter for certain things. like pass config, get policy id, whether installed, etc.
 
+    // Events
+    /// @notice Policy was installed.
+    event PolicyInstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
+
+    /// @notice Policy was uninstalled.
+    event PolicyUninstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
+
+    /// @notice Policy execution occurred.
+    event PolicyExecuted(bytes32 indexed policyId, address indexed account, address indexed policy);
+
+    /// @notice Policy installation intent was cancelled before installation.
+    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy);
+
+    /// @notice Policy instance was replaced atomically.
+    event PolicyReplaced(
+        bytes32 indexed oldPolicyId,
+        bytes32 indexed newPolicyId,
+        address indexed account,
+        address oldPolicy,
+        address newPolicy
+    );
+
+    // Errors
+    error InvalidSignature();
+    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
+    error PolicyNotInstalled(bytes32 policyId);
+    error PolicyIsUninstalled(bytes32 policyId);
+    error PolicyAlreadyInstalled(bytes32 policyId);
+    error ReplacePolicyExpired(uint256 currentTimestamp, uint256 deadline);
+    error InvalidReplacePolicyPayload();
+    error InvalidCancelPolicyPayload();
+    error InvalidInstallAndExecutePayload();
+    error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
+    error Unauthorized(address caller);
+    error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
+    error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
+    error ExternalCallFailed(address target, bytes returnData);
+    error InvalidSender(address sender, address expected);
+
+    // Modifiers
     modifier requireSender(address sender) {
         _requireSender(sender);
         _;
     }
 
-    function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
-    }
-
+    // Functions
     constructor(PublicERC6492Validator publicERC6492Validator) {
         PUBLIC_ERC6492_VALIDATOR = publicERC6492Validator;
     }
 
+    // External functions
     /// @notice Install a policy via a signature from the account.
     /// @dev Compatible with ERC-6492 signatures including side effects.
     function installPolicyWithSignature(
@@ -150,88 +153,60 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _install(binding, policyConfig);
     }
 
-    /// @notice Cancel a policy installation intent (including preemptively, before installation).
-    /// @dev This is distinct from uninstallation:
-    /// - If the policy is already installed, this uninstalls it (calling the policy hook and emitting `PolicyUninstalled`).
-    /// - If the policy is not installed, it marks the policyId as uninstalled to permanently block future installs and
-    ///   emits `PolicyCancelled`.
-    ///
-    /// Authorization:
-    /// - If installed: authorization is enforced by the policy's `onUninstall` hook.
-    /// - If not installed: authorization is enforced by the policy's `onCancel` hook.
-    ///
-    /// To "uncancel", the account must sign/install a new binding with a new salt (i.e., a different `policyId`).
-    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes calldata cancelData)
+    /// @notice Execute an action for an installed policy instance.
+    /// @dev `policyConfig` is an opaque policy-defined config blob (often the full preimage bytes; may be empty).
+    ///      Policies MUST validate that any supplied config preimage matches what was authorized in the binding.
+    function execute(address policy, bytes32 policyId, bytes calldata policyConfig, bytes calldata policyData)
         external
         nonReentrant
-        returns (bytes32 policyId)
     {
-        return _cancelPolicy(binding, policyConfig, cancelData);
-    }
-
-    function _cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes memory cancelData)
-        internal
-        returns (bytes32 policyId)
-    {
-        if (binding.policy == address(0)) revert InvalidCancelPolicyPayload();
-        policyId = getPolicyBindingStructHash(binding);
-        PolicyRecord storage p = _policies[binding.policy][policyId];
-
-        // Idempotent behavior: cancelling an already-uninstalled policyId is a no-op.
-        if (p.uninstalled) return policyId;
-
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
-        }
-
-        // If installed, uninstall normally (hook + event) using the caller.
-        if (p.installed) {
-            _uninstall(binding.policy, policyId, policyConfig, cancelData, msg.sender);
-            return policyId;
-        }
-
-        // Pre-install cancel: enforce policy-defined authorization.
-        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, cancelData, msg.sender);
-
-        // Mark as uninstalled to permanently block future installs.
-        p.uninstalled = true;
-        p.account = binding.account;
-        p.validAfter = binding.validAfter;
-        p.validUntil = binding.validUntil;
-
-        emit PolicyCancelled(policyId, binding.account, binding.policy);
-        return policyId;
-    }
-
-    /// @notice Uninstall a policy, optionally providing `policyConfig`.
-    /// @dev `policyConfig` MAY be empty. Policies can use it to authorize non-account uninstallers.
-    function uninstallPolicy(
-        address policy,
-        bytes32 policyId,
-        bytes calldata policyConfig,
-        bytes calldata uninstallData
-    ) external nonReentrant {
-        _uninstall(policy, policyId, policyConfig, uninstallData, msg.sender);
-    }
-
-    function _uninstall(
-        address policy,
-        bytes32 policyId,
-        bytes memory policyConfig,
-        bytes memory uninstallData,
-        address effectiveCaller
-    ) internal {
         PolicyRecord storage p = _policies[policy][policyId];
-        // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
-        if (p.uninstalled) return;
         if (!p.installed) revert PolicyNotInstalled(policyId);
-        p.uninstalled = true;
-        try Policy(policy).onUninstall(policyId, p.account, policyConfig, uninstallData, effectiveCaller) {}
-        catch {
-            if (effectiveCaller != p.account) revert Unauthorized(effectiveCaller);
+        if (p.uninstalled) revert PolicyIsUninstalled(policyId);
+
+        _checkInstallWindow(p.validAfter, p.validUntil);
+        _execute(policy, policyId, p.account, policyConfig, policyData, msg.sender);
+    }
+
+    /// @notice Install (with execution-bound authorization) and immediately execute in a single transaction.
+    /// @dev This is a typed helper to avoid requiring integrators to deploy a batching contract.
+    function executeWithInstall(InstallAndExecutePayload calldata payload) external nonReentrant {
+        bytes32 policyId = getPolicyBindingStructHash(payload.binding);
+        address policy = payload.binding.policy;
+        if (policy == address(0)) revert InvalidInstallAndExecutePayload();
+
+        PolicyRecord storage p = _policies[policy][policyId];
+        // Idempotent behavior: if already installed, skip installation authorization and execute directly.
+        // This avoids brittleness when multiple parties race to "be first" to install.
+        if (p.installed) {
+            if (p.uninstalled) revert PolicyIsUninstalled(policyId);
+            _checkInstallWindow(p.validAfter, p.validUntil);
+            _execute(policy, policyId, p.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
+            return;
         }
-        emit PolicyUninstalled(policyId, p.account, policy);
+
+        // Verify an execution-bound install signature (cannot be replayed as a plain install).
+        if (payload.deadline != 0 && block.timestamp > payload.deadline) {
+            revert InstallAndExecuteExpired(block.timestamp, payload.deadline);
+        }
+        bytes32 digest = _hashTypedData(
+            keccak256(
+                abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(payload.innerPolicyData), payload.deadline)
+            )
+        );
+        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(
+                payload.binding.account, digest, payload.userSig
+            )) {
+            revert InvalidSignature();
+        }
+
+        // Install policy instance and use the installed config/data for execution.
+        _install(payload.binding, payload.policyConfig);
+        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsUninstalled(policyId);
+        _checkInstallWindow(policyRecord.validAfter, policyRecord.validUntil);
+
+        _execute(policy, policyId, policyRecord.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
     }
 
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by account signature).
@@ -291,89 +266,39 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
     }
 
-    // `_uninstall` handles:
-    // - idempotency
-    // - account escape hatch semantics (effective caller == account)
-    // - emitting consistent lifecycle events
-    /// @notice Execute an action for an installed policy instance.
-    /// @dev `policyConfig` is an opaque policy-defined config blob (often the full preimage bytes; may be empty).
-    ///      Policies MUST validate that any supplied config preimage matches what was authorized in the binding.
-    function execute(address policy, bytes32 policyId, bytes calldata policyConfig, bytes calldata policyData)
+    /// @notice Cancel a policy installation intent (including preemptively, before installation).
+    /// @dev This is distinct from uninstallation:
+    /// - If the policy is already installed, this uninstalls it (calling the policy hook and emitting `PolicyUninstalled`).
+    /// - If the policy is not installed, it marks the policyId as uninstalled to permanently block future installs and
+    ///   emits `PolicyCancelled`.
+    ///
+    /// Authorization:
+    /// - If installed: authorization is enforced by the policy's `onUninstall` hook.
+    /// - If not installed: authorization is enforced by the policy's `onCancel` hook.
+    ///
+    /// To "uncancel", the account must sign/install a new binding with a new salt (i.e., a different `policyId`).
+    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes calldata cancelData)
         external
         nonReentrant
+        returns (bytes32 policyId)
     {
-        PolicyRecord storage p = _policies[policy][policyId];
-        if (!p.installed) revert PolicyNotInstalled(policyId);
-        if (p.uninstalled) revert PolicyIsUninstalled(policyId);
-
-        _checkInstallWindow(p.validAfter, p.validUntil);
-        _execute(policy, policyId, p.account, policyConfig, policyData, msg.sender);
+        return _cancelPolicy(binding, policyConfig, cancelData);
     }
 
-    /// @notice Install (with execution-bound authorization) and immediately execute in a single transaction.
-    /// @dev This is a typed helper to avoid requiring integrators to deploy a batching contract.
-    function executeWithInstall(InstallAndExecutePayload calldata payload) external nonReentrant {
-        bytes32 policyId = getPolicyBindingStructHash(payload.binding);
-        address policy = payload.binding.policy;
-        if (policy == address(0)) revert InvalidInstallAndExecutePayload();
-
-        PolicyRecord storage p = _policies[policy][policyId];
-        // Idempotent behavior: if already installed, skip installation authorization and execute directly.
-        // This avoids brittleness when multiple parties race to "be first" to install.
-        if (p.installed) {
-            if (p.uninstalled) revert PolicyIsUninstalled(policyId);
-            _checkInstallWindow(p.validAfter, p.validUntil);
-            _execute(policy, policyId, p.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
-            return;
-        }
-
-        // Verify an execution-bound install signature (cannot be replayed as a plain install).
-        if (payload.deadline != 0 && block.timestamp > payload.deadline) {
-            revert InstallAndExecuteExpired(block.timestamp, payload.deadline);
-        }
-        bytes32 digest = _hashTypedData(
-            keccak256(
-                abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(payload.innerPolicyData), payload.deadline)
-            )
-        );
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(
-                payload.binding.account, digest, payload.userSig
-            )) {
-            revert InvalidSignature();
-        }
-
-        // Install policy instance and use the installed config/data for execution.
-        _install(payload.binding, payload.policyConfig);
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
-        if (policyRecord.uninstalled) revert PolicyIsUninstalled(policyId);
-        _checkInstallWindow(policyRecord.validAfter, policyRecord.validUntil);
-
-        _execute(policy, policyId, policyRecord.account, payload.policyConfig, payload.innerPolicyData, msg.sender);
-    }
-
-    function _execute(
+    /// @notice Uninstall a policy, optionally providing `policyConfig`.
+    /// @dev `policyConfig` MAY be empty. Policies can use it to authorize non-account uninstallers.
+    function uninstallPolicy(
         address policy,
         bytes32 policyId,
-        address account,
         bytes calldata policyConfig,
-        bytes calldata policyData,
-        address caller
-    ) internal {
-        (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(policyId, account, policyConfig, policyData, caller);
-        _externalCall(account, accountCallData);
-        _externalCall(policy, postCallData);
-
-        emit PolicyExecuted(policyId, account, policy);
+        bytes calldata uninstallData
+    ) external nonReentrant {
+        _uninstall(policy, policyId, policyConfig, uninstallData, msg.sender);
     }
 
+    // External functions that are view
     function getAccountForPolicy(address policy, bytes32 policyId) external view returns (address account) {
         return _policies[policy][policyId].account;
-    }
-
-    /// @notice Convenience alias: compute the `policyId` for a binding.
-    function getPolicyId(PolicyBinding calldata binding) external pure returns (bytes32 policyId) {
-        return getPolicyBindingStructHash(binding);
     }
 
     /// @notice Return raw policy record fields for a policy instance.
@@ -412,6 +337,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return true;
     }
 
+    // External functions that are pure
+    /// @notice Convenience alias: compute the `policyId` for a binding.
+    function getPolicyId(PolicyBinding calldata binding) external pure returns (bytes32 policyId) {
+        return getPolicyBindingStructHash(binding);
+    }
+
+    // Public functions
     function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
         // Must match POLICY_BINDING_TYPEHASH field order (EIP-712 struct hashing).
         return keccak256(
@@ -427,6 +359,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
     }
 
+    // Internal functions
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyBindingStructHash(binding);
         PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
@@ -449,6 +382,84 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
         return policyId;
+    }
+
+    function _execute(
+        address policy,
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        address caller
+    ) internal {
+        (bytes memory accountCallData, bytes memory postCallData) =
+            Policy(policy).onExecute(policyId, account, policyConfig, policyData, caller);
+        _externalCall(account, accountCallData);
+        _externalCall(policy, postCallData);
+
+        emit PolicyExecuted(policyId, account, policy);
+    }
+
+    function _cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes memory cancelData)
+        internal
+        returns (bytes32 policyId)
+    {
+        if (binding.policy == address(0)) revert InvalidCancelPolicyPayload();
+        policyId = getPolicyBindingStructHash(binding);
+        PolicyRecord storage p = _policies[binding.policy][policyId];
+
+        // Idempotent behavior: cancelling an already-uninstalled policyId is a no-op.
+        if (p.uninstalled) return policyId;
+
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
+        // If installed, uninstall normally (hook + event) using the caller.
+        if (p.installed) {
+            _uninstall(binding.policy, policyId, policyConfig, cancelData, msg.sender);
+            return policyId;
+        }
+
+        // Pre-install cancel: enforce policy-defined authorization.
+        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, cancelData, msg.sender);
+
+        // Mark as uninstalled to permanently block future installs.
+        p.uninstalled = true;
+        p.account = binding.account;
+        p.validAfter = binding.validAfter;
+        p.validUntil = binding.validUntil;
+
+        emit PolicyCancelled(policyId, binding.account, binding.policy);
+        return policyId;
+    }
+
+    // `_uninstall` handles:
+    // - idempotency
+    // - account escape hatch semantics (effective caller == account)
+    // - emitting consistent lifecycle events
+    function _uninstall(
+        address policy,
+        bytes32 policyId,
+        bytes memory policyConfig,
+        bytes memory uninstallData,
+        address effectiveCaller
+    ) internal {
+        PolicyRecord storage p = _policies[policy][policyId];
+        // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
+        if (p.uninstalled) return;
+        if (!p.installed) revert PolicyNotInstalled(policyId);
+        p.uninstalled = true;
+        try Policy(policy).onUninstall(policyId, p.account, policyConfig, uninstallData, effectiveCaller) {}
+        catch {
+            if (effectiveCaller != p.account) revert Unauthorized(effectiveCaller);
+        }
+        emit PolicyUninstalled(policyId, p.account, policy);
+    }
+
+    function _requireSender(address sender) internal view {
+        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     function _externalCall(address target, bytes memory data) internal {
