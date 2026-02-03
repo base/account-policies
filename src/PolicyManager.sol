@@ -58,6 +58,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyAlreadyInstalled(bytes32 policyId);
     error ReplacePolicyExpired(uint256 currentTimestamp, uint256 deadline);
     error InvalidReplacePolicyPayload();
+    error InvalidCancelPolicyPayload();
     error InvalidInstallAndExecutePayload();
     error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
     error Unauthorized(address caller);
@@ -171,7 +172,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         internal
         returns (bytes32 policyId)
     {
-        if (binding.policy == address(0)) revert InvalidReplacePolicyPayload();
+        if (binding.policy == address(0)) revert InvalidCancelPolicyPayload();
         policyId = getPolicyBindingStructHash(binding);
         PolicyRecord storage p = _policies[binding.policy][policyId];
 
