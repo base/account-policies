@@ -36,6 +36,20 @@ abstract contract Policy {
         _onInstall(policyId, account, policyConfig, caller);
     }
 
+    /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
+    /// @dev MUST revert on unauthorized execution.
+    ///
+    /// `caller` is the external caller of `PolicyManager.execute`.
+    function onExecute(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata policyData,
+        address caller
+    ) external onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
+        return _onExecute(policyId, account, policyConfig, policyData, caller);
+    }
+
     /// @notice Policy hook invoked during pre-install cancellation.
     /// @dev Called by `PolicyManager.cancelPolicy` before installation. Policies can use this hook to authorize who is
     ///      allowed to cancel a pending installation intent (e.g., executor/guardian derived from `policyConfig`).
@@ -64,22 +78,16 @@ abstract contract Policy {
         _onUninstall(policyId, account, policyConfig, uninstallData, caller);
     }
 
-    /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
-    /// @dev MUST revert on unauthorized execution.
-    ///
-    /// `caller` is the external caller of `PolicyManager.execute`.
-    function onExecute(
+    // Internal functions
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
+
+    function _onExecute(
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
         bytes calldata policyData,
         address caller
-    ) external onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
-        return _onExecute(policyId, account, policyConfig, policyData, caller);
-    }
-
-    // Internal functions
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
+    ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     function _onUninstall(
         bytes32 policyId,
@@ -93,14 +101,6 @@ abstract contract Policy {
     function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {
         if (caller != account) revert InvalidSender(caller, account);
     }
-
-    function _onExecute(
-        bytes32 policyId,
-        address account,
-        bytes calldata policyConfig,
-        bytes calldata policyData,
-        address caller
-    ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     // Internal functions that are view
     function _requireSender(address sender) internal view {
