@@ -21,39 +21,7 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// - recurring allowance budget (in collateral-token units)
 /// - one active policy per (account, marketId)
 contract MorphoLoanProtectionPolicy is AOAPolicy {
-    error MarketNotFound(Id marketId);
-    error ZeroMorpho();
-    error ZeroMarketId();
-    error ZeroAmount();
-    error ZeroNonce();
-    error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
-    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
-    error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
-    error ProjectedLtvTooHigh(uint256 projectedLtv, uint256 maxPostLtv);
-    error ProjectedLtvTooLow(uint256 projectedLtv, uint256 minPostLtv);
-    error ZeroCollateralValue();
-    error PolicyAlreadyInstalledForMarket(address account, Id marketId);
-
-    /// @dev Outer signed struct tying an execution to a policy instance.
-    bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
-
-    /// @dev Inner signed struct: what the executor is authorizing for a specific execution.
-    bytes32 public constant TOP_UP_DATA_TYPEHASH =
-        keccak256("TopUpData(uint256 topUpAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
-
-    /// @dev One active policy per (account, marketId).
-    mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
-
-    /// @dev Stored market key per policy instance to support clean uninstallation.
-    mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
-
-    /// @dev Recurring allowance state (budget in collateral units).
-    RecurringAllowance.State internal _collateralLimitState;
-
-    /// @dev Replay protection for executor intents.
-    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
-
+    // Type declarations
     struct MorphoConfig {
         address morpho;
         Id marketId;
@@ -74,39 +42,45 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes callbackData; // forwarded to Morpho's callback (optional)
     }
 
+    // State variables
+    /// @dev Outer signed struct tying an execution to a policy instance.
+    bytes32 public constant EXECUTION_TYPEHASH =
+        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
+
+    /// @dev Inner signed struct: what the executor is authorizing for a specific execution.
+    bytes32 public constant TOP_UP_DATA_TYPEHASH =
+        keccak256("TopUpData(uint256 topUpAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
+
+    /// @dev One active policy per (account, marketId).
+    mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
+
+    /// @dev Stored market key per policy instance to support clean uninstallation.
+    mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
+
+    /// @dev Recurring allowance state (budget in collateral units).
+    RecurringAllowance.State internal _collateralLimitState;
+
+    /// @dev Replay protection for executor intents.
+    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
+
+    // Errors
+    error MarketNotFound(Id marketId);
+    error ZeroMorpho();
+    error ZeroMarketId();
+    error ZeroAmount();
+    error ZeroNonce();
+    error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
+    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
+    error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
+    error ProjectedLtvTooHigh(uint256 projectedLtv, uint256 maxPostLtv);
+    error ProjectedLtvTooLow(uint256 projectedLtv, uint256 minPostLtv);
+    error ZeroCollateralValue();
+    error PolicyAlreadyInstalledForMarket(address account, Id marketId);
+
+    // Functions
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _requireMarketParams(address morphoAddress, Id marketId)
-        internal
-        view
-        returns (MarketParams memory marketParams)
-    {
-        marketParams = IMorphoBlue(morphoAddress).idToMarketParams(marketId);
-        // Treat zeroed params as "market does not exist / not initialized on this Morpho instance".
-        if (
-            marketParams.loanToken == address(0) || marketParams.collateralToken == address(0)
-                || marketParams.oracle == address(0) || marketParams.irm == address(0) || marketParams.lltv == 0
-        ) revert MarketNotFound(marketId);
-    }
-
-    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
-        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
-        start = uint48(validAfter);
-        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
-    }
-
-    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
-        internal
-        view
-        returns (RecurringAllowance.Limit memory)
-    {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
-        if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
-        }
-        return limit;
-    }
-
+    // External functions that are view
     /// @notice Return recurring collateral limit usage for a policy instance.
     /// @dev Requires the config preimage so the contract can decode `collateralLimit` without storing it.
     function getCollateralLimitPeriodUsage(bytes32 policyId, bytes calldata policyConfig)
@@ -134,6 +108,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         return RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
     }
 
+    // Internal functions
     function _onAOAInstall(bytes32 policyId, AOAConfig memory aoa, bytes memory policySpecificConfig)
         internal
         override
@@ -257,6 +232,38 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         }
     }
 
+    // Internal functions that are view
+    function _requireMarketParams(address morphoAddress, Id marketId)
+        internal
+        view
+        returns (MarketParams memory marketParams)
+    {
+        marketParams = IMorphoBlue(morphoAddress).idToMarketParams(marketId);
+        // Treat zeroed params as "market does not exist / not initialized on this Morpho instance".
+        if (
+            marketParams.loanToken == address(0) || marketParams.collateralToken == address(0)
+                || marketParams.oracle == address(0) || marketParams.irm == address(0) || marketParams.lltv == 0
+        ) revert MarketNotFound(marketId);
+    }
+
+    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        start = uint48(validAfter);
+        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
+    }
+
+    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+        internal
+        view
+        returns (RecurringAllowance.Limit memory)
+    {
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        if (limit.start == 0 && limit.end == 0) {
+            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+        }
+        return limit;
+    }
+
     function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
         internal
         view
@@ -297,6 +304,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         projectedLtvWad = Math.mulDiv(debtAssets, 1e18, collateralValueAfter);
     }
 
+    // Internal functions that are pure
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Loan Protection Policy";
         version = "1";

@@ -12,19 +12,13 @@ import {Policy} from "./Policy.sol";
 ///      - policyConfig = abi.encode(AOAConfig{account,executor}, bytes policySpecificConfig)
 ///      - policyData   = abi.encode(bytes actionData, bytes signature)
 abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
+    // Type declarations
     struct AOAConfig {
         address account;
         address executor;
     }
 
-    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
-    error InvalidAOAConfigAccount(address actual, address expected);
-    error ZeroExecutor();
-    error ZeroAdmin();
-    error Unauthorized(address caller);
-    error UninstallSignatureExpired(uint256 currentTimestamp, uint256 deadline);
-    error CancelSignatureExpired(uint256 currentTimestamp, uint256 deadline);
-
+    // State variables
     /// @dev Stored config hash per policy instance.
     mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
 
@@ -34,11 +28,22 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     bytes32 public constant AOA_CANCEL_TYPEHASH =
         keccak256("AOACancel(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
 
+    // Errors
+    error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
+    error InvalidAOAConfigAccount(address actual, address expected);
+    error ZeroExecutor();
+    error ZeroAdmin();
+    error Unauthorized(address caller);
+    error UninstallSignatureExpired(uint256 currentTimestamp, uint256 deadline);
+    error CancelSignatureExpired(uint256 currentTimestamp, uint256 deadline);
+
+    // Functions
     constructor(address policyManager, address admin) Policy(policyManager) {
         if (admin == address(0)) revert ZeroAdmin();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
+    // External functions
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
@@ -47,28 +52,13 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         _unpause();
     }
 
+    // Internal functions
     function _storeConfigHash(bytes32 policyId, bytes calldata policyConfig) internal {
         _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
     function _deleteConfigHash(bytes32 policyId) internal {
         delete _configHashByPolicyId[policyId];
-    }
-
-    function _requireConfigHash(bytes32 policyId, bytes calldata policyConfig) internal view {
-        bytes32 expected = _configHashByPolicyId[policyId];
-        bytes32 actual = keccak256(policyConfig);
-        if (expected != actual) revert PolicyConfigHashMismatch(actual, expected);
-    }
-
-    function _decodeAOAConfig(address expectedAccount, bytes calldata policyConfig)
-        internal
-        pure
-        returns (AOAConfig memory aoa, bytes memory policySpecificConfig)
-    {
-        (aoa, policySpecificConfig) = abi.decode(policyConfig, (AOAConfig, bytes));
-        if (aoa.account != expectedAccount) revert InvalidAOAConfigAccount(aoa.account, expectedAccount);
-        if (aoa.executor == address(0)) revert ZeroExecutor();
     }
 
     /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
@@ -185,5 +175,23 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes memory signature,
         address caller
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
+
+    // Internal functions that are view
+    function _requireConfigHash(bytes32 policyId, bytes calldata policyConfig) internal view {
+        bytes32 expected = _configHashByPolicyId[policyId];
+        bytes32 actual = keccak256(policyConfig);
+        if (expected != actual) revert PolicyConfigHashMismatch(actual, expected);
+    }
+
+    // Internal functions that are pure
+    function _decodeAOAConfig(address expectedAccount, bytes calldata policyConfig)
+        internal
+        pure
+        returns (AOAConfig memory aoa, bytes memory policySpecificConfig)
+    {
+        (aoa, policySpecificConfig) = abi.decode(policyConfig, (AOAConfig, bytes));
+        if (aoa.account != expectedAccount) revert InvalidAOAConfigAccount(aoa.account, expectedAccount);
+        if (aoa.executor == address(0)) revert ZeroExecutor();
+    }
 }
 

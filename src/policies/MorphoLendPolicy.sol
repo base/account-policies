@@ -11,17 +11,7 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// @notice Morpho vault deposit policy.
 /// @dev Fixed vault, fixed receiver (the account), bounded amount.
 contract MorphoLendPolicy is AOAPolicy {
-    error ZeroAmount();
-    error ZeroVault();
-    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
-    error ZeroNonce();
-
-    bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
-
-    RecurringAllowance.State internal _depositLimitState;
-    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
-
+    // Type declarations
     struct MorphoConfig {
         address vault;
         RecurringAllowance.Limit depositLimit;
@@ -32,26 +22,23 @@ contract MorphoLendPolicy is AOAPolicy {
         uint256 nonce; // Policy-defined execution nonce (used for replay protection and for signed execution intents).
     }
 
+    // State variables
+    bytes32 public constant EXECUTION_TYPEHASH =
+        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
+
+    RecurringAllowance.State internal _depositLimitState;
+    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
+
+    // Errors
+    error ZeroAmount();
+    error ZeroVault();
+    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
+    error ZeroNonce();
+
+    // Functions
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
-        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
-        start = uint48(validAfter);
-        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
-    }
-
-    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
-        internal
-        view
-        returns (RecurringAllowance.Limit memory)
-    {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
-        if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
-        }
-        return limit;
-    }
-
+    // External functions that are view
     /// @notice Return recurring deposit limit usage for a policy instance.
     /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
     function getDepositLimitPeriodUsage(bytes32 policyId, address account, bytes calldata policyConfig)
@@ -78,6 +65,7 @@ contract MorphoLendPolicy is AOAPolicy {
         return RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
     }
 
+    // Internal functions
     function _onAOAInstall(bytes32, AOAConfig memory, bytes memory policySpecificConfig) internal override {
         MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
         if (cfg.vault == address(0)) revert ZeroVault();
@@ -130,6 +118,25 @@ contract MorphoLendPolicy is AOAPolicy {
         postCallData = "";
     }
 
+    // Internal functions that are view
+    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        start = uint48(validAfter);
+        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
+    }
+
+    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+        internal
+        view
+        returns (RecurringAllowance.Limit memory)
+    {
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        if (limit.start == 0 && limit.end == 0) {
+            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+        }
+        return limit;
+    }
+
     function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
         internal
         view
@@ -152,6 +159,7 @@ contract MorphoLendPolicy is AOAPolicy {
         return (target, value, callData, approvalToken, approvalSpender);
     }
 
+    // Internal functions that are pure
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Lend Policy";
         version = "1";

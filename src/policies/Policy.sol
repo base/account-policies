@@ -5,19 +5,23 @@ import {PolicyManager} from "../PolicyManager.sol";
 
 /// @notice A policy defines authorization semantics and returns a wallet call plan.
 abstract contract Policy {
+    // State variables
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     PolicyManager public immutable POLICY_MANAGER;
 
+    // Errors
     error InvalidSender(address sender, address expected);
 
-    constructor(address policyManager) {
-        POLICY_MANAGER = PolicyManager(policyManager);
-    }
-
+    // Modifiers
     modifier onlyPolicyManager() {
         _requireSender(address(POLICY_MANAGER));
         _;
+    }
+
+    // Functions
+    constructor(address policyManager) {
+        POLICY_MANAGER = PolicyManager(policyManager);
     }
 
     /// @notice Policy hook invoked during installation.
@@ -74,6 +78,7 @@ abstract contract Policy {
         return _onExecute(policyId, account, policyConfig, policyData, caller);
     }
 
+    // Internal functions
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
 
     function _onUninstall(
@@ -97,6 +102,7 @@ abstract contract Policy {
         address caller
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
+    // Internal functions that are view
     function _requireSender(address sender) internal view {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
