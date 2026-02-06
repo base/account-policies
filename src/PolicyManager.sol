@@ -137,7 +137,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param account Account that was called by the policy's prepared calldata.
     /// @param policy Policy contract address.
     /// @param policyDataHash Hash of the opaque `policyData` passed to the manager.
-    event PolicyExecuted(bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 policyDataHash);
+    event PolicyExecuted(
+        bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 policyDataHash
+    );
 
     /// @notice Emitted when a policyId is cancelled before installation.
     ///
@@ -145,7 +147,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param account Account associated with the binding.
     /// @param policy Policy contract address.
     /// @param policyConfigHash Hash committed in the binding for the cancelled install intent.
-    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 policyConfigHash);
+    event PolicyCancelled(
+        bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 policyConfigHash
+    );
 
     /// @notice Emitted when one policy instance is replaced atomically by another.
     ///
@@ -215,9 +219,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param validUntil Upper bound in seconds.
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
-
-    /// @dev Kept for backwards compatibility with earlier revisions (currently unused).
-    error ExternalCallFailed(address target, bytes returnData);
 
     /// @notice Thrown when a caller restriction is violated.
     /// @param sender Actual sender.
