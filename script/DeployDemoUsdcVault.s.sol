@@ -13,6 +13,11 @@ import {MockMorphoVault} from "../test/mocks/MockMorpho.sol";
  * forge script script/DeployDemoUsdcVault.s.sol:DeployDemoUsdcVault --account dev --sender $SENDER --rpc-url $RPC --broadcast -vvvv
  */
 contract DeployDemoUsdcVault is Script {
+    /// @notice Deploys a `MockMorphoVault` for an existing USDC token.
+    ///
+    /// @dev Reads `USDC_ADDR` from the environment.
+    ///
+    /// @return vault Deployed vault address.
     function run() external returns (address vault) {
         address usdc = vm.envAddress("USDC_ADDR");
 

@@ -18,11 +18,15 @@ import {MockMorphoVault} from "./mocks/MockMorpho.sol";
 contract MintableToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
+    /// @notice Mints test tokens.
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
 }
 
+/// @title MorphoLendPolicyTest
+///
+/// @notice Tests for `MorphoLendPolicy` execution, limits, replay protection, and uninstall/cancel semantics.
 contract MorphoLendPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
@@ -44,6 +48,7 @@ contract MorphoLendPolicyTest is Test {
     bytes internal policyConfig;
     PolicyManager.PolicyBinding internal binding;
 
+    /// @notice Test fixture setup.
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
@@ -83,6 +88,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
     }
 
+    /// @dev Decodes canonical AOA config + Morpho config from a policyConfig preimage.
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
@@ -93,6 +99,7 @@ contract MorphoLendPolicyTest is Test {
         cfg = abi.decode(policySpecificConfig, (MorphoLendPolicy.MorphoConfig));
     }
 
+    /// @dev Encodes canonical AOA config + Morpho config into a policyConfig preimage.
     function _encodePolicyConfig(AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg)
         internal
         pure
@@ -126,6 +133,7 @@ contract MorphoLendPolicyTest is Test {
 
     */
 
+    /// @notice Happy path: executor deposits into the vault.
     function test_morphoPolicy_supplyOnly() public {
         uint256 supplyAmt = 100 ether;
 
@@ -149,6 +157,7 @@ contract MorphoLendPolicyTest is Test {
         assertEq(currentAfter.spend, uint160(supplyAmt));
     }
 
+    /// @notice Reverts when recurring allowance is exceeded.
     function test_morphoPolicy_enforcesRecurringLimit() public {
         (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 1 ether;
@@ -175,6 +184,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, localPolicyConfig, execPolicyData);
     }
 
+    /// @notice Recurring allowance resets when moving to a new period window.
     function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
         (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 100 ether;
@@ -225,6 +235,7 @@ contract MorphoLendPolicyTest is Test {
         );
     }
 
+    /// @notice Execution requires a config preimage that matches the stored config hash.
     function test_morphoPolicy_executeByPolicyId_usesStoredConfig() public {
         bytes memory storedPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory storedBinding = PolicyManager.PolicyBinding({
@@ -253,6 +264,7 @@ contract MorphoLendPolicyTest is Test {
         assertEq(loanToken.allowance(address(account), address(vault)), 0);
     }
 
+    /// @notice Reinstall with signature is idempotent for the same policyId.
     function test_morphoPolicy_reinstallWithSignature_isIdempotent() public {
         bytes memory localPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
@@ -274,6 +286,7 @@ contract MorphoLendPolicyTest is Test {
         assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
+    /// @notice Direct reinstall is idempotent for the same policyId.
     function test_morphoPolicy_reinstallDirect_isIdempotent() public {
         bytes memory localPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
@@ -297,6 +310,7 @@ contract MorphoLendPolicyTest is Test {
         assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
+    /// @notice Executor can uninstall directly when authorized by the policy.
     function test_morphoPolicy_executorCanUninstall() public {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
@@ -318,6 +332,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    /// @notice Executor-signed uninstall intent allows relayed uninstall.
     function test_morphoPolicy_executorSig_allowsRelayedUninstall() public {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
@@ -336,6 +351,7 @@ contract MorphoLendPolicyTest is Test {
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
     }
 
+    /// @notice Pause blocks execution.
     function test_morphoPolicy_pause_blocksExecute() public {
         vm.prank(owner);
         policy.pause();
@@ -350,6 +366,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    /// @notice Executor signature can be used by a relayer, and nonce replay is prevented.
     function test_morphoPolicy_executorSig_allowsRelayer_andPreventsReplay() public {
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
@@ -379,6 +396,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    /// @notice Executor can pre-cancel an install intent by providing config and cancel data.
     function test_morphoPolicy_executorCanPreCancelInstallIntent() public {
         bytes memory localPolicyConfig = policyConfig;
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
@@ -401,6 +419,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
     }
 
+    /// @dev Executes a deposit for `assets` using the configured executor.
     function _exec(uint256 assets) internal {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
@@ -409,6 +428,7 @@ contract MorphoLendPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
+    /// @dev Encodes policyData as `(actionData, executorSignature)`.
     function _encodePolicyDataWithSig(PolicyManager.PolicyBinding memory binding_, MorphoLendPolicy.LendData memory ld)
         internal
         view
@@ -419,11 +439,13 @@ contract MorphoLendPolicyTest is Test {
         return abi.encode(abi.encode(ld), sig);
     }
 
+    /// @dev Signs a policy execution digest using the executor key.
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, execDigest);
         return abi.encodePacked(r, s, v);
     }
 
+    /// @dev Computes the EIP-712 execution digest for the policy.
     function _getPolicyExecutionDigest(PolicyManager.PolicyBinding memory binding_, bytes memory payload)
         internal
         view
@@ -442,6 +464,7 @@ contract MorphoLendPolicyTest is Test {
         return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
     }
 
+    /// @dev Signs a binding struct hash for `installPolicyWithSignature`.
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -452,6 +475,7 @@ contract MorphoLendPolicyTest is Test {
         return account.wrapSignature(0, signature);
     }
 
+    /// @dev Computes an EIP-712 typed data digest for tests.
     function _hashTypedData(address verifyingContract, string memory name, string memory version, bytes32 structHash)
         internal
         view

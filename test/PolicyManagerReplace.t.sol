@@ -9,19 +9,28 @@ import {Policy} from "../src/policies/Policy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
 
+/// @title ReplaceNoopPolicy
+///
+/// @notice Minimal test policy used for replace-policy tests.
 contract ReplaceNoopPolicy is Policy {
     mapping(bytes32 policyId => bytes32 configHash) internal _configHash;
 
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
+    /// @notice Constructs the test policy.
+    ///
+    /// @param policyManager Policy manager address.
     constructor(address policyManager) Policy(policyManager) {}
 
+    /// @dev Stores a config hash so executes can validate preimages.
     function _onInstall(bytes32 policyId, address, bytes calldata policyConfig, address) internal override {
         _configHash[policyId] = keccak256(policyConfig);
     }
 
+    /// @dev No-op uninstall hook for tests.
     function _onUninstall(bytes32, address, bytes calldata, bytes calldata, address) internal override {}
 
+    /// @dev Validates config hash (used in other tests that execute under this policy).
     function _onExecute(bytes32 policyId, address, bytes calldata policyConfig, bytes calldata, address)
         internal
         override
@@ -34,6 +43,9 @@ contract ReplaceNoopPolicy is Policy {
     }
 }
 
+/// @title PolicyManagerReplaceTest
+///
+/// @notice Tests for `PolicyManager.replacePolicyWithSignature`.
 contract PolicyManagerReplaceTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
@@ -46,6 +58,7 @@ contract PolicyManagerReplaceTest is Test {
     PolicyManager internal policyManager;
     ReplaceNoopPolicy internal policy;
 
+    /// @notice Test fixture setup.
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
@@ -60,6 +73,7 @@ contract PolicyManagerReplaceTest is Test {
         account.addOwnerAddress(address(policyManager));
     }
 
+    /// @notice Atomically uninstalls an old policyId and installs a new policyId via an account signature.
     function test_replacePolicyWithSignature_uninstallsOldAndInstallsNew() public {
         bytes memory oldConfig = abi.encode(uint256(1));
         PolicyManager.PolicyBinding memory oldBinding = PolicyManager.PolicyBinding({
@@ -107,6 +121,7 @@ contract PolicyManagerReplaceTest is Test {
         assertFalse(policyManager.isPolicyUninstalled(address(policy), newPolicyId));
     }
 
+    /// @dev Signs a binding struct hash for `installPolicyWithSignature`.
     function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -117,6 +132,7 @@ contract PolicyManagerReplaceTest is Test {
         return account.wrapSignature(0, signature);
     }
 
+    /// @dev Signs a replace-policy typed message for `replacePolicyWithSignature`.
     function _signReplace(address oldPolicy, bytes32 oldPolicyId, bytes32 newPolicyId, uint256 deadline)
         internal
         view
@@ -140,6 +156,7 @@ contract PolicyManagerReplaceTest is Test {
         return account.wrapSignature(0, signature);
     }
 
+    /// @dev Computes an EIP-712 typed data digest for tests.
     function _hashTypedData(address verifyingContract, string memory name, string memory version, bytes32 structHash)
         internal
         view

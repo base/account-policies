@@ -16,6 +16,7 @@ contract PublicERC6492Validator {
     ///
     /// @dev If the signature is postfixed with the ERC-6492 magic value, an external call to deploy/prepare the account
     ///      is made before calling ERC-1271 `isValidSignature`.
+    ///
     /// @dev This function is NOT reentrancy safe.
     ///
     /// @param account Account being validated (EOA or smart contract wallet).

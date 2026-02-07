@@ -13,7 +13,30 @@ Follow this NatSpec style when editing first-party Solidity under `src/`, `scrip
 - Prefer documenting **behavior, assumptions, invariants, and trust boundaries** over narrating syntax.
 - Keep docs **truthful** (describe what the code does today, not intended behavior).
 - Use `@notice` for the primary “what/outcome”; use `@dev` for edge cases, auth, ordering, and gotchas.
-- Use short paragraphs and blank `///` separators (match the Flywheel/CashbackRewards examples).
+- Use short paragraphs and blank `///` separators.
+
+## NatSpec spacing (required)
+
+Always insert a **blank NatSpec line** (`///`) between logical sections:
+
+- Between `@notice` and any `@dev`
+- Between separate `@dev` paragraphs
+- Between the last `@dev` (or `@notice` if no dev) and the `@param`/`@return` block
+
+Example:
+
+```solidity
+/// @notice Emitted when a fee transfer fails
+///
+/// @dev Applies to both attempted sends and distributions of fees
+///
+/// @param campaign Address of the campaign
+/// @param token Address of the token that failed to transfer
+/// @param key Key for the fees
+/// @param recipient Address receiving the fees
+/// @param amount Amount of tokens that failed to transfer
+/// @param extraData Extra data for the payout to attach in events
+```
 
 ## Contract headers
 

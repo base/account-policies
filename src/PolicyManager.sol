@@ -24,6 +24,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Policy binding parameters authorized by the account.
+    ///
     /// @dev The EIP-712 struct hash of this binding is the `policyId`.
     struct PolicyBinding {
         /// @dev Account that authorizes installation and is the target of policy executions.
@@ -41,6 +42,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Payload used for install+execute in a single call.
+    ///
     /// @dev Encoded and passed via the `policyData` parameter of `execute` when the policy is not yet installed.
     struct InstallAndExecutePayload {
         /// @dev Binding authorized by `userSig`.
@@ -100,11 +102,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     );
 
     /// @notice EIP-712 hash of InstallAndExecute type.
+    ///
     /// @dev Binds an installation authorization to a specific policy execution (via `policyDataHash`).
     bytes32 public constant INSTALL_AND_EXECUTE_TYPEHASH =
         keccak256("InstallAndExecute(bytes32 policyId,bytes32 policyDataHash,uint256 deadline)");
 
     /// @notice EIP-712 hash of ReplacePolicy type.
+    ///
     /// @dev Binds an uninstallation authorization to a specific new policy installation.
     bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
         "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
@@ -174,6 +178,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error InvalidSignature();
 
     /// @notice Thrown when a supplied policy config preimage does not hash to the binding's `policyConfigHash`.
+    ///
     /// @param actual Hash of the supplied config bytes.
     /// @param expected Hash committed in the binding.
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
@@ -188,6 +193,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error PolicyAlreadyInstalled(bytes32 policyId);
 
     /// @notice Thrown when a replace-policy signature is past its deadline.
+    ///
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param deadline Signature deadline in seconds.
     error ReplacePolicyExpired(uint256 currentTimestamp, uint256 deadline);
@@ -202,25 +208,30 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     error InvalidInstallAndExecutePayload();
 
     /// @notice Thrown when an install+execute signature is past its deadline.
+    ///
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param deadline Signature deadline in seconds.
     error InstallAndExecuteExpired(uint256 currentTimestamp, uint256 deadline);
 
     /// @notice Thrown when a policy hook reverts and the effective caller is not authorized to force uninstall.
+    ///
     /// @param caller Effective caller for the uninstall attempt.
     error Unauthorized(address caller);
 
     /// @notice Thrown when executing outside the binding's lower-bound install window.
+    ///
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param validAfter Lower bound in seconds.
     error BeforeValidAfter(uint40 currentTimestamp, uint40 validAfter);
 
     /// @notice Thrown when executing outside the binding's upper-bound install window.
+    ///
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param validUntil Upper bound in seconds.
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
 
     /// @notice Thrown when a caller restriction is violated.
+    ///
     /// @param sender Actual sender.
     /// @param expected Expected sender.
     error InvalidSender(address sender, address expected);
@@ -230,6 +241,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Restricts the call to a specific sender.
+    ///
     /// @param sender Expected `msg.sender`.
     modifier requireSender(address sender) {
         _requireSender(sender);
@@ -241,6 +253,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Constructs the manager with a signature validator.
+    ///
     /// @param publicERC6492Validator ERC-6492 validator used for account signatures (and counterfactual side effects).
     constructor(PublicERC6492Validator publicERC6492Validator) {
         PUBLIC_ERC6492_VALIDATOR = publicERC6492Validator;
@@ -419,6 +432,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Cancel a policy installation intent (including preemptively, before installation).
+    ///
     /// @dev This is distinct from uninstallation:
     /// - If the policy is already installed, this uninstalls it (calling the policy hook and emitting `PolicyUninstalled`).
     /// - If the policy is not installed, it marks the policyId as uninstalled to permanently block future installs and
@@ -467,17 +481,22 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Returns the account stored for a (policy, policyId).
+    ///
     /// @dev Returns zero if the policyId has never been installed/cancelled.
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
+    ///
     /// @return account Account associated with the policyId.
     function getAccountForPolicy(address policy, bytes32 policyId) external view returns (address account) {
         return _policies[policy][policyId].account;
     }
 
     /// @notice Return raw policy record fields for a policy instance.
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
+    ///
     /// @return installed True once installed (never unset).
     /// @return uninstalled True once uninstalled/cancelled (never unset).
     /// @return account Account associated with the policyId.
@@ -493,6 +512,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice True if the policy is installed (even if uninstalled).
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyInstalled(address policy, bytes32 policyId) external view returns (bool) {
@@ -500,6 +520,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice True if the policy has been uninstalled.
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyUninstalled(address policy, bytes32 policyId) external view returns (bool) {
@@ -507,6 +528,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice True if the policy is installed and not uninstalled.
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyActive(address policy, bytes32 policyId) external view returns (bool) {
@@ -515,6 +537,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice True if the policy is installed, not uninstalled, and currently within its valid install window.
+    ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyActiveNow(address policy, bytes32 policyId) external view returns (bool) {
@@ -531,7 +554,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Convenience alias: compute the `policyId` for a binding.
+    ///
     /// @param binding Policy binding parameters.
+    ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function getPolicyId(PolicyBinding calldata binding) external pure returns (bytes32 policyId) {
         return getPolicyBindingStructHash(binding);
@@ -542,8 +567,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Computes the EIP-712 struct hash of a binding.
+    ///
     /// @dev This value is used as the `policyId` throughout the system.
+    ///
     /// @param binding Policy binding parameters.
+    ///
     /// @return Hash of the EIP-712-encoded binding struct.
     function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
         // Must match POLICY_BINDING_TYPEHASH field order (EIP-712 struct hashing).
@@ -703,13 +731,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Requires `msg.sender` to equal `sender`.
+    ///
     /// @param sender Expected sender.
     function _requireSender(address sender) internal view {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
     /// @notice Performs an external call if `data` is non-empty.
+    ///
     /// @dev Uses `Address.functionCall` to bubble revert reasons.
+    ///
     /// @param target Call target.
     /// @param data ABI-encoded calldata.
     function _externalCall(address target, bytes memory data) internal {
@@ -718,6 +749,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Reverts if the current timestamp is outside the install window.
+    ///
     /// @param validAfter Lower bound timestamp (seconds), or zero if unset.
     /// @param validUntil Upper bound timestamp (seconds), or zero if unset.
     function _checkInstallWindow(uint40 validAfter, uint40 validUntil) internal view {

@@ -10,6 +10,9 @@ import {Policy} from "../src/policies/Policy.sol";
 
 import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
 
+/// @title NoopPolicy
+///
+/// @notice Minimal test policy that stores a config hash and records execution metadata.
 contract NoopPolicy is Policy {
     error PolicyConfigHashMismatch(bytes32 actual, bytes32 expected);
 
@@ -18,15 +21,21 @@ contract NoopPolicy is Policy {
     bytes32 public lastExecutedPolicyId;
     address public lastCaller;
 
+    /// @notice Constructs the test policy.
+    ///
+    /// @param policyManager Policy manager address.
     constructor(address policyManager) Policy(policyManager) {}
 
+    /// @dev Stores config hash and increments `installCalls`.
     function _onInstall(bytes32 policyId, address, bytes calldata policyConfig, address) internal override {
         installCalls++;
         _configHash[policyId] = keccak256(policyConfig);
     }
 
+    /// @dev No-op uninstall hook for tests.
     function _onUninstall(bytes32, address, bytes calldata, bytes calldata, address) internal override {}
 
+    /// @dev Validates config hash and records the last executed policyId + caller.
     function _onExecute(bytes32 policyId, address, bytes calldata policyConfig, bytes calldata, address caller)
         internal
         override
@@ -43,6 +52,9 @@ contract NoopPolicy is Policy {
     }
 }
 
+/// @title PolicyManagerInstallAndExecuteTest
+///
+/// @notice Tests for `PolicyManager.executeWithInstall` and execution-bound install authorization.
 contract PolicyManagerInstallAndExecuteTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
@@ -56,6 +68,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
     PolicyManager internal policyManager;
     NoopPolicy internal policy;
 
+    /// @notice Test fixture setup.
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
@@ -71,6 +84,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         account.addOwnerAddress(address(policyManager));
     }
 
+    /// @notice Installs and executes atomically using an execution-bound signature.
     function test_executeWithInstall_canInstallAndExecuteAtomically_withExecutionBoundSignature() public {
         bytes memory policyConfig = abi.encode(uint256(123));
 
@@ -109,6 +123,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         assertEq(policy.lastCaller(), address(this));
     }
 
+    /// @notice `executeWithInstall` is a typed wrapper for install+execute.
     function test_executeWithInstall_isTypedWrapperForInstallAndExecute() public {
         bytes memory policyConfig = abi.encode(uint256(456));
 
@@ -142,6 +157,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         assertEq(policy.lastCaller(), address(this));
     }
 
+    /// @notice `installPolicyWithSignature` is idempotent (second call does not call hooks or emit `PolicyInstalled`).
     function test_installPolicyWithSignature_isIdempotent_noHookNoEventOnSecondCall() public {
         bytes memory policyConfig = abi.encode(uint256(789));
 
@@ -173,6 +189,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         assertEq(installedEvents, 1);
     }
 
+    /// @notice If already installed, `executeWithInstall` executes without requiring an install signature.
     function test_executeWithInstall_whenAlreadyInstalled_executesWithoutInstallSignature() public {
         bytes memory policyConfig = abi.encode(uint256(111));
 
@@ -203,6 +220,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         assertEq(policy.lastCaller(), address(this));
     }
 
+    /// @dev Signs a binding struct hash for `installPolicyWithSignature`.
     function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -213,6 +231,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         return account.wrapSignature(0, signature);
     }
 
+    /// @dev Signs an execution-bound install intent for `executeWithInstall`.
     function _signInstallAndExecute(bytes32 policyId, bytes memory innerPolicyData, uint256 deadline)
         internal
         view
@@ -234,6 +253,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         return account.wrapSignature(0, signature);
     }
 
+    /// @dev Computes an EIP-712 typed data digest for tests.
     function _hashTypedData(address verifyingContract, string memory name, string memory version, bytes32 structHash)
         internal
         view

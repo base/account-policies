@@ -3,16 +3,26 @@ pragma solidity ^0.8.23;
 
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
-/// @dev Forked from official smart-wallet
-/// (https://github.com/coinbase/smart-wallet/blob/main/test/mocks/MockCoinbaseSmartWallet.sol).
-/// @dev WARNING! This mock is strictly intended for testing purposes only.
-/// Do NOT copy anything here into production code unless you really know what you are doing.
+/// @title MockCoinbaseSmartWallet
+///
+/// @notice Minimal `CoinbaseSmartWallet` test mock used by this repo's tests.
+///
+/// @dev Forked from the official smart-wallet test mock:
+///      `https://github.com/coinbase/smart-wallet/blob/main/test/mocks/MockCoinbaseSmartWallet.sol`.
+///      WARNING: testing-only code. Do not copy into production.
 contract MockCoinbaseSmartWallet is CoinbaseSmartWallet {
+    /// @notice Constructs the mock with relaxed owner indexing for tests.
     constructor() {
         // allow for easier testing
         _getMultiOwnableStorage().nextOwnerIndex = 0;
     }
 
+    /// @notice Wraps a raw owner signature in the wallet's signature wrapper encoding.
+    ///
+    /// @param ownerIndex Owner index used by the wallet.
+    /// @param signature Raw signature bytes.
+    ///
+    /// @return wrappedSignature ABI-encoded `SignatureWrapper`.
     function wrapSignature(uint256 ownerIndex, bytes memory signature)
         public
         pure
