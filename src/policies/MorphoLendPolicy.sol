@@ -8,39 +8,86 @@ import {IMorphoVault} from "../interfaces/morpho/IMorphoVault.sol";
 import {AOAPolicy} from "./AOAPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
-/// @notice Morpho vault deposit policy.
-/// @dev Fixed vault, fixed receiver (the account), bounded amount.
+/// @title MorphoLendPolicy
+///
+/// @notice AOA policy that deposits assets into a fixed Morpho vault on behalf of an account.
+///
+/// @dev Properties:
+///      - fixed vault (pinned in config)
+///      - fixed receiver (the account)
+///      - executor-authorized execution (direct call or signed intent)
+///      - recurring allowance bounds on deposited assets
 contract MorphoLendPolicy is AOAPolicy {
-    // Type declarations
+    ////////////////////////////////////////////////////////////////
+    ///                         Types                            ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Policy-specific config for Morpho vault deposits.
     struct MorphoConfig {
+        /// @dev Morpho vault to deposit into.
         address vault;
+        /// @dev Recurring deposit allowance bounds.
         RecurringAllowance.Limit depositLimit;
     }
 
+    /// @notice Policy-specific execution payload for deposits.
     struct LendData {
-        uint256 assets; // The amount of assets to supply, in the loan token's smallest unit (i.e. ERC20 decimals)
-        uint256 nonce; // Policy-defined execution nonce (used for replay protection and for signed execution intents).
+        /// @dev Amount of assets to supply, in the vault asset token's smallest unit (ERC20 decimals).
+        uint256 assets;
+        /// @dev Policy-defined execution nonce used for replay protection (and signed intents).
+        uint256 nonce;
     }
 
-    // State variables
-    bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
+    ////////////////////////////////////////////////////////////////
+    ///                    Constants/Storage                     ///
+    ////////////////////////////////////////////////////////////////
 
+    /// @notice Recurring allowance state for deposits.
     RecurringAllowance.State internal _depositLimitState;
+
+    /// @notice Tracks used nonces per policyId to prevent replay of signed executions.
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
-    // Errors
+    ////////////////////////////////////////////////////////////////
+    ///                         Errors                           ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Thrown when attempting to deposit zero assets.
     error ZeroAmount();
+
+    /// @notice Thrown when the vault address is zero.
     error ZeroVault();
+
+    /// @notice Thrown when the execution nonce has already been used for this policyId.
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
+
+    /// @notice Thrown when the execution nonce is zero.
     error ZeroNonce();
 
-    // Functions
+    ////////////////////////////////////////////////////////////////
+    ///                       Constructor                        ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Constructs the policy.
+    ///
+    /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    // External functions that are view
+    ////////////////////////////////////////////////////////////////
+    ///                 External View Functions                  ///
+    ////////////////////////////////////////////////////////////////
+
     /// @notice Return recurring deposit limit usage for a policy instance.
+    ///
     /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param account Account associated with the policyId.
+    /// @param policyConfig Full config preimage bytes.
+    ///
+    /// @return lastUpdated Last stored period usage snapshot.
+    /// @return current Current period usage computed from `depositLimit`.
     function getDepositLimitPeriodUsage(bytes32 policyId, address account, bytes calldata policyConfig)
         external
         view
@@ -57,6 +104,10 @@ contract MorphoLendPolicy is AOAPolicy {
     }
 
     /// @notice Return the last stored recurring deposit usage for a policy instance.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    ///
+    /// @return Last stored period usage snapshot.
     function getDepositLimitLastUpdated(bytes32 policyId)
         external
         view
@@ -65,12 +116,22 @@ contract MorphoLendPolicy is AOAPolicy {
         return RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
     }
 
-    // Internal functions
+    ////////////////////////////////////////////////////////////////
+    ///                    Internal Functions                    ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @inheritdoc AOAPolicy
+    ///
+    /// @dev Validates Morpho vault config at install time.
     function _onAOAInstall(bytes32, AOAConfig memory, bytes memory policySpecificConfig) internal override {
         MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
         if (cfg.vault == address(0)) revert ZeroVault();
     }
 
+    /// @inheritdoc AOAPolicy
+    ///
+    /// @dev Executes a Morpho vault deposit, enforcing executor authorization, nonce replay protection, and
+    ///      recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
         AOAConfig memory aoa,
@@ -88,7 +149,7 @@ contract MorphoLendPolicy is AOAPolicy {
         if (_usedNonces[policyId][ld.nonce]) revert ExecutionNonceAlreadyUsed(policyId, ld.nonce);
 
         bytes32 payloadHash = keccak256(actionData);
-        bytes32 digest = _getExecutionDigest(policyId, aoa.account, _configHashByPolicyId[policyId], payloadHash);
+        bytes32 digest = _getExecutionDigest(policyId, aoa.account, payloadHash);
         if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
 
         _usedNonces[policyId][ld.nonce] = true;
@@ -118,13 +179,18 @@ contract MorphoLendPolicy is AOAPolicy {
         postCallData = "";
     }
 
-    // Internal functions that are view
+    ////////////////////////////////////////////////////////////////
+    ///                 Internal Functions                  ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @dev Returns the policy's install window encoded as allowance bounds.
     function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
+    /// @dev Applies install window bounds if the config uses the (start=0,end=0) sentinel.
     function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
         internal
         view
@@ -137,14 +203,7 @@ contract MorphoLendPolicy is AOAPolicy {
         return limit;
     }
 
-    function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
-        internal
-        view
-        returns (bytes32)
-    {
-        return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
-    }
-
+    /// @dev Builds the underlying vault deposit call and approval requirements.
     function _buildVaultDepositCall(MorphoConfig memory cfg, address receiver, uint256 assets)
         internal
         view
@@ -159,7 +218,7 @@ contract MorphoLendPolicy is AOAPolicy {
         return (target, value, callData, approvalToken, approvalSpender);
     }
 
-    // Internal functions that are pure
+    /// @dev EIP-712 domain metadata.
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Lend Policy";
         version = "1";

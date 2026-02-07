@@ -12,77 +12,136 @@ import {IOracle} from "../interfaces/morpho/IOracle.sol";
 import {AOAPolicy} from "./AOAPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
-/// @notice Morpho Blue liquidation-protection policy: supplies collateral when LTV is high.
+/// @title MorphoLoanProtectionPolicy
+///
+/// @notice AOA policy that supplies Morpho Blue collateral when an account's LTV crosses a trigger threshold.
+///
 /// @dev Hard-enforces:
-/// - pinned Morpho contract + pinned market params
-/// - executor-signed execution intents (EIP-712)
-/// - trigger LTV threshold
-/// - post-protection LTV bounds (min + max)
-/// - recurring allowance budget (in collateral-token units)
-/// - one active policy per (account, marketId)
+///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
+///      - executor-authorized execution intents (direct call or signed intent)
+///      - trigger LTV threshold
+///      - post-protection LTV bounds (min + max)
+///      - recurring allowance budget (in collateral-token units)
+///      - one active policy per (account, marketId)
 contract MorphoLoanProtectionPolicy is AOAPolicy {
-    // Type declarations
+    ////////////////////////////////////////////////////////////////
+    ///                         Types                            ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Policy-specific config for Morpho Blue liquidation protection.
     struct MorphoConfig {
+        /// @dev Morpho Blue contract address.
         address morpho;
+        /// @dev Morpho Blue market identifier.
         Id marketId;
 
         // LTV constraints in WAD (1e18 = 100%).
+        /// @dev Position must be at or above this LTV (wad) to trigger protection.
         uint256 triggerLtv;
+        /// @dev Projected post-top-up LTV (wad) must be at or above this minimum.
         uint256 minPostProtectionLtv;
+        /// @dev Projected post-top-up LTV (wad) must be at or below this maximum.
         uint256 maxPostProtectionLtv;
 
         // Budget in collateral-token units (smallest unit).
+        /// @dev Recurring top-up allowance bounds, denominated in collateral-token units.
         RecurringAllowance.Limit collateralLimit;
     }
 
+    /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
-        uint256 topUpAssets; // collateral-token smallest units
-        uint256 nonce; // replay protection
-        uint256 deadline; // signature expiry (unix timestamp)
-        bytes callbackData; // forwarded to Morpho's callback (optional)
+        /// @dev Amount of collateral assets to supply (collateral token smallest units).
+        uint256 topUpAssets;
+        /// @dev Policy-defined execution nonce used for replay protection.
+        uint256 nonce;
+        /// @dev Optional signature expiry timestamp (seconds). Zero means “no expiry”.
+        uint256 deadline;
+        /// @dev Optional data forwarded to Morpho's callback.
+        bytes callbackData;
     }
 
-    // State variables
-    /// @dev Outer signed struct tying an execution to a policy instance.
-    bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
+    ////////////////////////////////////////////////////////////////
+    ///                    Constants/Storage                     ///
+    ////////////////////////////////////////////////////////////////
 
+    /// @notice EIP-712 typehash for the inner top-up payload.
+    ///
     /// @dev Inner signed struct: what the executor is authorizing for a specific execution.
     bytes32 public constant TOP_UP_DATA_TYPEHASH =
         keccak256("TopUpData(uint256 topUpAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
 
-    /// @dev One active policy per (account, marketId).
+    /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
 
-    /// @dev Stored market key per policy instance to support clean uninstallation.
+    /// @notice Stored market key per policy instance to support clean uninstallation.
     mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
 
-    /// @dev Recurring allowance state (budget in collateral units).
+    /// @notice Recurring allowance state (budget in collateral units).
     RecurringAllowance.State internal _collateralLimitState;
 
-    /// @dev Replay protection for executor intents.
+    /// @notice Replay protection for executor intents.
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
-    // Errors
+    ////////////////////////////////////////////////////////////////
+    ///                         Errors                           ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Thrown when the Morpho market params for the pinned `marketId` are not found/initialized.
     error MarketNotFound(Id marketId);
+
+    /// @notice Thrown when the Morpho Blue address is zero.
     error ZeroMorpho();
+
+    /// @notice Thrown when the marketId is zero.
     error ZeroMarketId();
+
+    /// @notice Thrown when attempting a zero-amount top-up.
     error ZeroAmount();
+
+    /// @notice Thrown when the execution nonce is zero.
     error ZeroNonce();
-    error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
+
+    /// @notice Thrown when a nonce has already been used for this policyId.
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
+
+    /// @notice Thrown when the position is below the trigger LTV (i.e., is considered healthy).
     error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
+
+    /// @notice Thrown when the projected post-top-up LTV remains above the maximum bound.
     error ProjectedLtvTooHigh(uint256 projectedLtv, uint256 maxPostLtv);
+
+    /// @notice Thrown when the projected post-top-up LTV falls below the minimum bound (over-protection).
     error ProjectedLtvTooLow(uint256 projectedLtv, uint256 minPostLtv);
+
+    /// @notice Thrown when the oracle price results in a zero collateral value.
     error ZeroCollateralValue();
+
+    /// @notice Thrown when an account attempts to install multiple active policies for the same marketId.
     error PolicyAlreadyInstalledForMarket(address account, Id marketId);
 
-    // Functions
+    ////////////////////////////////////////////////////////////////
+    ///                       Constructor                        ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Constructs the policy.
+    ///
+    /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    // External functions that are view
+    ////////////////////////////////////////////////////////////////
+    ///                 External View Functions                  ///
+    ////////////////////////////////////////////////////////////////
+
     /// @notice Return recurring collateral limit usage for a policy instance.
+    ///
     /// @dev Requires the config preimage so the contract can decode `collateralLimit` without storing it.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param policyConfig Full config preimage bytes.
+    ///
+    /// @return lastUpdated Last stored period usage snapshot.
+    /// @return current Current period usage computed from `collateralLimit`.
     function getCollateralLimitPeriodUsage(bytes32 policyId, bytes calldata policyConfig)
         external
         view
@@ -100,6 +159,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     }
 
     /// @notice Return the last stored recurring collateral usage for a policy instance.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    ///
+    /// @return Last stored period usage snapshot.
     function getCollateralLimitLastUpdated(bytes32 policyId)
         external
         view
@@ -108,7 +171,13 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         return RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
     }
 
-    // Internal functions
+    ////////////////////////////////////////////////////////////////
+    ///                    Internal Functions                    ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @inheritdoc AOAPolicy
+    ///
+    /// @dev Validates config, enforces one-policy-per-market, and stores market linkage for uninstall.
     function _onAOAInstall(bytes32 policyId, AOAConfig memory aoa, bytes memory policySpecificConfig)
         internal
         override
@@ -129,10 +198,14 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _marketIdByPolicyId[policyId] = marketKey;
     }
 
+    /// @inheritdoc AOAPolicy
+    ///
+    /// @dev Clears per-install state for a policy instance.
     function _onAOAUninstall(bytes32 policyId, address account, address) internal override {
         _clearInstallState(policyId, account);
     }
 
+    /// @dev Clears per-install state mappings if still pointing at this policyId.
     function _clearInstallState(bytes32 policyId, address account) internal {
         bytes32 marketKey = _marketIdByPolicyId[policyId];
         if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
@@ -141,6 +214,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         delete _marketIdByPolicyId[policyId];
     }
 
+    /// @inheritdoc AOAPolicy
+    ///
+    /// @dev Executes a collateral top-up, enforcing executor authorization, nonce replay protection, LTV bounds, and
+    ///      recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
         AOAConfig memory aoa,
@@ -187,6 +264,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         postCallData = "";
     }
 
+    /// @dev Validates and consumes an executor-signed execution intent (deadline + nonce replay protection).
     function _validatePolicyData(
         bytes32 policyId,
         address account,
@@ -204,10 +282,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (_usedNonces[policyId][topUpData.nonce]) revert ExecutionNonceAlreadyUsed(policyId, topUpData.nonce);
 
         bytes32 callbackHash = keccak256(topUpData.callbackData);
-        bytes32 topUpDataHash =
-            keccak256(
-                abi.encode(TOP_UP_DATA_TYPEHASH, topUpData.topUpAssets, topUpData.nonce, topUpData.deadline, callbackHash)
-            );
+        bytes32 topUpDataHash = keccak256(
+            abi.encode(TOP_UP_DATA_TYPEHASH, topUpData.topUpAssets, topUpData.nonce, topUpData.deadline, callbackHash)
+        );
 
         bytes32 digest = _getExecutionDigest(policyId, account, expectedConfigHash, topUpDataHash);
         bool ok = _isValidExecutorSig(executor, digest, signature);
@@ -216,6 +293,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _usedNonces[policyId][topUpData.nonce] = true;
     }
 
+    /// @dev Enforces trigger and post-top-up LTV bounds using current position, market totals, and oracle price.
     function _enforceLtvBounds(
         MorphoConfig memory config,
         MarketParams memory marketParams,
@@ -232,7 +310,16 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         }
     }
 
-    // Internal functions that are view
+    ////////////////////////////////////////////////////////////////
+    ///                 Internal Functions                  ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Looks up market params from `marketId` and reverts if the market is not initialized.
+    ///
+    /// @param morphoAddress Morpho Blue contract address.
+    /// @param marketId Market identifier.
+    ///
+    /// @return marketParams Market parameters for the given marketId.
     function _requireMarketParams(address morphoAddress, Id marketId)
         internal
         view
@@ -246,12 +333,14 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         ) revert MarketNotFound(marketId);
     }
 
+    /// @dev Returns the policy's install window encoded as allowance bounds.
     function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
+    /// @dev Applies install window bounds if the config uses the (start=0,end=0) sentinel.
     function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
         internal
         view
@@ -264,14 +353,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         return limit;
     }
 
-    function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
-        internal
-        view
-        returns (bytes32)
-    {
-        return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
-    }
-
+    /// @dev Computes the current LTV and projected post-top-up LTV (wad) for the pinned market and account position.
     function _computeLtvPair(
         MorphoConfig memory config,
         MarketParams memory marketParams,
@@ -291,7 +373,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (totalBorrowShares == 0) {
             debtAssets = 0;
         } else {
-            debtAssets = Math.mulDiv(uint256(position.borrowShares), uint256(market.totalBorrowAssets), totalBorrowShares);
+            debtAssets =
+                Math.mulDiv(uint256(position.borrowShares), uint256(market.totalBorrowAssets), totalBorrowShares);
         }
 
         uint256 price = IOracle(marketParams.oracle).price(); // 1e36 scaled
@@ -304,7 +387,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         projectedLtvWad = Math.mulDiv(debtAssets, 1e18, collateralValueAfter);
     }
 
-    // Internal functions that are pure
+    /// @dev EIP-712 domain metadata.
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Loan Protection Policy";
         version = "1";
