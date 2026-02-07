@@ -107,7 +107,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         collateralToken.mint(address(account), 1_000 ether);
 
         bytes memory policySpecificConfig = abi.encode(
-            MorphoLoanProtectionPolicy.MorphoConfig({
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
                 morpho: address(morpho),
                 marketId: marketId,
                 triggerLtv: 0.70e18,
@@ -136,11 +136,11 @@ contract MorphoLoanProtectionPolicyTest is Test {
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
-        returns (AOAPolicy.AOAConfig memory aoa, MorphoLoanProtectionPolicy.MorphoConfig memory cfg)
+        returns (AOAPolicy.AOAConfig memory aoa, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg)
     {
         bytes memory policySpecificConfig;
         (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
-        cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.MorphoConfig));
+        cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig));
     }
 
     /// @notice Happy path: tops up collateral, enforces LTV bounds, and resets approval.
@@ -226,7 +226,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
     /// @notice Enforces one active policy per (account, marketId) and unlocks on uninstall.
     function test_onePolicyPerMarket_enforced_andRevocationUnlocks() public {
         // Attempt to install another policy instance for the same (account, market).
-        (, MorphoLoanProtectionPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        (, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg) = _decodePolicyConfig(policyConfig);
         bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
@@ -261,7 +261,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         // Execution should now be blocked by the manager.
         bytes memory policyData = _encodePolicyData(50 ether, 1, uint256(block.timestamp + 1 days), hex"");
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
@@ -301,7 +301,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
     /// @notice ReplacePolicy signature can atomically uninstall and install for the same market.
     function test_replacePolicyWithSignature_canReplaceInSingleTx_forSameMarket() public {
         // Install a second instance for the same (account, market) via replace.
-        (, MorphoLoanProtectionPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        (, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg) = _decodePolicyConfig(policyConfig);
         bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
@@ -408,7 +408,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
 
         MorphoLoanProtectionPolicy.TopUpData memory pd = MorphoLoanProtectionPolicy.TopUpData({
-            topUpAssets: topUp,
+            collateralAssets: topUp,
             nonce: nonce,
             deadline: deadline,
             callbackData: callbackData

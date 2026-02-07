@@ -31,7 +31,7 @@ contract MorphoLendPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
     bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
-        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)"
+        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)"
     );
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
@@ -67,7 +67,7 @@ contract MorphoLendPolicyTest is Test {
         vault = new MockMorphoVault(address(loanToken));
 
         bytes memory policySpecificConfig = abi.encode(
-            MorphoLendPolicy.MorphoConfig({
+            MorphoLendPolicy.LendPolicyConfig({
                 vault: address(vault),
                 depositLimit: RecurringAllowance.Limit({allowance: 1_000_000 ether, period: 1 days, start: 0, end: 0})
             })
@@ -92,15 +92,15 @@ contract MorphoLendPolicyTest is Test {
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
-        returns (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg)
+        returns (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg)
     {
         bytes memory policySpecificConfig;
         (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
-        cfg = abi.decode(policySpecificConfig, (MorphoLendPolicy.MorphoConfig));
+        cfg = abi.decode(policySpecificConfig, (MorphoLendPolicy.LendPolicyConfig));
     }
 
     /// @dev Encodes canonical AOA config + Morpho config into a policyConfig preimage.
-    function _encodePolicyConfig(AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg)
+    function _encodePolicyConfig(AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg)
         internal
         pure
         returns (bytes memory)
@@ -159,7 +159,8 @@ contract MorphoLendPolicyTest is Test {
 
     /// @notice Reverts when recurring allowance is exceeded.
     function test_morphoPolicy_enforcesRecurringLimit() public {
-        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg) =
+            _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 1 ether;
         bytes memory localPolicyConfig = _encodePolicyConfig(aoa, cfg);
         PolicyManager.PolicyBinding memory localBinding = PolicyManager.PolicyBinding({
@@ -177,7 +178,7 @@ contract MorphoLendPolicyTest is Test {
         loanToken.mint(address(account), 2 ether);
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(localBinding);
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 2 ether, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: 2 ether, nonce: 1});
         bytes memory execPolicyData = _encodePolicyDataWithSig(localBinding, ld);
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 2 ether, 1 ether));
@@ -186,7 +187,8 @@ contract MorphoLendPolicyTest is Test {
 
     /// @notice Recurring allowance resets when moving to a new period window.
     function test_morphoPolicy_recurringLimit_resetsNextPeriod() public {
-        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.MorphoConfig memory cfg) = _decodePolicyConfig(policyConfig);
+        (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg) =
+            _decodePolicyConfig(policyConfig);
         cfg.depositLimit.allowance = 100 ether;
         cfg.depositLimit.period = 1 days;
         cfg.depositLimit.start = 0;
@@ -215,11 +217,11 @@ contract MorphoLendPolicyTest is Test {
             address(policy),
             policyId,
             localPolicyConfig,
-            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 60 ether, nonce: 1}))
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({depositAssets: 60 ether, nonce: 1}))
         );
 
         bytes memory execPolicyData2 =
-            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 2}));
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({depositAssets: 50 ether, nonce: 2}));
         vm.prank(executor);
         vm.expectRevert(abi.encodeWithSelector(RecurringAllowance.ExceededAllowance.selector, 110 ether, 100 ether));
         policyManager.execute(address(policy), policyId, localPolicyConfig, execPolicyData2);
@@ -231,7 +233,7 @@ contract MorphoLendPolicyTest is Test {
             address(policy),
             policyId,
             localPolicyConfig,
-            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({assets: 50 ether, nonce: 3}))
+            _encodePolicyDataWithSig(localBinding, MorphoLendPolicy.LendData({depositAssets: 50 ether, nonce: 3}))
         );
     }
 
@@ -254,7 +256,7 @@ contract MorphoLendPolicyTest is Test {
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
 
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: supplyAmt, nonce: 1});
         bytes memory policyData = _encodePolicyDataWithSig(storedBinding, ld);
 
         vm.prank(executor);
@@ -325,10 +327,10 @@ contract MorphoLendPolicyTest is Test {
 
         // Execution should now be blocked by the manager.
         loanToken.mint(address(account), 1 ether);
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 1 ether, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: 1 ether, nonce: 1});
         bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
         vm.prank(executor);
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
@@ -357,7 +359,7 @@ contract MorphoLendPolicyTest is Test {
         policy.pause();
 
         loanToken.mint(address(account), 1 ether);
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: 1 ether, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: 1 ether, nonce: 1});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
 
@@ -371,7 +373,7 @@ contract MorphoLendPolicyTest is Test {
         uint256 supplyAmt = 100 ether;
         loanToken.mint(address(account), supplyAmt);
 
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: supplyAmt, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: supplyAmt, nonce: 1});
         bytes memory payload = abi.encode(ld);
         bytes32 execDigest = _getPolicyExecutionDigest(binding, payload);
         bytes memory sig = _signExecution(execDigest);
@@ -415,13 +417,13 @@ contract MorphoLendPolicyTest is Test {
 
         // Now installation of that exact policyId is blocked.
         bytes memory userSig = _signInstall(localBinding);
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.installPolicyWithSignature(localBinding, localPolicyConfig, userSig);
     }
 
     /// @dev Executes a deposit for `assets` using the configured executor.
     function _exec(uint256 assets) internal {
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({assets: assets, nonce: 1});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: assets, nonce: 1});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
         vm.prank(executor);

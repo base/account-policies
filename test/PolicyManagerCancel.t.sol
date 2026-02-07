@@ -85,7 +85,7 @@ contract PolicyManagerCancelTest is Test {
 
         // Now any attempt to install this exact policyId must revert.
         bytes memory userSig = _signInstall(binding);
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsUninstalled.selector, policyId));
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
     }
 

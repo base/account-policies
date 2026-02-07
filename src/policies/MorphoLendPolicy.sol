@@ -15,15 +15,15 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 /// @dev Properties:
 ///      - fixed vault (pinned in config)
 ///      - fixed receiver (the account)
-///      - executor-authorized execution (direct call or signed intent)
+///      - executor-signed execution intents
 ///      - recurring allowance bounds on deposited assets
 contract MorphoLendPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Policy-specific config for Morpho vault deposits.
-    struct MorphoConfig {
+    /// @notice Policy-specific config for lending into a pinned Morpho vault.
+    struct LendPolicyConfig {
         /// @dev Morpho vault to deposit into.
         address vault;
         /// @dev Recurring deposit allowance bounds.
@@ -32,8 +32,8 @@ contract MorphoLendPolicy is AOAPolicy {
 
     /// @notice Policy-specific execution payload for deposits.
     struct LendData {
-        /// @dev Amount of assets to supply, in the vault asset token's smallest unit (ERC20 decimals).
-        uint256 assets;
+        /// @dev Amount of assets to deposit, in the vault asset token's smallest unit (ERC20 decimals).
+        uint256 depositAssets;
         /// @dev Policy-defined execution nonce used for replay protection (and signed intents).
         uint256 nonce;
     }
@@ -94,13 +94,12 @@ contract MorphoLendPolicy is AOAPolicy {
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
     {
         _requireConfigHash(policyId, policyConfig);
-        (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-        aoa; // silence unused warning
+        (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
 
-        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
-        cfg.depositLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.depositLimit);
+        LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
+        lendPolicyConfig.depositLimit = _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
-        current = RecurringAllowance.getCurrentPeriod(_depositLimitState, policyId, cfg.depositLimit);
+        current = RecurringAllowance.getCurrentPeriod(_depositLimitState, policyId, lendPolicyConfig.depositLimit);
     }
 
     /// @notice Return the last stored recurring deposit usage for a policy instance.
@@ -124,8 +123,8 @@ contract MorphoLendPolicy is AOAPolicy {
     ///
     /// @dev Validates Morpho vault config at install time.
     function _onAOAInstall(bytes32, AOAConfig memory, bytes memory policySpecificConfig) internal override {
-        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
-        if (cfg.vault == address(0)) revert ZeroVault();
+        LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
+        if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
     }
 
     /// @inheritdoc AOAPolicy
@@ -134,31 +133,32 @@ contract MorphoLendPolicy is AOAPolicy {
     ///      recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
-        AOAConfig memory aoa,
+        AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
         bytes memory actionData,
         bytes memory signature,
         address caller
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
-        MorphoConfig memory cfg = abi.decode(policySpecificConfig, (MorphoConfig));
-        if (cfg.vault == address(0)) revert ZeroVault();
+        LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
+        if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
 
-        LendData memory ld = abi.decode(actionData, (LendData));
-        if (ld.assets == 0) revert ZeroAmount();
-        if (ld.nonce == 0) revert ZeroNonce();
-        if (_usedNonces[policyId][ld.nonce]) revert ExecutionNonceAlreadyUsed(policyId, ld.nonce);
+        LendData memory lendData = abi.decode(actionData, (LendData));
+        if (lendData.depositAssets == 0) revert ZeroAmount();
+        if (lendData.nonce == 0) revert ZeroNonce();
+        if (_usedNonces[policyId][lendData.nonce]) revert ExecutionNonceAlreadyUsed(policyId, lendData.nonce);
 
         bytes32 payloadHash = keccak256(actionData);
-        bytes32 digest = _getExecutionDigest(policyId, aoa.account, payloadHash);
-        if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
+        bytes32 digest = _getExecutionDigest(policyId, aoaConfig.account, payloadHash);
+        if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
 
-        _usedNonces[policyId][ld.nonce] = true;
+        _usedNonces[policyId][lendData.nonce] = true;
 
-        RecurringAllowance.Limit memory depositLimit = _applyInstallWindowBoundsIfUnset(policyId, cfg.depositLimit);
-        RecurringAllowance.useLimit(_depositLimitState, policyId, depositLimit, ld.assets);
+        RecurringAllowance.Limit memory depositLimit =
+            _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);
+        RecurringAllowance.useLimit(_depositLimitState, policyId, depositLimit, lendData.depositAssets);
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
-            _buildVaultDepositCall(cfg, aoa.account, ld.assets);
+            _buildVaultDepositCall(lendPolicyConfig, aoaConfig.account, lendData.depositAssets);
 
         // Build wallet call plan:
         // - approve
@@ -168,7 +168,7 @@ contract MorphoLendPolicy is AOAPolicy {
             calls[0] = CoinbaseSmartWallet.Call({
                 target: approvalToken,
                 value: 0,
-                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, ld.assets)
+                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, lendData.depositAssets)
             });
             calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
             accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
@@ -183,38 +183,38 @@ contract MorphoLendPolicy is AOAPolicy {
     ///                 Internal Functions                  ///
     ////////////////////////////////////////////////////////////////
 
-    /// @dev Returns the policy's install window encoded as allowance bounds.
-    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+    /// @dev Returns the policy's validity window encoded as allowance bounds.
+    function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
-    /// @dev Applies install window bounds if the config uses the (start=0,end=0) sentinel.
-    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+    /// @dev Applies validity window bounds if the config uses the (start=0,end=0) sentinel.
+    function _applyValidityWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
         internal
         view
         returns (RecurringAllowance.Limit memory)
     {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy validity window.
         if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+            (limit.start, limit.end) = _getValidityWindowAsLimitBounds(policyId);
         }
         return limit;
     }
 
     /// @dev Builds the underlying vault deposit call and approval requirements.
-    function _buildVaultDepositCall(MorphoConfig memory cfg, address receiver, uint256 assets)
+    function _buildVaultDepositCall(LendPolicyConfig memory lendPolicyConfig, address receiver, uint256 depositAssets)
         internal
         view
         returns (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender)
     {
-        target = cfg.vault;
+        target = lendPolicyConfig.vault;
         value = 0;
 
-        approvalToken = IMorphoVault(cfg.vault).asset();
-        approvalSpender = cfg.vault;
-        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, assets, receiver);
+        approvalToken = IMorphoVault(lendPolicyConfig.vault).asset();
+        approvalSpender = lendPolicyConfig.vault;
+        callData = abi.encodeWithSelector(IMorphoVault.deposit.selector, depositAssets, receiver);
         return (target, value, callData, approvalToken, approvalSpender);
     }
 

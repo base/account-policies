@@ -18,7 +18,7 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 ///
 /// @dev Hard-enforces:
 ///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
-///      - executor-authorized execution intents (direct call or signed intent)
+///      - executor-signed execution intents
 ///      - trigger LTV threshold
 ///      - post-protection LTV bounds (min + max)
 ///      - recurring allowance budget (in collateral-token units)
@@ -28,8 +28,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Policy-specific config for Morpho Blue liquidation protection.
-    struct MorphoConfig {
+    /// @notice Policy-specific config for Morpho Blue loan protection.
+    struct LoanProtectionPolicyConfig {
         /// @dev Morpho Blue contract address.
         address morpho;
         /// @dev Morpho Blue market identifier.
@@ -51,7 +51,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
         /// @dev Amount of collateral assets to supply (collateral token smallest units).
-        uint256 topUpAssets;
+        uint256 collateralAssets;
         /// @dev Policy-defined execution nonce used for replay protection.
         uint256 nonce;
         /// @dev Optional signature expiry timestamp (seconds). Zero means “no expiry”.
@@ -68,10 +68,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///
     /// @dev Inner signed struct: what the executor is authorizing for a specific execution.
     bytes32 public constant TOP_UP_DATA_TYPEHASH =
-        keccak256("TopUpData(uint256 topUpAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
+        keccak256("TopUpData(uint256 collateralAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
 
     /// @notice Tracks one active policy per (account, marketId).
-    mapping(address account => mapping(bytes32 marketId => bytes32 policyId)) internal _activePolicyByMarket;
+    mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
 
     /// @notice Stored market key per policy instance to support clean uninstallation.
     mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
@@ -149,11 +149,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     {
         _requireConfigHash(policyId, policyConfig);
         address account = POLICY_MANAGER.getAccountForPolicy(address(this), policyId);
-        (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-        aoa; // silence unused warning
+        (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
 
-        MorphoConfig memory config = abi.decode(policySpecificConfig, (MorphoConfig));
-        config.collateralLimit = _applyInstallWindowBoundsIfUnset(policyId, config.collateralLimit);
+        LoanProtectionPolicyConfig memory config =
+            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
+        config.collateralLimit = _applyValidityWindowBoundsIfUnset(policyId, config.collateralLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, config.collateralLimit);
     }
@@ -178,11 +178,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @inheritdoc AOAPolicy
     ///
     /// @dev Validates config, enforces one-policy-per-market, and stores market linkage for uninstall.
-    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoa, bytes memory policySpecificConfig)
+    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoaConfig, bytes memory policySpecificConfig)
         internal
         override
     {
-        MorphoConfig memory config = abi.decode(policySpecificConfig, (MorphoConfig));
+        LoanProtectionPolicyConfig memory config =
+            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         if (config.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
 
@@ -191,10 +192,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(config.marketId);
-        if (_activePolicyByMarket[aoa.account][marketKey] != bytes32(0)) {
-            revert PolicyAlreadyInstalledForMarket(aoa.account, config.marketId);
+        if (_activePolicyByMarket[aoaConfig.account][marketKey] != bytes32(0)) {
+            revert PolicyAlreadyInstalledForMarket(aoaConfig.account, config.marketId);
         }
-        _activePolicyByMarket[aoa.account][marketKey] = policyId;
+        _activePolicyByMarket[aoaConfig.account][marketKey] = policyId;
         _marketIdByPolicyId[policyId] = marketKey;
     }
 
@@ -220,24 +221,27 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///      recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
-        AOAConfig memory aoa,
+        AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
         bytes memory actionData,
         bytes memory signature,
         address caller
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
-        MorphoConfig memory config = abi.decode(policySpecificConfig, (MorphoConfig));
+        LoanProtectionPolicyConfig memory config =
+            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
         TopUpData memory topUpData = abi.decode(actionData, (TopUpData));
 
         bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
-        _validatePolicyData(policyId, aoa.account, expectedConfigHash, aoa.executor, topUpData, signature, caller);
-        _enforceLtvBounds(config, marketParams, aoa.account, topUpData.topUpAssets);
+        _validateTopUpIntent(
+            policyId, aoaConfig.account, expectedConfigHash, aoaConfig.executor, topUpData, signature, caller
+        );
+        _enforceLtvBounds(config, marketParams, aoaConfig.account, topUpData.collateralAssets);
 
         // Enforce recurring budget in collateral-token units.
         RecurringAllowance.Limit memory collateralLimit =
-            _applyInstallWindowBoundsIfUnset(policyId, config.collateralLimit);
-        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, topUpData.topUpAssets);
+            _applyValidityWindowBoundsIfUnset(policyId, config.collateralLimit);
+        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, topUpData.collateralAssets);
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)
@@ -246,7 +250,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, topUpData.topUpAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, topUpData.collateralAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
             target: config.morpho,
@@ -254,8 +258,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             data: abi.encodeWithSelector(
                 IMorphoBlue.supplyCollateral.selector,
                 marketParams,
-                topUpData.topUpAssets,
-                aoa.account,
+                topUpData.collateralAssets,
+                aoaConfig.account,
                 topUpData.callbackData
             )
         });
@@ -265,7 +269,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     }
 
     /// @dev Validates and consumes an executor-signed execution intent (deadline + nonce replay protection).
-    function _validatePolicyData(
+    function _validateTopUpIntent(
         bytes32 policyId,
         address account,
         bytes32 expectedConfigHash,
@@ -274,7 +278,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes memory signature,
         address caller
     ) internal {
-        if (topUpData.topUpAssets == 0) revert ZeroAmount();
+        if (topUpData.collateralAssets == 0) revert ZeroAmount();
         if (topUpData.nonce == 0) revert ZeroNonce();
         if (topUpData.deadline != 0 && block.timestamp > topUpData.deadline) {
             revert SignatureExpired(block.timestamp, topUpData.deadline);
@@ -283,24 +287,26 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         bytes32 callbackHash = keccak256(topUpData.callbackData);
         bytes32 topUpDataHash = keccak256(
-            abi.encode(TOP_UP_DATA_TYPEHASH, topUpData.topUpAssets, topUpData.nonce, topUpData.deadline, callbackHash)
+            abi.encode(
+                TOP_UP_DATA_TYPEHASH, topUpData.collateralAssets, topUpData.nonce, topUpData.deadline, callbackHash
+            )
         );
 
         bytes32 digest = _getExecutionDigest(policyId, account, expectedConfigHash, topUpDataHash);
-        bool ok = _isValidExecutorSig(executor, digest, signature);
-        if (!ok) revert Unauthorized(caller);
+        bool isValidSignature = _isValidExecutorSig(executor, digest, signature);
+        if (!isValidSignature) revert Unauthorized(caller);
 
         _usedNonces[policyId][topUpData.nonce] = true;
     }
 
     /// @dev Enforces trigger and post-top-up LTV bounds using current position, market totals, and oracle price.
     function _enforceLtvBounds(
-        MorphoConfig memory config,
+        LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
         address account,
-        uint256 topUpAssets
+        uint256 collateralAssets
     ) internal view {
-        (uint256 currentLtv, uint256 projectedLtv) = _computeLtvPair(config, marketParams, account, topUpAssets);
+        (uint256 currentLtv, uint256 projectedLtv) = _computeLtvPair(config, marketParams, account, collateralAssets);
         if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
         if (projectedLtv > config.maxPostProtectionLtv) {
             revert ProjectedLtvTooHigh(projectedLtv, config.maxPostProtectionLtv);
@@ -334,38 +340,38 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     }
 
     /// @dev Returns the policy's install window encoded as allowance bounds.
-    function _getInstallWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
+    function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
-    /// @dev Applies install window bounds if the config uses the (start=0,end=0) sentinel.
-    function _applyInstallWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+    /// @dev Applies validity window bounds if the config uses the (start=0,end=0) sentinel.
+    function _applyValidityWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
         internal
         view
         returns (RecurringAllowance.Limit memory)
     {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy install window.
+        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy validity window.
         if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getInstallWindowAsLimitBounds(policyId);
+            (limit.start, limit.end) = _getValidityWindowAsLimitBounds(policyId);
         }
         return limit;
     }
 
     /// @dev Computes the current LTV and projected post-top-up LTV (wad) for the pinned market and account position.
     function _computeLtvPair(
-        MorphoConfig memory config,
+        LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
         address account,
-        uint256 topUpAssets
+        uint256 collateralAssets
     ) internal view returns (uint256 currentLtvWad, uint256 projectedLtvWad) {
         IMorphoBlue morphoBlue = IMorphoBlue(config.morpho);
         Position memory position = morphoBlue.position(config.marketId, account);
         Market memory market = morphoBlue.market(config.marketId);
 
         uint256 collateralBefore = uint256(position.collateral);
-        uint256 collateralAfter = collateralBefore + topUpAssets;
+        uint256 collateralAfter = collateralBefore + collateralAssets;
 
         // Debt assets derived from borrow shares and market totals.
         uint256 debtAssets;

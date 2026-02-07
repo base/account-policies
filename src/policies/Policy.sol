@@ -26,9 +26,9 @@ abstract contract Policy {
 
     /// @notice Thrown when a caller restriction is violated.
     ///
-    /// @param sender Actual sender.
+    /// @param caller Actual caller.
     /// @param expected Expected sender.
-    error InvalidSender(address sender, address expected);
+    error InvalidCaller(address caller, address expected);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
@@ -65,12 +65,12 @@ abstract contract Policy {
     /// @param policyId Deterministic policy identifier derived from the binding.
     /// @param account Account that installed the policy.
     /// @param policyConfig Full config preimage bytes.
-    /// @param caller Effective caller forwarded by the manager (usually `msg.sender` of the manager call).
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
+    /// @param effectiveCaller Effective caller forwarded by the manager (usually `msg.sender` of the manager call).
+    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address effectiveCaller)
         external
         onlyPolicyManager
     {
-        _onInstall(policyId, account, policyConfig, caller);
+        _onInstall(policyId, account, policyConfig, effectiveCaller);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
@@ -82,7 +82,7 @@ abstract contract Policy {
     /// @param policyId Policy identifier for the binding.
     /// @param account Account that authorized this policy instance.
     /// @param policyConfig Policy-defined config bytes (often the config preimage).
-    /// @param policyData Policy-defined per-execution payload.
+    /// @param executionData Policy-defined per-execution payload.
     /// @param caller External caller that invoked the manager.
     ///
     /// @return accountCallData ABI-encoded calldata to execute on the account (or empty for no-op).
@@ -91,10 +91,10 @@ abstract contract Policy {
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
-        bytes calldata policyData,
+        bytes calldata executionData,
         address caller
     ) external onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
-        return _onExecute(policyId, account, policyConfig, policyData, caller);
+        return _onExecute(policyId, account, policyConfig, executionData, caller);
     }
 
     /// @notice Policy hook invoked during pre-install cancellation.
@@ -128,15 +128,15 @@ abstract contract Policy {
     /// @param account Account associated with the policyId.
     /// @param policyConfig Optional policy-defined config bytes (often the config preimage).
     /// @param uninstallData Optional policy-defined authorization payload.
-    /// @param caller Effective caller forwarded by the manager.
+    /// @param effectiveCaller Effective caller forwarded by the manager.
     function onUninstall(
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
         bytes calldata uninstallData,
-        address caller
+        address effectiveCaller
     ) external onlyPolicyManager {
-        _onUninstall(policyId, account, policyConfig, uninstallData, caller);
+        _onUninstall(policyId, account, policyConfig, uninstallData, effectiveCaller);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -151,7 +151,7 @@ abstract contract Policy {
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
-        bytes calldata policyData,
+        bytes calldata executionData,
         address caller
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
@@ -166,7 +166,7 @@ abstract contract Policy {
 
     /// @dev Default: only the account can cancel. Policies can override to allow other roles.
     function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {
-        if (caller != account) revert InvalidSender(caller, account);
+        if (caller != account) revert InvalidCaller(caller, account);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -175,7 +175,7 @@ abstract contract Policy {
 
     /// @dev Requires `msg.sender` to equal `sender`.
     function _requireSender(address sender) internal view {
-        if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
+        if (msg.sender != sender) revert InvalidCaller(msg.sender, sender);
     }
 }
 

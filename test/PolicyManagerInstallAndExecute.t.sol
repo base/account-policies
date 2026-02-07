@@ -98,16 +98,16 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         });
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
-        bytes memory innerPolicyData = hex"beef";
+        bytes memory executionData = hex"beef";
         uint256 deadline = block.timestamp + 1 days;
 
-        bytes memory userSig = _signInstallAndExecute(policyId, innerPolicyData, deadline);
+        bytes memory userSig = _signInstallAndExecute(policyId, executionData, deadline);
 
         PolicyManager.InstallAndExecutePayload memory payload = PolicyManager.InstallAndExecutePayload({
             binding: binding,
             policyConfig: policyConfig,
             userSig: userSig,
-            innerPolicyData: innerPolicyData,
+            executionData: executionData,
             deadline: deadline
         });
 
@@ -137,16 +137,16 @@ contract PolicyManagerInstallAndExecuteTest is Test {
         });
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
-        bytes memory innerPolicyData = hex"cafe";
+        bytes memory executionData = hex"cafe";
         uint256 deadline = block.timestamp + 1 days;
 
-        bytes memory userSig = _signInstallAndExecute(policyId, innerPolicyData, deadline);
+        bytes memory userSig = _signInstallAndExecute(policyId, executionData, deadline);
 
         PolicyManager.InstallAndExecutePayload memory payload = PolicyManager.InstallAndExecutePayload({
             binding: binding,
             policyConfig: policyConfig,
             userSig: userSig,
-            innerPolicyData: innerPolicyData,
+            executionData: executionData,
             deadline: deadline
         });
 
@@ -211,7 +211,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
             binding: binding,
             policyConfig: policyConfig,
             userSig: "",
-            innerPolicyData: hex"abcd",
+            executionData: hex"abcd",
             deadline: 0
         });
         policyManager.executeWithInstall(payload);
@@ -232,7 +232,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
     }
 
     /// @dev Signs an execution-bound install intent for `executeWithInstall`.
-    function _signInstallAndExecute(bytes32 policyId, bytes memory innerPolicyData, uint256 deadline)
+    function _signInstallAndExecute(bytes32 policyId, bytes memory executionData, uint256 deadline)
         internal
         view
         returns (bytes memory)
@@ -241,7 +241,7 @@ contract PolicyManagerInstallAndExecuteTest is Test {
             abi.encode(
                 policyManager.INSTALL_AND_EXECUTE_TYPEHASH(),
                 policyId,
-                keccak256(innerPolicyData),
+                keccak256(executionData),
                 deadline
             )
         );

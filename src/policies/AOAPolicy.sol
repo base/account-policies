@@ -13,7 +13,7 @@ import {Policy} from "./Policy.sol";
 ///
 /// @dev This base contract enforces canonical ABI encoding shapes by owning the internal hook implementations:
 ///      - `policyConfig = abi.encode(AOAConfig{account, executor}, bytes policySpecificConfig)`
-///      - `policyData   = abi.encode(bytes actionData, bytes signature)`
+///      - `executionData = abi.encode(bytes actionData, bytes signature)`
 ///
 ///      The base layer also standardizes executor authorization:
 ///      - direct executor calls are allowed
@@ -44,7 +44,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     ///
     /// @dev Outer signed struct tying an execution to a policy instance.
     bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 policyDataHash)");
+        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
 
     /// @notice EIP-712 typehash for executor-signed uninstall intents.
     bytes32 public constant AOA_UNINSTALL_TYPEHASH =
@@ -149,15 +149,15 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     ///
     /// @param policyId Policy identifier for the binding.
     /// @param account Account associated with the policyId.
-    /// @param policyDataHash Hash of the policy-specific action payload being authorized.
+    /// @param executionDataHash Hash of the policy-specific action payload being authorized.
     ///
     /// @return EIP-712 digest to be signed by the executor.
-    function _getExecutionDigest(bytes32 policyId, address account, bytes32 policyDataHash)
+    function _getExecutionDigest(bytes32 policyId, address account, bytes32 executionDataHash)
         internal
         view
         returns (bytes32)
     {
-        return _getExecutionDigest(policyId, account, _configHashByPolicyId[policyId], policyDataHash);
+        return _getExecutionDigest(policyId, account, _configHashByPolicyId[policyId], executionDataHash);
     }
 
     /// @notice Computes the EIP-712 digest for an executor-signed execution intent.
@@ -167,15 +167,17 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param policyId Policy identifier for the binding.
     /// @param account Account associated with the policyId.
     /// @param configHash Stored config hash for the policyId.
-    /// @param policyDataHash Hash of the policy-specific action payload being authorized.
+    /// @param executionDataHash Hash of the policy-specific action payload being authorized.
     ///
     /// @return EIP-712 digest to be signed by the executor.
-    function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 policyDataHash)
+    function _getExecutionDigest(bytes32 policyId, address account, bytes32 configHash, bytes32 executionDataHash)
         internal
         view
         returns (bytes32)
     {
-        return _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, policyDataHash)));
+        return _hashTypedData(
+            keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, executionDataHash))
+        );
     }
 
     /// @inheritdoc Policy
@@ -187,8 +189,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     {
         caller;
         _storeConfigHash(policyId, policyConfig);
-        (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-        _onAOAInstall(policyId, aoa, policySpecificConfig);
+        (AOAConfig memory aoaConfig, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
+        _onAOAInstall(policyId, aoaConfig, policySpecificConfig);
     }
 
     /// @inheritdoc Policy
@@ -210,12 +212,12 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
         // Non-account uninstallers must provide the installed config preimage.
         _requireConfigHash(policyId, policyConfig);
-        (AOAConfig memory aoa,) = _decodeAOAConfig(account, policyConfig);
+        (AOAConfig memory aoaConfig,) = _decodeAOAConfig(account, policyConfig);
 
         // Optional auth:
         // - direct caller is executor, OR
         // - executor-signed uninstall intent (relayers allowed)
-        if (caller != aoa.executor) {
+        if (caller != aoaConfig.executor) {
             (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
             if (deadline != 0 && block.timestamp > deadline) {
                 revert SignatureExpired(block.timestamp, deadline);
@@ -225,10 +227,10 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
                     abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline)
                 )
             );
-            if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
+            if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
         }
 
-        _onAOAUninstall(policyId, account, aoa.executor);
+        _onAOAUninstall(policyId, account, aoaConfig.executor);
         _deleteConfigHash(policyId);
     }
 
@@ -246,9 +248,9 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         if (caller == account) return;
 
         // Non-account cancellers must be the configured executor (derivable from config) OR provide an executor signature.
-        (AOAConfig memory aoa,) = _decodeAOAConfig(account, policyConfig);
+        (AOAConfig memory aoaConfig,) = _decodeAOAConfig(account, policyConfig);
 
-        if (caller != aoa.executor) {
+        if (caller != aoaConfig.executor) {
             (bytes memory signature, uint256 deadline) = abi.decode(cancelData, (bytes, uint256));
             if (deadline != 0 && block.timestamp > deadline) {
                 revert SignatureExpired(block.timestamp, deadline);
@@ -256,7 +258,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             bytes32 digest = _hashTypedData(
                 keccak256(abi.encode(AOA_CANCEL_TYPEHASH, policyId, account, keccak256(policyConfig), deadline))
             );
-            if (!_isValidExecutorSig(aoa.executor, digest, signature)) revert Unauthorized(caller);
+            if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
         }
     }
 
@@ -268,23 +270,26 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
-        bytes calldata policyData,
+        bytes calldata executionData,
         address caller
     ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
         _requireConfigHash(policyId, policyConfig);
 
-        (AOAConfig memory aoa, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-        (bytes memory actionData, bytes memory signature) = abi.decode(policyData, (bytes, bytes));
+        (AOAConfig memory aoaConfig, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
+        (bytes memory actionData, bytes memory signature) = abi.decode(executionData, (bytes, bytes));
 
-        return _onAOAExecute(policyId, aoa, policySpecificConfig, actionData, signature, caller);
+        return _onAOAExecute(policyId, aoaConfig, policySpecificConfig, actionData, signature, caller);
     }
 
     /// @notice Policy-specific install hook for AOA policies.
     ///
     /// @dev Override to initialize per-policy state.
-    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoa, bytes memory policySpecificConfig) internal virtual {
+    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoaConfig, bytes memory policySpecificConfig)
+        internal
+        virtual
+    {
         policyId;
-        aoa;
+        aoaConfig;
         policySpecificConfig;
     }
 
@@ -302,7 +307,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @dev Override to enforce execution authorization and build account/post-call calldata.
     function _onAOAExecute(
         bytes32 policyId,
-        AOAConfig memory aoa,
+        AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
         bytes memory actionData,
         bytes memory signature,
@@ -328,16 +333,16 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param expectedAccount Expected account for this policyId (from the manager).
     /// @param policyConfig Full config preimage bytes.
     ///
-    /// @return aoa Decoded AOA config prefix.
+    /// @return aoaConfig Decoded AOA config prefix.
     /// @return policySpecificConfig Remaining policy-specific config bytes.
     function _decodeAOAConfig(address expectedAccount, bytes calldata policyConfig)
         internal
         pure
-        returns (AOAConfig memory aoa, bytes memory policySpecificConfig)
+        returns (AOAConfig memory aoaConfig, bytes memory policySpecificConfig)
     {
-        (aoa, policySpecificConfig) = abi.decode(policyConfig, (AOAConfig, bytes));
-        if (aoa.account != expectedAccount) revert InvalidAOAConfigAccount(aoa.account, expectedAccount);
-        if (aoa.executor == address(0)) revert ZeroExecutor();
+        (aoaConfig, policySpecificConfig) = abi.decode(policyConfig, (AOAConfig, bytes));
+        if (aoaConfig.account != expectedAccount) revert InvalidAOAConfigAccount(aoaConfig.account, expectedAccount);
+        if (aoaConfig.executor == address(0)) revert ZeroExecutor();
     }
 }
 
