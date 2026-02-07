@@ -51,7 +51,7 @@ PolicyBinding {
 ### Config and execution payloads
 
 * **`policyConfig`**: opaque config bytes (preimage), decoded in the context of a specific policy. The manager authenticates it at install/cancel time via `keccak256(policyConfig) == policyConfigHash`.  
-* **`policyData`**: opaque per-execution payload bytes. Policies interpret and authenticate these.
+* **`executionData`**: opaque per-execution payload bytes. Policies interpret and authenticate these.
 * **`cancelData` / `uninstallData`**: optional opaque bytes passed to policy cancellation/uninstall hooks for policy-defined authorization (e.g., executor signatures). These can be empty when not needed.
 
 The manager does not impose a schema on either as this is left up to the interpreting policy.
@@ -84,7 +84,7 @@ Why:
 
 To execute an action under an installed policy instance, callers invoke:
 
-`PolicyManager.execute(policy, policyId, policyConfig, policyData)`
+`PolicyManager.execute(policy, policyId, policyConfig, executionData)`
 
 The execution flow is:
 
@@ -114,19 +114,24 @@ In other words: policies can set the terms of third-party uninstalls, but they c
 
 ### Cancel
 
-Cancellation revokes an installation **intent**, including **preemptively before installation**:
+Cancellation revokes an installation intent (and can also be used as an uninstall convenience for installed instances).
 
 This is intentionally distinct from uninstall:
 
-* `uninstallPolicy` is installed-lifecycle only and is addressed by `(policy, policyId)`.  
-* `cancelPolicy` handles pre-install intents and is addressed by the full `(binding, policyConfig)` so the manager can compute the `policyId` and enforce that the provided config matches the binding commitment.
+* `uninstallPolicy` is installed-lifecycle only and is addressed by `(policy, policyId)`.
+* `cancelPolicy` is addressed by the full `(binding, policyConfig)` so the manager can compute the `policyId` and enforce that the provided config matches the binding commitment.
 
-Pre-install cancel behavior:
+Cancel behavior when **not installed** (pre-install):
 
 * computes `policyId = hash(binding)`  
 * verifies `keccak256(policyConfig) == binding.policyConfigHash`  
 * calls `policy.onCancel(...)` (policy-defined authorization)  
 * tombstones the `policyId` permanently
+
+Cancel behavior when **already installed**:
+
+* verifies `keccak256(policyConfig) == binding.policyConfigHash`
+* uninstalls the instance (calling `policy.onUninstall(...)`) and emits the uninstall event
 
 Sticky cancellation is intentional:
 
@@ -143,7 +148,7 @@ Replacement exists as a standardized atomic migration mechanism so integrators d
 
 ### Atomic install+execute helper
 
-The protocol includes an install+execute helper that binds installation authorization to a specific execution commitment (via `policyDataHash`). This prevents splitting “install now, execute later” and reduces trust in the executor/integrator in workflows where atomic intent matters.
+The protocol includes an install+execute helper that binds installation authorization to a specific execution commitment (via `executionDataHash`). This prevents splitting “install now, execute later” and reduces trust in the executor/integrator in workflows where atomic intent matters.
 
 It does not provide mempool privacy; it provides **atomic intent binding**.
 
@@ -171,7 +176,7 @@ The manager is the generic, minimal enforcement layer:
 Policies define all policy-specific semantics:
 
 * execution authorization (who can execute and under what conditions)  
-* decoding and validating `policyConfig` and `policyData`  
+* decoding and validating `policyConfig` and `executionData`  
 * replay protection and nonce discipline for executions  
 * policy-specific limits and invariants (budgets, pinning, slippage bounds, thresholds, etc.)  
 * any policy-specific state (stored config fields, budgets, uniqueness constraints, nonces)  

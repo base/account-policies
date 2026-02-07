@@ -17,7 +17,7 @@ The installed config pins:
   - min/max post-protection LTV bounds
 - a recurring collateral budget (`collateralLimit`)
 
-Executions top up collateral by `topUpAssets` (plus optional callback data), but only when:
+Executions top up collateral by `collateralAssets` (plus optional callback data), but only when:
 
 - the current position is unhealthy (above trigger)
 - the projected post-top-up LTV is within bounds
@@ -37,7 +37,7 @@ Executions top up collateral by `topUpAssets` (plus optional callback data), but
 ```
 abi.encode(
   AOAConfig({ account, executor }),
-  abi.encode(MorphoConfig({
+  abi.encode(LoanProtectionPolicyConfig({
     morpho,
     marketId,
     triggerLtv,
@@ -60,36 +60,36 @@ Install-time invariants:
 At execution time it enforces:
 
 - **Executor authorization**: validates an executor signature over a typed intent with:
-  - an outer execution digest binding `(policyId, account, installed config hash, policyDataHash)`
-  - an inner structured `TopUpData` binding `(topUpAssets, nonce, deadline, callbackDataHash)`
+  - an outer execution digest binding `(policyId, account, installed config hash, executionDataHash)`
+  - an inner structured `TopUpData` binding `(collateralAssets, nonce, deadline, callbackDataHash)`
 - **Replay protection**: per-`policyId` nonce tracking.
 - **Signature expiry**: optional `deadline` inside `TopUpData`.
 - **Trigger + postcondition bounds**:
   - computes current LTV from onchain Morpho position and oracle price
-  - computes projected LTV after applying `topUpAssets`
+  - computes projected LTV after applying `collateralAssets`
   - requires `currentLtv >= triggerLtv`
   - requires `projectedLtv` is within `[minPostProtectionLtv, maxPostProtectionLtv]`
-- **Budgeting**: consumes `topUpAssets` from a per-`policyId` recurring collateral allowance.
+- **Budgeting**: consumes `collateralAssets` from a per-`policyId` recurring collateral allowance.
 - **Pinned action**: the wallet call plan is pinned to:
-  - `approve(collateralToken, morpho, topUpAssets)`
-  - `morpho.supplyCollateral(marketParams, topUpAssets, account, callbackData)` where `marketParams` is looked up from Morpho by `marketId`
+  - `approve(collateralToken, morpho, collateralAssets)`
+  - `morpho.supplyCollateral(marketParams, collateralAssets, account, callbackData)` where `marketParams` is looked up from Morpho by `marketId`
 
 ## Execution flow (high level)
 
-1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, policyData)`.
+1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, executionData)`.
 2. Policy checks the config preimage matches what was installed.
 3. Policy verifies an **executor signature** over the top-up intent (EIP-712), including expiry.
 4. Policy enforces:
-   - `topUpAssets > 0`
+   - `collateralAssets > 0`
    - `nonce != 0` and `nonce` unused (replay protection)
    - `deadline` (intent expiry)
    - LTV trigger + projected LTV bounds
    - recurring collateral budget
 5. Policy returns a wallet call plan that:
-   - approves Morpho to spend `topUpAssets` of the collateral token
-   - calls `morpho.supplyCollateral(marketParams, topUpAssets, account, callbackData)` (using `marketParams = morpho.idToMarketParams(marketId)`)
+   - approves Morpho to spend `collateralAssets` of the collateral token
+   - calls `morpho.supplyCollateral(marketParams, collateralAssets, account, callbackData)` (using `marketParams = morpho.idToMarketParams(marketId)`)
 
-As with standard ERC-20 `transferFrom` flows, approving exactly `topUpAssets` typically results in the allowance returning to `0` after the call.
+As with standard ERC-20 `transferFrom` flows, approving exactly `collateralAssets` typically results in the allowance returning to `0` after the call.
 
 ## Execution payloads
 
@@ -97,7 +97,7 @@ As with standard ERC-20 `transferFrom` flows, approving exactly `topUpAssets` ty
 
 The action data includes:
 
-- `topUpAssets`: collateral-token smallest units
+- `collateralAssets`: collateral-token smallest units
 - `nonce`: replay protection
 - `deadline`: signature expiry (unix timestamp; `0` may be treated as “no expiry” by convention)
 - `callbackData`: forwarded to Morpho’s callback (optional)
@@ -108,7 +108,7 @@ The policy signs over the semantic fields of `TopUpData` rather than the raw ABI
 
 - It hashes `TopUpData` as:
   - `callbackDataHash = keccak256(callbackData)`
-  - `topUpDataHash = keccak256(abi.encode(TOP_UP_DATA_TYPEHASH, topUpAssets, nonce, deadline, callbackDataHash))`
+  - `topUpDataHash = keccak256(abi.encode(TOP_UP_DATA_TYPEHASH, collateralAssets, nonce, deadline, callbackDataHash))`
 - Then it computes an outer execution digest over:
   - `policyId`
   - `account`

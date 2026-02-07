@@ -18,7 +18,7 @@ This family is optional: `PolicyManager` remains schema-agnostic and does not â€
 - **Executor**: chosen by the account; is the authorization authority for ongoing actions (signs intents). Can be an EOA or contract account.
 - **Relayer**: any caller who submits transactions. Relayers are not inherently trusted.
 
-Key property: **relayers do not need to be trusted**. The policy enforces that either `msg.sender == executor` or the relayer provides an executor signature that the policy validates.
+Key property: **relayers do not need to be trusted**. Execution authorization is enforced by the policy (typically via an executor signature over an EIP-712 digest).
 
 ## Canonical encoding shapes
 
@@ -32,11 +32,11 @@ AOA policies commit to:
 
 The manager binds a policy instance to `policyConfigHash = keccak256(policyConfig)` at install/cancel time.
 
-### `policyData` (per execution)
+### `executionData` (per execution)
 
 AOA policies commit to:
 
-`policyData = abi.encode(bytes actionData, bytes executorSignature)`
+`executionData = abi.encode(bytes actionData, bytes executorSignature)`
 
 - `actionData` is policy-defined (e.g., `{amount, nonce, deadline, ...}`)
 - `executorSignature` is validated against an EIP-712 digest computed by the policy

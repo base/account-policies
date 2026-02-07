@@ -12,15 +12,15 @@ MorphoLendPolicy authorizes deposits into a pinned Morpho Vault:
 
 - the **vault address** is fixed by the installed config
 - the **receiver** is fixed to the `account`
-- each execution supplies an amount (`assets`) and a `nonce`
+- each execution supplies an amount (`depositAssets`) and a `nonce`
 - deposits are bounded by a recurring allowance (`depositLimit`)
 
 It constructs a wallet call plan that:
 
-1. approves the vault to pull the vault’s `asset()` token for `assets`
-2. calls `vault.deposit(assets, account)`
+1. approves the vault to pull the vault’s `asset()` token for `depositAssets`
+2. calls `vault.deposit(depositAssets, account)`
 
-Because the vault pulls exactly `assets` via `transferFrom`, the ERC-20 allowance typically returns to `0` after the deposit.
+Because the vault pulls exactly `depositAssets` via `transferFrom`, the ERC-20 allowance typically returns to `0` after the deposit.
 
 ## Actors
 
@@ -35,7 +35,7 @@ Because the vault pulls exactly `assets` via `transferFrom`, the ERC-20 allowanc
 ```
 abi.encode(
   AOAConfig({ account, executor }),
-  abi.encode(MorphoConfig({ vault, depositLimit }))
+  abi.encode(LendPolicyConfig({ vault, depositLimit }))
 )
 ```
 
@@ -52,22 +52,22 @@ At execution time it enforces:
   - `policyId`
   - `account`
   - the installed config hash (`policyConfigHash`)
-  - `keccak256(actionData)` where `actionData` encodes `{assets, nonce}`
+  - `keccak256(actionData)` where `actionData` encodes `{depositAssets, nonce}`
 - **Replay protection**: per-`policyId` nonce tracking; each nonce can be used once.
-- **Budgeting**: consumes `assets` from a per-`policyId` recurring allowance.
+- **Budgeting**: consumes `depositAssets` from a per-`policyId` recurring allowance.
 
 ## Execution flow (high level)
 
-1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, policyData)`.
+1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, executionData)`.
 2. Policy checks the config preimage matches what was installed.
 3. Policy verifies an **executor signature** over the execution intent.
 4. Policy enforces:
-   - `assets > 0`
+   - `depositAssets > 0`
    - `nonce != 0` and `nonce` unused (replay protection)
    - recurring deposit budget
 5. Policy returns a wallet call plan that:
-   - approves the vault to spend `assets` of the vault’s asset token
-   - calls `vault.deposit(assets, account)`
+   - approves the vault to spend `depositAssets` of the vault’s asset token
+   - calls `vault.deposit(depositAssets, account)`
 
 ## Execution payloads
 
@@ -75,7 +75,7 @@ At execution time it enforces:
 
 The action data encodes:
 
-- `assets`: amount to deposit, in the vault asset token’s smallest units
+- `depositAssets`: amount to deposit, in the vault asset token’s smallest units
 - `nonce`: policy-scoped replay protection nonce
 
 ### Signature binding
