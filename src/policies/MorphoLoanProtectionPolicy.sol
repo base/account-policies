@@ -79,9 +79,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Recurring allowance state (budget in collateral units).
     RecurringAllowance.State internal _collateralLimitState;
 
-    /// @notice Replay protection for executor intents.
-    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
-
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
     ////////////////////////////////////////////////////////////////
@@ -97,12 +94,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
     /// @notice Thrown when attempting a zero-amount top-up.
     error ZeroAmount();
-
-    /// @notice Thrown when the execution nonce is zero.
-    error ZeroNonce();
-
-    /// @notice Thrown when a nonce has already been used for this policyId.
-    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
 
     /// @notice Thrown when the position is below the trigger LTV (i.e., is considered healthy).
     error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
@@ -279,11 +270,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         address caller
     ) internal {
         if (topUpData.collateralAssets == 0) revert ZeroAmount();
-        if (topUpData.nonce == 0) revert ZeroNonce();
+        _requireUnusedNonce(policyId, topUpData.nonce);
         if (topUpData.deadline != 0 && block.timestamp > topUpData.deadline) {
             revert SignatureExpired(block.timestamp, topUpData.deadline);
         }
-        if (_usedNonces[policyId][topUpData.nonce]) revert ExecutionNonceAlreadyUsed(policyId, topUpData.nonce);
 
         bytes32 callbackHash = keccak256(topUpData.callbackData);
         bytes32 topUpDataHash = keccak256(
@@ -296,7 +286,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bool isValidSignature = _isValidExecutorSig(executor, digest, signature);
         if (!isValidSignature) revert Unauthorized(caller);
 
-        _usedNonces[policyId][topUpData.nonce] = true;
+        _markNonceUsed(policyId, topUpData.nonce);
     }
 
     /// @dev Enforces trigger and post-top-up LTV bounds using current position, market totals, and oracle price.

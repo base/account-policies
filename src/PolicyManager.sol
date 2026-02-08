@@ -275,9 +275,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) external nonReentrant returns (bytes32 policyId) {
         policyId = getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(policyId);
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(binding.account, digest, userSig)) {
-            revert InvalidSignature();
-        }
+        _requireValidAccountSig(binding.account, digest, userSig);
 
         return _install(binding, policyConfig);
     }
@@ -342,19 +340,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         }
 
         // Verify an execution-bound install signature (cannot be replayed as a plain install).
-        if (payload.deadline != 0 && block.timestamp > payload.deadline) {
-            revert DeadlineExpired(block.timestamp, payload.deadline);
-        }
+        _requireNotExpired(payload.deadline);
         bytes32 digest = _hashTypedData(
             keccak256(
                 abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(payload.executionData), payload.deadline)
             )
         );
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(
-                payload.binding.account, digest, payload.userSig
-            )) {
-            revert InvalidSignature();
-        }
+        _requireValidAccountSig(payload.binding.account, digest, payload.userSig);
 
         // Install policy instance and use the installed config/data for execution.
         _install(payload.binding, payload.policyConfig);
@@ -397,9 +389,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
 
         // Verify replacement signature.
-        if (payload.deadline != 0 && block.timestamp > payload.deadline) {
-            revert DeadlineExpired(block.timestamp, payload.deadline);
-        }
+        _requireNotExpired(payload.deadline);
         bytes32 digest = _hashTypedData(
             keccak256(
                 abi.encode(
@@ -412,11 +402,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 )
             )
         );
-        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(
-                payload.newBinding.account, digest, payload.userSig
-            )) {
-            revert InvalidSignature();
-        }
+        _requireValidAccountSig(payload.newBinding.account, digest, payload.userSig);
 
         // Uninstall old as-if called by the account (signature proves authorization).
         _uninstall(payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, "", payload.newBinding.account);
@@ -750,6 +736,18 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _externalCall(address target, bytes memory data) internal {
         if (data.length == 0) return;
         Address.functionCall(target, data);
+    }
+
+    /// @dev Reverts if `deadline` is non-zero and already expired.
+    function _requireNotExpired(uint256 deadline) internal view {
+        if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
+    }
+
+    /// @dev Requires `account` to have signed `digest` (ERC-6492 supported, side effects allowed).
+    function _requireValidAccountSig(address account, bytes32 digest, bytes calldata signature) internal {
+        if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(account, digest, signature)) {
+            revert InvalidSignature();
+        }
     }
 
     /// @notice Reverts if the current timestamp is outside the validity window.

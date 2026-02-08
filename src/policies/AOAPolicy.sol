@@ -40,6 +40,9 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @dev AOA policies are calldata-heavy; they store only a hash and require the full config preimage for execution.
     mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
 
+    /// @notice Tracks used nonces per policyId to prevent replay of executor-signed executions.
+    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
+
     /// @notice EIP-712 typehash for executor-signed execution intents.
     ///
     /// @dev Outer signed struct tying an execution to a policy instance.
@@ -86,6 +89,15 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param deadline Signature deadline in seconds.
     error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
+
+    /// @notice Thrown when the execution nonce is zero.
+    error ZeroNonce();
+
+    /// @notice Thrown when a nonce has already been used for this policyId.
+    ///
+    /// @param policyId Policy identifier.
+    /// @param nonce Execution nonce.
+    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
 
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
@@ -143,6 +155,17 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
+    /// @dev Reverts if `nonce` is zero or already used for `policyId`.
+    function _requireUnusedNonce(bytes32 policyId, uint256 nonce) internal view {
+        if (nonce == 0) revert ZeroNonce();
+        if (_usedNonces[policyId][nonce]) revert ExecutionNonceAlreadyUsed(policyId, nonce);
+    }
+
+    /// @dev Marks `nonce` as used for `policyId`.
+    function _markNonceUsed(bytes32 policyId, uint256 nonce) internal {
+        _usedNonces[policyId][nonce] = true;
+    }
+
     /// @notice Computes the EIP-712 digest for an executor-signed execution intent.
     ///
     /// @dev Uses the stored config hash for `policyId`.
@@ -175,9 +198,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         view
         returns (bytes32)
     {
-        return _hashTypedData(
-            keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, executionDataHash))
-        );
+        return
+            _hashTypedData(keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, account, configHash, executionDataHash)));
     }
 
     /// @inheritdoc Policy

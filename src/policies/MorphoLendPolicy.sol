@@ -45,9 +45,6 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @notice Recurring allowance state for deposits.
     RecurringAllowance.State internal _depositLimitState;
 
-    /// @notice Tracks used nonces per policyId to prevent replay of signed executions.
-    mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
-
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
     ////////////////////////////////////////////////////////////////
@@ -57,12 +54,6 @@ contract MorphoLendPolicy is AOAPolicy {
 
     /// @notice Thrown when the vault address is zero.
     error ZeroVault();
-
-    /// @notice Thrown when the execution nonce has already been used for this policyId.
-    error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
-
-    /// @notice Thrown when the execution nonce is zero.
-    error ZeroNonce();
 
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
@@ -144,14 +135,12 @@ contract MorphoLendPolicy is AOAPolicy {
 
         LendData memory lendData = abi.decode(actionData, (LendData));
         if (lendData.depositAssets == 0) revert ZeroAmount();
-        if (lendData.nonce == 0) revert ZeroNonce();
-        if (_usedNonces[policyId][lendData.nonce]) revert ExecutionNonceAlreadyUsed(policyId, lendData.nonce);
+        _requireUnusedNonce(policyId, lendData.nonce);
 
-        bytes32 payloadHash = keccak256(actionData);
-        bytes32 digest = _getExecutionDigest(policyId, aoaConfig.account, payloadHash);
+        bytes32 digest = _getExecutionDigest(policyId, aoaConfig.account, _configHashByPolicyId[policyId], keccak256(actionData));
         if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
 
-        _usedNonces[policyId][lendData.nonce] = true;
+        _markNonceUsed(policyId, lendData.nonce);
 
         RecurringAllowance.Limit memory depositLimit =
             _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);

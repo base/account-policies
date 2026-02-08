@@ -8,6 +8,18 @@ alwaysApply: false
 
 Follow this NatSpec style when editing first-party Solidity under `src/`, `script/`, and `test/` (do not modify vendored/dependency code under `lib/`).
 
+## When adding new contract surface area (required)
+
+If you introduce a **new natspeccable thing**, you MUST add/update NatSpec for it in the same change. This includes:
+
+- New or materially-changed **contracts/libraries**
+- New or materially-changed **external/public functions**
+- New **events**, **errors**, **modifiers**
+- New **structs/enums** and their fields (units/constraints)
+- New **storage variables**, constants, and immutables (meaning, key-space for mappings, sentinel values)
+
+If you change behavior (even without changing signatures), update existing NatSpec so it remains truthful.
+
 ## General principles
 
 - Prefer documenting **behavior, assumptions, invariants, and trust boundaries** over narrating syntax.

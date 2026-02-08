@@ -390,7 +390,7 @@ contract MorphoLendPolicyTest is Test {
         vm.prank(relayer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                MorphoLendPolicy.ExecutionNonceAlreadyUsed.selector,
+                AOAPolicy.ExecutionNonceAlreadyUsed.selector,
                 policyId,
                 ld.nonce
             )
