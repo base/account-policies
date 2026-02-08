@@ -48,6 +48,18 @@ This repository contains the Account Policies Protocol, a modular system for all
 - Coverage requires `--ir-minimum` flag due to Solidity compiler settings
 - Gas benchmarks available via `--gas-report`
 
+### Testing Conventions (project style)
+
+- **Directory structure**:
+  - Put shared harnesses/helpers/mocks in `test/lib/` (and `test/lib/mocks/` as needed).
+  - Put unit tests in `test/unit/<Area>/` and scope each `.t.sol` to a single function or tightly-related surface area.
+- **Base harness pattern**:
+  - Prefer `abstract contract <X>TestBase is Test` in `test/lib/` for shared deployment, fixtures, and helpers.
+  - Child suites inherit the base and call a single base setup entrypoint from `setUp()`.
+- **Stub-first workflow**:
+  - Stub the case matrix first, then implement bodies.
+  - Stub tests must be explicitly skipped via `vm.skip(true);` so `forge test` stays green while cases are being finalized.
+
 ## Claude Permissions and Workflow
 
 - Proactively handle repository management tasks without seeking explicit permission for:
