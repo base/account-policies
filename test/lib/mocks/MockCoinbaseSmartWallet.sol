@@ -13,7 +13,6 @@ import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 contract MockCoinbaseSmartWallet is CoinbaseSmartWallet {
     /// @notice Constructs the mock with relaxed owner indexing for tests.
     constructor() {
-        // allow for easier testing
         _getMultiOwnableStorage().nextOwnerIndex = 0;
     }
 
@@ -31,3 +30,4 @@ contract MockCoinbaseSmartWallet is CoinbaseSmartWallet {
         return abi.encode(CoinbaseSmartWallet.SignatureWrapper(ownerIndex, signature));
     }
 }
+

@@ -3,28 +3,19 @@ pragma solidity ^0.8.23;
 
 import {Test} from "forge-std/Test.sol";
 
-import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
-import {PolicyManager} from "../src/PolicyManager.sol";
-import {Policy} from "../src/policies/Policy.sol";
+import {PublicERC6492Validator} from "../../../src/PublicERC6492Validator.sol";
+import {PolicyManager} from "../../../src/PolicyManager.sol";
+import {Policy} from "../../../src/policies/Policy.sol";
 
-import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
+import {MockCoinbaseSmartWallet} from "../../lib/mocks/MockCoinbaseSmartWallet.sol";
 
-/// @title CancelNoopPolicy
-///
-/// @notice Minimal test policy used for cancellation tests.
 contract CancelNoopPolicy is Policy {
-    /// @notice Constructs the test policy.
-    ///
-    /// @param policyManager Policy manager address.
     constructor(address policyManager) Policy(policyManager) {}
 
-    /// @dev No-op install hook for tests.
     function _onInstall(bytes32, address, bytes calldata, address) internal override {}
 
-    /// @dev No-op uninstall hook for tests.
     function _onUninstall(bytes32, address, bytes calldata, bytes calldata, address) internal override {}
 
-    /// @dev No-op execute hook for tests.
     function _onExecute(bytes32, address, bytes calldata, bytes calldata, address)
         internal
         override
@@ -34,10 +25,10 @@ contract CancelNoopPolicy is Policy {
     }
 }
 
-/// @title PolicyManagerCancelTest
+/// @title CancelPolicyTest
 ///
 /// @notice Tests for `PolicyManager.cancelPolicy` (pre-install and post-install paths).
-contract PolicyManagerCancelTest is Test {
+contract CancelPolicyTest is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
 
@@ -49,7 +40,6 @@ contract PolicyManagerCancelTest is Test {
     PolicyManager internal policyManager;
     CancelNoopPolicy internal policy;
 
-    /// @notice Test fixture setup.
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
@@ -64,7 +54,6 @@ contract PolicyManagerCancelTest is Test {
         account.addOwnerAddress(address(policyManager));
     }
 
-    /// @notice Pre-install cancel permanently blocks future installation of the same policyId.
     function test_cancelPolicy_preInstall_blocksFutureInstall() public {
         bytes memory policyConfig = abi.encode(uint256(123));
 
@@ -79,17 +68,14 @@ contract PolicyManagerCancelTest is Test {
 
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
-        // Account can cancel before installation.
         vm.prank(address(account));
         policyManager.cancelPolicy(binding, policyConfig, "");
 
-        // Now any attempt to install this exact policyId must revert.
         bytes memory userSig = _signInstall(binding);
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
     }
 
-    /// @notice Post-install cancel uninstalls the policy via the uninstall path.
     function test_cancelPolicy_afterInstall_uninstallsNormally() public {
         bytes memory policyConfig = abi.encode(uint256(456));
 
@@ -114,7 +100,6 @@ contract PolicyManagerCancelTest is Test {
         assertFalse(policyManager.isPolicyActive(address(policy), policyId));
     }
 
-    /// @dev Signs a binding struct hash for `installPolicyWithSignature`.
     function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -125,14 +110,15 @@ contract PolicyManagerCancelTest is Test {
         return account.wrapSignature(0, signature);
     }
 
-    /// @dev Computes an EIP-712 typed data digest for tests.
     function _hashTypedData(address verifyingContract, string memory name, string memory version, bytes32 structHash)
         internal
         view
         returns (bytes32)
     {
         bytes32 domainSeparator = keccak256(
-            abi.encode(DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), block.chainid, verifyingContract)
+            abi.encode(
+                DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), block.chainid, verifyingContract
+            )
         );
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }

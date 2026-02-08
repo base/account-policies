@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {Script, console2} from "forge-std/Script.sol";
 
-import {MockMorphoVault} from "../test/mocks/MockMorpho.sol";
+import {MockMorphoVault} from "../test/lib/mocks/MockMorpho.sol";
 
 /**
  * @notice Deploy a demo vault (MockMorphoVault) using an existing USDC token.

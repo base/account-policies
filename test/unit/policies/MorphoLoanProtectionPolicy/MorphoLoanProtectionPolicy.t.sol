@@ -4,22 +4,21 @@ pragma solidity ^0.8.23;
 import {Test} from "forge-std/Test.sol";
 
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-
-import {PublicERC6492Validator} from "../src/PublicERC6492Validator.sol";
-import {PolicyManager} from "../src/PolicyManager.sol";
-import {Id, Market, MarketParams, Position} from "../src/interfaces/morpho/BlueTypes.sol";
-import {MorphoLoanProtectionPolicy} from "../src/policies/MorphoLoanProtectionPolicy.sol";
-import {AOAPolicy} from "../src/policies/AOAPolicy.sol";
-import {RecurringAllowance} from "../src/policies/accounting/RecurringAllowance.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
-import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
-import {MockMorphoBlue, MockMorphoOracle} from "./mocks/MockMorphoBlue.sol";
+import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
+import {PolicyManager} from "../../../../src/PolicyManager.sol";
+import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
+import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
+import {RecurringAllowance} from "../../../../src/policies/accounting/RecurringAllowance.sol";
+
+import {MockCoinbaseSmartWallet} from "../../../lib/mocks/MockCoinbaseSmartWallet.sol";
+import {MockMorphoBlue, MockMorphoOracle} from "../../../lib/mocks/MockMorphoBlue.sol";
 
 contract MintableToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
-    /// @notice Mints test tokens.
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
@@ -52,7 +51,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
     bytes internal policyConfig;
     PolicyManager.PolicyBinding internal binding;
 
-    /// @notice Test fixture setup.
     function setUp() public {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
@@ -63,7 +61,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         policyManager = new PolicyManager(validator);
         policy = new MorphoLoanProtectionPolicy(address(policyManager), owner);
 
-        // PolicyManager must be an owner to call wallet execution methods.
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
@@ -72,7 +69,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
         morpho = new MockMorphoBlue();
         oracle = new MockMorphoOracle();
-        oracle.setPrice(1e36); // 1 collateral token == 1 loan token (scaled by 1e36)
+        oracle.setPrice(1e36);
 
         marketId = Id.wrap(bytes32(uint256(123)));
         marketParams = MarketParams({
@@ -96,23 +93,21 @@ contract MorphoLoanProtectionPolicyTest is Test {
             })
         );
 
-        // Default position: debt = 75, collateral = 100 => LTV = 75%
         morpho.setPosition(
             marketId,
             address(account),
             Position({supplyShares: 0, borrowShares: uint128(75 ether), collateral: uint128(100 ether)})
         );
 
-        // Fund wallet with collateral for top-ups.
         collateralToken.mint(address(account), 1_000 ether);
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
                 morpho: address(morpho),
                 marketId: marketId,
-                triggerLtv: 0.70e18,
+                triggerLtv: 0.7e18,
                 minPostProtectionLtv: 0.45e18,
-                maxPostProtectionLtv: 0.60e18,
+                maxPostProtectionLtv: 0.6e18,
                 collateralLimit: RecurringAllowance.Limit({allowance: 500 ether, period: 7 days, start: 0, end: 0})
             })
         );
@@ -132,7 +127,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
     }
 
-    /// @dev Decodes canonical AOA config + Morpho config from a policyConfig preimage.
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
@@ -143,15 +137,13 @@ contract MorphoLoanProtectionPolicyTest is Test {
         cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig));
     }
 
-    /// @notice Happy path: tops up collateral, enforces LTV bounds, and resets approval.
     function test_happyPath_topUpCollateral_enforcesLtvBounds_andResetsApproval() public {
-        uint256 topUp = 50 ether; // projected LTV = 75 / 150 = 50%
+        uint256 topUp = 50 ether;
         bytes memory policyData = _encodePolicyData(topUp, 1, uint256(block.timestamp + 1 days), hex"");
 
         address relayer = vm.addr(uint256(keccak256("relayer")));
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
-        // Ergonomics: observe recurring allowance state before/after execution.
         (RecurringAllowance.PeriodUsage memory lastBefore, RecurringAllowance.PeriodUsage memory currentBefore) =
             policy.getCollateralLimitPeriodUsage(policyId, policyConfig);
         assertEq(lastBefore.spend, 0);
@@ -170,9 +162,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
         assertEq(currentAfter.spend, uint160(topUp));
     }
 
-    /// @notice Reverts when the position is below the trigger LTV (healthy).
     function test_revertsWhenHealthy_belowTrigger() public {
-        // Make position safer: debt=50, collateral=100 => LTV=50% < trigger 70%
         morpho.setPosition(
             marketId,
             address(account),
@@ -182,34 +172,29 @@ contract MorphoLoanProtectionPolicyTest is Test {
         bytes memory policyData = _encodePolicyData(10 ether, 1, uint256(block.timestamp + 1 days), hex"");
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
-        vm.expectRevert(); // HealthyPosition(...)
+        vm.expectRevert();
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice Reverts when the projected post-top-up LTV remains above the max bound.
     function test_revertsWhenProjectedLtvStillTooHigh_underProtect() public {
-        // Top up too small: debt=75, collateral=100+10 => LTV ~ 68.18% > maxPost 60%
         bytes memory policyData = _encodePolicyData(10 ether, 1, uint256(block.timestamp + 1 days), hex"");
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
-        vm.expectRevert(); // ProjectedLtvTooHigh(...)
+        vm.expectRevert();
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice Reverts when the projected post-top-up LTV would fall below the min bound (over-protection).
     function test_revertsWhenProjectedLtvTooLow_overProtect() public {
-        // Top up too large: debt=75, collateral=100+200 => LTV=25% < minPost 45%
         bytes memory policyData = _encodePolicyData(200 ether, 1, uint256(block.timestamp + 1 days), hex"");
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
-        vm.expectRevert(); // ProjectedLtvTooLow(...)
+        vm.expectRevert();
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice Reverts on nonce replay for executor-signed execution intents.
     function test_revertsOnNonceReplay() public {
         uint256 topUp = 50 ether;
         bytes memory policyData = _encodePolicyData(topUp, 1, uint256(block.timestamp + 1 days), hex"");
@@ -218,16 +203,15 @@ contract MorphoLoanProtectionPolicyTest is Test {
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
 
-        vm.expectRevert(); // ExecutionNonceAlreadyUsed(...)
+        vm.expectRevert();
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice Enforces one active policy per (account, marketId) and unlocks on uninstall.
     function test_onePolicyPerMarket_enforced_andRevocationUnlocks() public {
-        // Attempt to install another policy instance for the same (account, market).
         (, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg) = _decodePolicyConfig(policyConfig);
-        bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
+        bytes memory cfg2 =
+            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -238,10 +222,9 @@ contract MorphoLoanProtectionPolicyTest is Test {
         });
 
         bytes memory userSig2 = _signInstall(binding2);
-        vm.expectRevert(); // PolicyAlreadyInstalledForMarket(...)
+        vm.expectRevert();
         policyManager.installPolicyWithSignature(binding2, cfg2, userSig2);
 
-        // Revoke and then install should succeed.
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
         vm.prank(address(account));
         policyManager.uninstallPolicy(address(policy), policyId, "", "");
@@ -249,7 +232,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         policyManager.installPolicyWithSignature(binding2, cfg2, userSig2);
     }
 
-    /// @notice Executor can uninstall directly when authorized by the policy.
     function test_executorCanUninstall() public {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
@@ -258,20 +240,19 @@ contract MorphoLoanProtectionPolicyTest is Test {
 
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
 
-        // Execution should now be blocked by the manager.
         bytes memory policyData = _encodePolicyData(50 ether, 1, uint256(block.timestamp + 1 days), hex"");
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice Executor-signed uninstall intent allows relayed uninstall.
     function test_executorSig_allowsRelayedUninstall() public {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
 
         uint256 deadline = block.timestamp + 1 days;
-        bytes32 structHash =
-            keccak256(abi.encode(policy.AOA_UNINSTALL_TYPEHASH(), policyId, address(account), keccak256(policyConfig), deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(policy.AOA_UNINSTALL_TYPEHASH(), policyId, address(account), keccak256(policyConfig), deadline)
+        );
         bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
@@ -285,7 +266,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         assertTrue(policyManager.isPolicyUninstalled(address(policy), policyId));
     }
 
-    /// @notice Pause blocks execution.
     function test_pause_blocksExecute() public {
         vm.prank(owner);
         policy.pause();
@@ -298,11 +278,10 @@ contract MorphoLoanProtectionPolicyTest is Test {
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    /// @notice ReplacePolicy signature can atomically uninstall and install for the same market.
     function test_replacePolicyWithSignature_canReplaceInSingleTx_forSameMarket() public {
-        // Install a second instance for the same (account, market) via replace.
         (, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg) = _decodePolicyConfig(policyConfig);
-        bytes memory cfg2 = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
+        bytes memory cfg2 =
+            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), abi.encode(cfg));
         PolicyManager.PolicyBinding memory binding2 = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -328,7 +307,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
             deadline: deadline
         });
 
-        // Replace is submitted by a relayer.
         vm.prank(vm.addr(uint256(keccak256("relayer"))));
         policyManager.replacePolicyWithSignature(payload);
 
@@ -336,7 +314,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         assertTrue(policyManager.isPolicyInstalled(address(policy), newPolicyId));
         assertFalse(policyManager.isPolicyUninstalled(address(policy), newPolicyId));
 
-        // A third install for the same market should revert again (new instance is now active).
         PolicyManager.PolicyBinding memory binding3 = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -346,11 +323,10 @@ contract MorphoLoanProtectionPolicyTest is Test {
             policyConfigHash: keccak256(cfg2)
         });
         bytes memory userSig3 = _signInstall(binding3);
-        vm.expectRevert(); // PolicyAlreadyInstalledForMarket(...)
+        vm.expectRevert();
         policyManager.installPolicyWithSignature(binding3, cfg2, userSig3);
     }
 
-    /// @dev Signs a replace-policy typed message for `replacePolicyWithSignature`.
     function _signReplace(address oldPolicy, bytes32 oldPolicyId, bytes32 newPolicyId, uint256 deadline)
         internal
         view
@@ -358,12 +334,7 @@ contract MorphoLoanProtectionPolicyTest is Test {
     {
         bytes32 structHash = keccak256(
             abi.encode(
-                policyManager.REPLACE_POLICY_TYPEHASH(),
-                address(account),
-                oldPolicy,
-                oldPolicyId,
-                newPolicyId,
-                deadline
+                policyManager.REPLACE_POLICY_TYPEHASH(), address(account), oldPolicy, oldPolicyId, newPolicyId, deadline
             )
         );
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -374,7 +345,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         return account.wrapSignature(0, signature);
     }
 
-    /// @dev Encodes policyData as `(actionData, executorSignature)` for a top-up execution.
     function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline, bytes memory callbackData)
         internal
         view
@@ -383,7 +353,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         return _encodePolicyDataLocal(binding, policyConfig, topUp, nonce, deadline, callbackData);
     }
 
-    /// @dev Encodes policyData for an arbitrary binding/config (used by tests that customize config).
     function _encodePolicyDataLocal(
         PolicyManager.PolicyBinding memory binding_,
         bytes memory policyConfig_,
@@ -396,27 +365,20 @@ contract MorphoLoanProtectionPolicyTest is Test {
         bytes32 configHash = keccak256(policyConfig_);
 
         bytes32 callbackHash = keccak256(callbackData);
-        bytes32 protectHash = keccak256(
-            abi.encode(policy.TOP_UP_DATA_TYPEHASH(), topUp, nonce, deadline, callbackHash)
-        );
-        bytes32 structHash = keccak256(
-            abi.encode(policy.EXECUTION_TYPEHASH(), policyId, address(account), configHash, protectHash)
-        );
+        bytes32 protectHash = keccak256(abi.encode(policy.TOP_UP_DATA_TYPEHASH(), topUp, nonce, deadline, callbackHash));
+        bytes32 structHash =
+            keccak256(abi.encode(policy.EXECUTION_TYPEHASH(), policyId, address(account), configHash, protectHash));
         bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
 
         MorphoLoanProtectionPolicy.TopUpData memory pd = MorphoLoanProtectionPolicy.TopUpData({
-            collateralAssets: topUp,
-            nonce: nonce,
-            deadline: deadline,
-            callbackData: callbackData
+            collateralAssets: topUp, nonce: nonce, deadline: deadline, callbackData: callbackData
         });
         return abi.encode(abi.encode(pd), sig);
     }
 
-    /// @dev Signs a binding struct hash for `installPolicyWithSignature`.
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
         bytes32 structHash = policyManager.getPolicyBindingStructHash(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -427,7 +389,6 @@ contract MorphoLoanProtectionPolicyTest is Test {
         return account.wrapSignature(0, signature);
     }
 
-    /// @dev Computes an EIP-712 typed data digest for tests.
     function _hashTypedData(address verifyingContract, string memory name, string memory version, bytes32 structHash)
         internal
         view

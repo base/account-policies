@@ -137,7 +137,8 @@ contract MorphoLendPolicy is AOAPolicy {
         if (lendData.depositAssets == 0) revert ZeroAmount();
         _requireUnusedNonce(policyId, lendData.nonce);
 
-        bytes32 digest = _getExecutionDigest(policyId, aoaConfig.account, _configHashByPolicyId[policyId], keccak256(actionData));
+        bytes32 digest =
+            _getExecutionDigest(policyId, aoaConfig.account, _configHashByPolicyId[policyId], keccak256(actionData));
         if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
 
         _markNonceUsed(policyId, lendData.nonce);

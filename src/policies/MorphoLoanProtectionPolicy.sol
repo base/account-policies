@@ -142,8 +142,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         address account = POLICY_MANAGER.getAccountForPolicy(address(this), policyId);
         (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
 
-        LoanProtectionPolicyConfig memory config =
-            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
+        LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         config.collateralLimit = _applyValidityWindowBoundsIfUnset(policyId, config.collateralLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, config.collateralLimit);
@@ -173,8 +172,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         internal
         override
     {
-        LoanProtectionPolicyConfig memory config =
-            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
+        LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         if (config.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
 
@@ -218,8 +216,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes memory signature,
         address caller
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
-        LoanProtectionPolicyConfig memory config =
-            abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
+        LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
         TopUpData memory topUpData = abi.decode(actionData, (TopUpData));
 

@@ -14,13 +14,13 @@ Applies to first-party tests under `test/` (do not modify dependency tests under
   - Shared mocks/utilities used across multiple suites
 - `test/unit/<Area>/`
   - Unit tests scoped to a single contract/function/feature area
-  - Prefer one `.t.sol` per function or tightly-related group of functions
+  - Prefer one `.t.sol` per function or tightly-related group of functions unless contract is quite small (less than 4 testable functions)
 
 Recommended shape (examples):
 - `test/lib/PolicyManagerTestBase.sol`
 - `test/lib/mocks/MockCoinbaseSmartWallet.sol`
-- `test/unit/PolicyManager/InstallAndExecute.t.sol`
-- `test/unit/policies/MorphoLoanProtection/Execute.t.sol`
+- `test/unit/PolicyManager/executeWithInstall.t.sol`
+- `test/unit/policies/MorphoLoanProtectionPolicy/MorphoLoanProtectionPolicy.t.sol`
 
 ## Base harness pattern (required)
 
@@ -34,8 +34,10 @@ Recommended shape (examples):
 
 ## Naming + organization
 
-- **Test file names**: `ContractName.t.sol` (or `AreaFunction.t.sol` when tests are per-function)
-- **Test contract names**: `ContractNameTest` or `FunctionNameTest`
+- **Test file names**:
+  - Contract-scoped suites: `ContractName.t.sol`
+  - Function-scoped suites: `functionName.t.sol` (lower camelCase; matches the Solidity function name)
+- **Test contract names**: `ContractNameTest` or `functionNameTest`
 - **Test function names**:
   - If contract name already scopes the function, use `test_outcome_optionalContext`
   - Otherwise use `test_functionName_outcome_optionalContext`

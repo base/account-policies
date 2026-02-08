@@ -15,9 +15,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `forge test --gas-report` - Generate gas usage report
 - `forge coverage --ir-minimum` - Generate test coverage report
 
-  ## File Safety
-  - Never edit files if uncommitted changes exist. Alert user and suggest committing first.
-  
 ### Development Workflow
 
 
