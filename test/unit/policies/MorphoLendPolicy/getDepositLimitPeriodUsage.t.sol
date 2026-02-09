@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import {MorphoLendPolicyTestBase} from "../../../lib/policies/MorphoLendPolicyTestBase.sol";
+
+/// @title getDepositLimitPeriodUsageTest
+///
+/// @notice Test contract for `MorphoLendPolicy.getDepositLimitPeriodUsage`.
+contract getDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
+    function setUp() public {
+        setUpMorphoLendBase(222);
+    }
+}
+

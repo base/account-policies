@@ -3,10 +3,10 @@ pragma solidity ^0.8.23;
 
 import {PolicyManagerTestBase} from "../../lib/PolicyManagerTestBase.sol";
 
-/// @title cancelPolicyTest
+/// @title executeTest
 ///
-/// @notice Test contract for `PolicyManager.cancelPolicy`.
-contract cancelPolicyTest is PolicyManagerTestBase {
+/// @notice Test contract for `PolicyManager.execute`.
+contract executeTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }
