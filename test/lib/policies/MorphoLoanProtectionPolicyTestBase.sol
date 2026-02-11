@@ -10,8 +10,6 @@ import {PolicyManager} from "../../../src/PolicyManager.sol";
 import {Id, Market, MarketParams, Position} from "../../../src/interfaces/morpho/BlueTypes.sol";
 import {AOAPolicy} from "../../../src/policies/AOAPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../src/policies/MorphoLoanProtectionPolicy.sol";
-import {RecurringAllowance} from "../../../src/policies/accounting/RecurringAllowance.sol";
-
 import {MockCoinbaseSmartWallet} from "../mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoBlue, MockMorphoOracle} from "../mocks/MockMorphoBlue.sol";
 
@@ -102,12 +100,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho),
-                marketId: marketId,
-                triggerLtv: 0.7e18,
-                minPostProtectionLtv: 0.45e18,
-                maxPostProtectionLtv: 0.6e18,
-                collateralLimit: RecurringAllowance.Limit({allowance: 500 ether, period: 7 days, start: 0, end: 0})
+                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, collateralTopUpAssets: 25 ether
             })
         );
         policyConfig =
@@ -174,7 +167,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         bytes32 configHash = keccak256(policyConfig_);
 
         MorphoLoanProtectionPolicy.TopUpData memory pd =
-            MorphoLoanProtectionPolicy.TopUpData({collateralAssets: topUp, callbackData: callbackData});
+            MorphoLoanProtectionPolicy.TopUpData({callbackData: callbackData});
         bytes memory actionData = abi.encode(pd);
         bytes32 actionDataHash = keccak256(actionData);
         bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));

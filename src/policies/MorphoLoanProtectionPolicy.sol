@@ -10,7 +10,6 @@ import {IMorphoBlue} from "../interfaces/morpho/IMorphoBlue.sol";
 import {IOracle} from "../interfaces/morpho/IOracle.sol";
 
 import {AOAPolicy} from "./AOAPolicy.sol";
-import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 /// @title MorphoLoanProtectionPolicy
 ///
@@ -38,20 +37,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         // LTV constraints in WAD (1e18 = 100%).
         /// @dev Position must be at or above this LTV (wad) to trigger protection.
         uint256 triggerLtv;
-        /// @dev Projected post-top-up LTV (wad) must be at or above this minimum.
-        uint256 minPostProtectionLtv;
-        /// @dev Projected post-top-up LTV (wad) must be at or below this maximum.
-        uint256 maxPostProtectionLtv;
-
-        // Budget in collateral-token units (smallest unit).
-        /// @dev Recurring top-up allowance bounds, denominated in collateral-token units.
-        RecurringAllowance.Limit collateralLimit;
+        /// @dev One-time collateral top-up amount (collateral token smallest units).
+        uint256 collateralTopUpAssets;
     }
 
     /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
-        /// @dev Amount of collateral assets to supply (collateral token smallest units).
-        uint256 collateralAssets;
         /// @dev Optional data forwarded to Morpho's callback.
         bytes callbackData;
     }
@@ -66,8 +57,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Stored market key per policy instance to support clean uninstallation.
     mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
 
-    /// @notice Recurring allowance state (budget in collateral units).
-    RecurringAllowance.State internal _collateralLimitState;
+    /// @notice Tracks whether a policy instance has been executed already (one-shot).
+    mapping(bytes32 policyId => bool used) internal _usedPolicyId;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -89,10 +80,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
 
     /// @notice Thrown when the projected post-top-up LTV remains above the maximum bound.
-    error ProjectedLtvTooHigh(uint256 projectedLtv, uint256 maxPostLtv);
-
-    /// @notice Thrown when the projected post-top-up LTV falls below the minimum bound (over-protection).
-    error ProjectedLtvTooLow(uint256 projectedLtv, uint256 minPostLtv);
+    error PolicyAlreadyUsed(bytes32 policyId);
 
     /// @notice Thrown when the oracle price results in a zero collateral value.
     error ZeroCollateralValue();
@@ -115,40 +103,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Return recurring collateral limit usage for a policy instance.
-    ///
-    /// @dev Requires the config preimage so the contract can decode `collateralLimit` without storing it.
-    ///
-    /// @param policyId Policy identifier for the binding.
-    /// @param policyConfig Full config preimage bytes.
-    ///
-    /// @return lastUpdated Last stored period usage snapshot.
-    /// @return current Current period usage computed from `collateralLimit`.
-    function getCollateralLimitPeriodUsage(bytes32 policyId, bytes calldata policyConfig)
-        external
-        view
-        returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
-    {
-        _requireConfigHash(policyId, policyConfig);
-        address account = POLICY_MANAGER.getAccountForPolicy(address(this), policyId);
-        (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-
-        LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
-        config.collateralLimit = _applyValidityWindowBoundsIfUnset(policyId, config.collateralLimit);
-        lastUpdated = RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
-        current = RecurringAllowance.getCurrentPeriod(_collateralLimitState, policyId, config.collateralLimit);
-    }
-
-    /// @notice Return the last stored recurring collateral usage for a policy instance.
-    ///
-    /// @param policyId Policy identifier for the binding.
-    ///
-    /// @return Last stored period usage snapshot.
-    function getCollateralLimitLastUpdated(bytes32 policyId)
-        external
-        view
-        returns (RecurringAllowance.PeriodUsage memory)
-    {
-        return RecurringAllowance.getLastUpdated(_collateralLimitState, policyId);
+    /// @notice Return whether the policyId has been used (one-shot).
+    function isPolicyUsed(bytes32 policyId) external view returns (bool) {
+        return _usedPolicyId[policyId];
     }
 
     ////////////////////////////////////////////////////////////////
@@ -165,6 +122,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         if (config.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
+        if (config.collateralTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
         _requireMarketParams(config.morpho, config.marketId);
@@ -196,24 +154,21 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
     /// @inheritdoc AOAPolicy
     ///
-    /// @dev Executes a collateral top-up, enforcing executor authorization, nonce replay protection, LTV bounds, and
-    ///      recurring allowance bounds.
+    /// @dev Executes a collateral top-up once, enforcing trigger LTV and one-shot semantics.
     function _onAOAExecute(
         bytes32 policyId,
         AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+        if (_usedPolicyId[policyId]) revert PolicyAlreadyUsed(policyId);
+
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
         TopUpData memory topUpData = abi.decode(actionData, (TopUpData));
-        if (topUpData.collateralAssets == 0) revert ZeroAmount();
-        _enforceLtvBounds(config, marketParams, aoaConfig.account, topUpData.collateralAssets);
+        _enforceTriggerLtv(config, marketParams, aoaConfig.account);
 
-        // Enforce recurring budget in collateral-token units.
-        RecurringAllowance.Limit memory collateralLimit =
-            _applyValidityWindowBoundsIfUnset(policyId, config.collateralLimit);
-        RecurringAllowance.useLimit(_collateralLimitState, policyId, collateralLimit, topUpData.collateralAssets);
+        _usedPolicyId[policyId] = true;
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)
@@ -222,7 +177,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, topUpData.collateralAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, config.collateralTopUpAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
             target: config.morpho,
@@ -230,7 +185,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             data: abi.encodeWithSelector(
                 IMorphoBlue.supplyCollateral.selector,
                 marketParams,
-                topUpData.collateralAssets,
+                config.collateralTopUpAssets,
                 aoaConfig.account,
                 topUpData.callbackData
             )
@@ -240,21 +195,14 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         postCallData = "";
     }
 
-    /// @dev Enforces trigger and post-top-up LTV bounds using current position, market totals, and oracle price.
-    function _enforceLtvBounds(
+    /// @dev Enforces trigger LTV bound using current position, market totals, and oracle price.
+    function _enforceTriggerLtv(
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
-        address account,
-        uint256 collateralAssets
+        address account
     ) internal view {
-        (uint256 currentLtv, uint256 projectedLtv) = _computeLtvPair(config, marketParams, account, collateralAssets);
+        uint256 currentLtv = _computeCurrentLtv(config, marketParams, account);
         if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
-        if (projectedLtv > config.maxPostProtectionLtv) {
-            revert ProjectedLtvTooHigh(projectedLtv, config.maxPostProtectionLtv);
-        }
-        if (projectedLtv < config.minPostProtectionLtv) {
-            revert ProjectedLtvTooLow(projectedLtv, config.minPostProtectionLtv);
-        }
     }
 
     ////////////////////////////////////////////////////////////////
@@ -280,39 +228,17 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         ) revert MarketNotFound(marketId);
     }
 
-    /// @dev Returns the policy's install window encoded as allowance bounds.
-    function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
-        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
-        start = uint48(validAfter);
-        end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
-    }
-
-    /// @dev Applies validity window bounds if the config uses the (start=0,end=0) sentinel.
-    function _applyValidityWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
-        internal
-        view
-        returns (RecurringAllowance.Limit memory)
-    {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy validity window.
-        if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getValidityWindowAsLimitBounds(policyId);
-        }
-        return limit;
-    }
-
-    /// @dev Computes the current LTV and projected post-top-up LTV (wad) for the pinned market and account position.
-    function _computeLtvPair(
+    /// @dev Computes current LTV (wad) for the pinned market and account position.
+    function _computeCurrentLtv(
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
-        address account,
-        uint256 collateralAssets
-    ) internal view returns (uint256 currentLtvWad, uint256 projectedLtvWad) {
+        address account
+    ) internal view returns (uint256 currentLtvWad) {
         IMorphoBlue morphoBlue = IMorphoBlue(config.morpho);
         Position memory position = morphoBlue.position(config.marketId, account);
         Market memory market = morphoBlue.market(config.marketId);
 
         uint256 collateralBefore = uint256(position.collateral);
-        uint256 collateralAfter = collateralBefore + collateralAssets;
 
         // Debt assets derived from borrow shares and market totals.
         uint256 debtAssets;
@@ -327,11 +253,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         uint256 price = IOracle(marketParams.oracle).price(); // 1e36 scaled
 
         uint256 collateralValueBefore = Math.mulDiv(collateralBefore, price, 1e36);
-        uint256 collateralValueAfter = Math.mulDiv(collateralAfter, price, 1e36);
-        if (collateralValueBefore == 0 || collateralValueAfter == 0) revert ZeroCollateralValue();
+        if (collateralValueBefore == 0) revert ZeroCollateralValue();
 
         currentLtvWad = Math.mulDiv(debtAssets, 1e18, collateralValueBefore);
-        projectedLtvWad = Math.mulDiv(debtAssets, 1e18, collateralValueAfter);
     }
 
     /// @dev EIP-712 domain metadata.
