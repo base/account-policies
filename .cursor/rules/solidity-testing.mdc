@@ -53,6 +53,7 @@ Keep separation of concerns:
   - If args matter: `vm.expectRevert(abi.encodeWithSelector(SomeError.selector, ...))`
 - Events:
   - Use `vm.expectEmit(...)` and emit the event with expected args immediately before the call.
+  - Give **each unique event emission** its own dedicated test (do not bundle event assertions with state/happy-path assertions, even if redundant).
   - For “should not emit” cases, prefer `vm.recordLogs()` + scan for the signature.
 
 ## Fuzzing conventions (required)

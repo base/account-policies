@@ -158,10 +158,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policyId EIP-712 struct hash of the binding.
     /// @param account Account associated with the binding.
     /// @param policy Policy contract address.
-    /// @param policyConfigHash Hash committed in the binding for the cancelled install intent.
-    event PolicyCancelled(
-        bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 policyConfigHash
-    );
+    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
     /// @notice Emitted when one policy instance is replaced atomically by another.
     ///
@@ -476,6 +473,24 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _policies[policy][policyId].account;
     }
 
+    /// @notice Batch version of `getAccountForPolicy`.
+    ///
+    /// @param policy Policy contract address.
+    /// @param policyIds Policy identifiers.
+    ///
+    /// @return accounts Accounts associated with each policyId (zero if never installed/cancelled).
+    function getAccountsForPolicies(address policy, bytes32[] calldata policyIds)
+        external
+        view
+        returns (address[] memory accounts)
+    {
+        uint256 len = policyIds.length;
+        accounts = new address[](len);
+        for (uint256 i; i < len; ++i) {
+            accounts[i] = _policies[policy][policyIds[i]].account;
+        }
+    }
+
     /// @notice Return raw policy record fields for a policy instance.
     ///
     /// @param policy Policy contract address.
@@ -499,6 +514,44 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             policyRecord.validAfter,
             policyRecord.validUntil
         );
+    }
+
+    /// @notice Batch version of `getPolicyRecord`.
+    ///
+    /// @param policy Policy contract address.
+    /// @param policyIds Policy identifiers.
+    ///
+    /// @return installed True once installed (never unset), per policyId.
+    /// @return uninstalled True once uninstalled/cancelled (never unset), per policyId.
+    /// @return account Account associated with each policyId.
+    /// @return validAfter Lower bound timestamp (seconds), or zero if unset, per policyId.
+    /// @return validUntil Upper bound timestamp (seconds), or zero if unset, per policyId.
+    function getPolicyRecords(address policy, bytes32[] calldata policyIds)
+        external
+        view
+        returns (
+            bool[] memory installed,
+            bool[] memory uninstalled,
+            address[] memory account,
+            uint40[] memory validAfter,
+            uint40[] memory validUntil
+        )
+    {
+        uint256 len = policyIds.length;
+        installed = new bool[](len);
+        uninstalled = new bool[](len);
+        account = new address[](len);
+        validAfter = new uint40[](len);
+        validUntil = new uint40[](len);
+
+        for (uint256 i; i < len; ++i) {
+            PolicyRecord storage policyRecord = _policies[policy][policyIds[i]];
+            installed[i] = policyRecord.installed;
+            uninstalled[i] = policyRecord.uninstalled;
+            account[i] = policyRecord.account;
+            validAfter[i] = policyRecord.validAfter;
+            validUntil[i] = policyRecord.validUntil;
+        }
     }
 
     /// @notice True if the policy is installed (even if uninstalled).
@@ -686,7 +739,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         policyRecord.validAfter = binding.validAfter;
         policyRecord.validUntil = binding.validUntil;
 
-        emit PolicyCancelled(policyId, binding.account, binding.policy, binding.policyConfigHash);
+        emit PolicyCancelled(policyId, binding.account, binding.policy);
         return policyId;
     }
 
