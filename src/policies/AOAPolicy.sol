@@ -236,11 +236,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             if (deadline != 0 && block.timestamp > deadline) {
                 revert SignatureExpired(block.timestamp, deadline);
             }
-            bytes32 digest = _hashTypedData(
-                keccak256(
-                    abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline)
-                )
-            );
+            bytes32 digest = _getUninstallDigest(policyId, account, deadline);
             if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
         }
 
@@ -268,9 +264,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             if (deadline != 0 && block.timestamp > deadline) {
                 revert SignatureExpired(block.timestamp, deadline);
             }
-            bytes32 digest = _hashTypedData(
-                keccak256(abi.encode(AOA_CANCEL_TYPEHASH, policyId, account, keccak256(policyConfig), deadline))
-            );
+            bytes32 digest = _getCancelDigest(policyId, account, policyConfig, deadline);
             if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
         }
     }
@@ -292,18 +286,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         (AOAExecutionData memory aoaExecutionData, bytes memory actionData) =
             abi.decode(executionData, (AOAExecutionData, bytes));
 
-        _requireUnusedNonce(policyId, aoaExecutionData.nonce);
-        if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
-            revert SignatureExpired(block.timestamp, aoaExecutionData.deadline);
-        }
-
-        bytes32 configHash = _configHashByPolicyId[policyId];
-        bytes32 actionDataHash = keccak256(actionData);
-        bytes32 executionDataHash =
-            keccak256(abi.encode(actionDataHash, aoaExecutionData.nonce, aoaExecutionData.deadline));
-        bytes32 digest = _getExecutionDigest(policyId, account, configHash, executionDataHash);
-        if (!_isValidExecutorSig(aoaConfig.executor, digest, aoaExecutionData.signature)) revert Unauthorized(caller);
-        _markNonceUsed(policyId, aoaExecutionData.nonce);
+        _validateAndConsumeExecutionIntent(policyId, account, aoaConfig.executor, aoaExecutionData, actionData, caller);
 
         return _onAOAExecute(policyId, aoaConfig, policySpecificConfig, actionData);
     }
@@ -368,6 +351,95 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         (aoaConfig, policySpecificConfig) = abi.decode(policyConfig, (AOAConfig, bytes));
         if (aoaConfig.account != expectedAccount) revert InvalidAOAConfigAccount(aoaConfig.account, expectedAccount);
         if (aoaConfig.executor == address(0)) revert ZeroExecutor();
+    }
+
+    /// @notice Computes the EIP-712 digest for an executor-signed uninstall intent.
+    ///
+    /// @dev Commits to the policy instance (`policyId`), its associated account, and the stored config hash so the
+    ///      signature cannot be reused across policy instances/configurations.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param account Account associated with the policyId.
+    /// @param deadline Optional signature expiry timestamp (seconds). Zero means “no expiry”.
+    ///
+    /// @return EIP-712 digest to be signed by the executor.
+    function _getUninstallDigest(bytes32 policyId, address account, uint256 deadline) internal view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline))
+        );
+    }
+
+    /// @notice Computes the EIP-712 digest for an executor-signed cancel intent.
+    ///
+    /// @dev Commits to the policy instance (`policyId`), its associated account, and the config preimage hash so the
+    ///      signature cannot be reused across different configs.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param account Account associated with the policyId.
+    /// @param policyConfig Full config preimage bytes.
+    /// @param deadline Optional signature expiry timestamp (seconds). Zero means “no expiry”.
+    ///
+    /// @return EIP-712 digest to be signed by the executor.
+    function _getCancelDigest(bytes32 policyId, address account, bytes calldata policyConfig, uint256 deadline)
+        internal
+        view
+        returns (bytes32)
+    {
+        return _hashTypedData(
+            keccak256(abi.encode(AOA_CANCEL_TYPEHASH, policyId, account, keccak256(policyConfig), deadline))
+        );
+    }
+
+    /// @notice Computes the execution intent hash committed to by the executor signature.
+    ///
+    /// @dev Uses `keccak256(actionData)` so the hash is size-bounded even when `actionData` is large.
+    ///
+    /// @param actionData Policy-specific action payload bytes.
+    /// @param nonce Execution nonce used for replay protection.
+    /// @param deadline Optional signature expiry timestamp (seconds). Zero means “no expiry”.
+    ///
+    /// @return executionDataHash Hash used as `executionDataHash` in `EXECUTION_TYPEHASH`.
+    function _getExecutionDataHash(bytes memory actionData, uint256 nonce, uint256 deadline)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(keccak256(actionData), nonce, deadline));
+    }
+
+    /// @notice Validates and consumes an executor-signed execution intent.
+    ///
+    /// @dev Reverts if the intent is expired, replayed (nonce already used), or not signed by the configured executor.
+    ///      On success, marks the nonce as used for `policyId`.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param account Account associated with the policyId.
+    /// @param executor Executor address authorized in `AOAConfig`.
+    /// @param aoaExecutionData Execution envelope containing nonce, deadline, and signature.
+    /// @param actionData Policy-specific action payload bytes.
+    /// @param caller External caller that invoked the manager (used only for error reporting).
+    function _validateAndConsumeExecutionIntent(
+        bytes32 policyId,
+        address account,
+        address executor,
+        AOAExecutionData memory aoaExecutionData,
+        bytes memory actionData,
+        address caller
+    ) internal {
+        _requireUnusedNonce(policyId, aoaExecutionData.nonce);
+        if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
+            revert SignatureExpired(block.timestamp, aoaExecutionData.deadline);
+        }
+
+        bytes32 digest = _getExecutionDigest(
+            policyId,
+            account,
+            _configHashByPolicyId[policyId],
+            _getExecutionDataHash(actionData, aoaExecutionData.nonce, aoaExecutionData.deadline)
+        );
+
+        if (!_isValidExecutorSig(executor, digest, aoaExecutionData.signature)) revert Unauthorized(caller);
+        _markNonceUsed(policyId, aoaExecutionData.nonce);
     }
 }
 

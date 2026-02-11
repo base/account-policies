@@ -375,14 +375,24 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         newPolicyId = getPolicyBindingStructHash(payload.newBinding);
         if (newPolicyId == payload.oldPolicyId) revert InvalidPayload();
 
-        // Ensure the old policy is installed for this account.
         PolicyRecord storage oldRecord = _policies[payload.oldPolicy][payload.oldPolicyId];
+        PolicyRecord storage newRecord = _policies[payload.newBinding.policy][newPolicyId];
+
+        // Idempotent behavior: if the desired end state is already reached, return early.
+        // This enables safe retries even after deadlines expire.
+        if (
+            oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
+                && newRecord.account == payload.newBinding.account
+        ) {
+            return newPolicyId;
+        }
+
+        // Ensure the old policy is installed for this account.
         if (!oldRecord.installed) revert PolicyNotInstalled(payload.oldPolicyId);
         if (oldRecord.uninstalled) revert PolicyIsDisabled(payload.oldPolicyId);
         if (oldRecord.account != payload.newBinding.account) revert InvalidPayload();
 
         // Ensure the new policy instance is not already installed.
-        PolicyRecord storage newRecord = _policies[payload.newBinding.policy][newPolicyId];
         if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
 
         // Verify replacement signature.
