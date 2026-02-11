@@ -52,10 +52,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     struct TopUpData {
         /// @dev Amount of collateral assets to supply (collateral token smallest units).
         uint256 collateralAssets;
-        /// @dev Policy-defined execution nonce used for replay protection.
-        uint256 nonce;
-        /// @dev Optional signature expiry timestamp (seconds). Zero means “no expiry”.
-        uint256 deadline;
         /// @dev Optional data forwarded to Morpho's callback.
         bytes callbackData;
     }
@@ -63,12 +59,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
-
-    /// @notice EIP-712 typehash for the inner top-up payload.
-    ///
-    /// @dev Inner signed struct: what the executor is authorizing for a specific execution.
-    bytes32 public constant TOP_UP_DATA_TYPEHASH =
-        keccak256("TopUpData(uint256 collateralAssets,uint256 nonce,uint256 deadline,bytes32 callbackDataHash)");
 
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
@@ -212,18 +202,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes32 policyId,
         AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
-        bytes memory actionData,
-        bytes memory signature,
-        address caller
+        bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
         TopUpData memory topUpData = abi.decode(actionData, (TopUpData));
-
-        bytes32 expectedConfigHash = _configHashByPolicyId[policyId];
-        _validateTopUpIntent(
-            policyId, aoaConfig.account, expectedConfigHash, aoaConfig.executor, topUpData, signature, caller
-        );
+        if (topUpData.collateralAssets == 0) revert ZeroAmount();
         _enforceLtvBounds(config, marketParams, aoaConfig.account, topUpData.collateralAssets);
 
         // Enforce recurring budget in collateral-token units.
@@ -254,36 +238,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
         postCallData = "";
-    }
-
-    /// @dev Validates and consumes an executor-signed execution intent (deadline + nonce replay protection).
-    function _validateTopUpIntent(
-        bytes32 policyId,
-        address account,
-        bytes32 expectedConfigHash,
-        address executor,
-        TopUpData memory topUpData,
-        bytes memory signature,
-        address caller
-    ) internal {
-        if (topUpData.collateralAssets == 0) revert ZeroAmount();
-        _requireUnusedNonce(policyId, topUpData.nonce);
-        if (topUpData.deadline != 0 && block.timestamp > topUpData.deadline) {
-            revert SignatureExpired(block.timestamp, topUpData.deadline);
-        }
-
-        bytes32 callbackHash = keccak256(topUpData.callbackData);
-        bytes32 topUpDataHash = keccak256(
-            abi.encode(
-                TOP_UP_DATA_TYPEHASH, topUpData.collateralAssets, topUpData.nonce, topUpData.deadline, callbackHash
-            )
-        );
-
-        bytes32 digest = _getExecutionDigest(policyId, account, expectedConfigHash, topUpDataHash);
-        bool isValidSignature = _isValidExecutorSig(executor, digest, signature);
-        if (!isValidSignature) revert Unauthorized(caller);
-
-        _markNonceUsed(policyId, topUpData.nonce);
     }
 
     /// @dev Enforces trigger and post-top-up LTV bounds using current position, market totals, and oracle price.

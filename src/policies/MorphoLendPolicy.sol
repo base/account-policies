@@ -34,8 +34,6 @@ contract MorphoLendPolicy is AOAPolicy {
     struct LendData {
         /// @dev Amount of assets to deposit, in the vault asset token's smallest unit (ERC20 decimals).
         uint256 depositAssets;
-        /// @dev Policy-defined execution nonce used for replay protection (and signed intents).
-        uint256 nonce;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -120,28 +118,18 @@ contract MorphoLendPolicy is AOAPolicy {
 
     /// @inheritdoc AOAPolicy
     ///
-    /// @dev Executes a Morpho vault deposit, enforcing executor authorization, nonce replay protection, and
-    ///      recurring allowance bounds.
+    /// @dev Executes a Morpho vault deposit, enforcing recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
         AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
-        bytes memory actionData,
-        bytes memory signature,
-        address caller
+        bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
 
         LendData memory lendData = abi.decode(actionData, (LendData));
         if (lendData.depositAssets == 0) revert ZeroAmount();
-        _requireUnusedNonce(policyId, lendData.nonce);
-
-        bytes32 digest =
-            _getExecutionDigest(policyId, aoaConfig.account, _configHashByPolicyId[policyId], keccak256(actionData));
-        if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
-
-        _markNonceUsed(policyId, lendData.nonce);
 
         RecurringAllowance.Limit memory depositLimit =
             _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);

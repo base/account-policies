@@ -173,19 +173,20 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding_);
         bytes32 configHash = keccak256(policyConfig_);
 
-        bytes32 callbackHash = keccak256(callbackData);
-        bytes32 protectHash = keccak256(abi.encode(policy.TOP_UP_DATA_TYPEHASH(), topUp, nonce, deadline, callbackHash));
-        bytes32 structHash =
-            keccak256(abi.encode(policy.EXECUTION_TYPEHASH(), policyId, address(account), configHash, protectHash));
+        MorphoLoanProtectionPolicy.TopUpData memory pd =
+            MorphoLoanProtectionPolicy.TopUpData({collateralAssets: topUp, callbackData: callbackData});
+        bytes memory actionData = abi.encode(pd);
+        bytes32 actionDataHash = keccak256(actionData);
+        bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(policy.EXECUTION_TYPEHASH(), policyId, address(account), configHash, executionDataHash)
+        );
         bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
 
-        MorphoLoanProtectionPolicy.TopUpData memory pd = MorphoLoanProtectionPolicy.TopUpData({
-            collateralAssets: topUp, nonce: nonce, deadline: deadline, callbackData: callbackData
-        });
-        return abi.encode(abi.encode(pd), sig);
+        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {

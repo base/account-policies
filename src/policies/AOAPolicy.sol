@@ -13,11 +13,10 @@ import {Policy} from "./Policy.sol";
 ///
 /// @dev This base contract enforces canonical ABI encoding shapes by owning the internal hook implementations:
 ///      - `policyConfig = abi.encode(AOAConfig{account, executor}, bytes policySpecificConfig)`
-///      - `executionData = abi.encode(bytes actionData, bytes signature)`
+///      - `executionData = abi.encode(AOAExecutionData{nonce, deadline, signature}, bytes actionData)`
 ///
 ///      The base layer also standardizes executor authorization:
-///      - direct executor calls are allowed
-///      - relayed calls are allowed when accompanied by an executor signature (ERC-6492 supported)
+///      - all executions require an executor signature (ERC-6492 supported)
 abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
@@ -29,6 +28,15 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         address account;
         /// @dev Executor authorized to execute/cancel/uninstall (directly or via signature).
         address executor;
+    }
+
+    struct AOAExecutionData {
+        /// @dev Policy-defined execution nonce used for replay protection.
+        uint256 nonce;
+        /// @dev Optional signature expiry timestamp (seconds). Zero means “no expiry”.
+        uint256 deadline;
+        /// @dev Executor signature authorizing this execution intent.
+        bytes signature;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -269,8 +277,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
     /// @inheritdoc Policy
     ///
-    /// @dev AOA execute hook wrapper: requires installed config, decodes canonical payload shapes, and delegates to
-    ///      `_onAOAExecute`.
+    /// @dev AOA execute hook wrapper: requires installed config, validates executor signature + nonce replay
+    ///      protection for all executions, decodes canonical payload shapes, and delegates to `_onAOAExecute`.
     function _onExecute(
         bytes32 policyId,
         address account,
@@ -281,9 +289,23 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         _requireConfigHash(policyId, policyConfig);
 
         (AOAConfig memory aoaConfig, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
-        (bytes memory actionData, bytes memory signature) = abi.decode(executionData, (bytes, bytes));
+        (AOAExecutionData memory aoaExecutionData, bytes memory actionData) =
+            abi.decode(executionData, (AOAExecutionData, bytes));
 
-        return _onAOAExecute(policyId, aoaConfig, policySpecificConfig, actionData, signature, caller);
+        _requireUnusedNonce(policyId, aoaExecutionData.nonce);
+        if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
+            revert SignatureExpired(block.timestamp, aoaExecutionData.deadline);
+        }
+
+        bytes32 configHash = _configHashByPolicyId[policyId];
+        bytes32 actionDataHash = keccak256(actionData);
+        bytes32 executionDataHash =
+            keccak256(abi.encode(actionDataHash, aoaExecutionData.nonce, aoaExecutionData.deadline));
+        bytes32 digest = _getExecutionDigest(policyId, account, configHash, executionDataHash);
+        if (!_isValidExecutorSig(aoaConfig.executor, digest, aoaExecutionData.signature)) revert Unauthorized(caller);
+        _markNonceUsed(policyId, aoaExecutionData.nonce);
+
+        return _onAOAExecute(policyId, aoaConfig, policySpecificConfig, actionData);
     }
 
     /// @notice Policy-specific install hook for AOA policies.
@@ -314,9 +336,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes32 policyId,
         AOAConfig memory aoaConfig,
         bytes memory policySpecificConfig,
-        bytes memory actionData,
-        bytes memory signature,
-        address caller
+        bytes memory actionData
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     ////////////////////////////////////////////////////////////////

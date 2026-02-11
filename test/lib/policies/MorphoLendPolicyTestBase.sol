@@ -102,21 +102,24 @@ abstract contract MorphoLendPolicyTestBase is Test {
     }
 
     function _execWithNonce(uint256 assets, uint256 nonce) internal {
-        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: assets, nonce: nonce});
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: assets});
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
-        bytes memory policyData = _encodePolicyDataWithSig(binding, ld);
+        bytes memory policyData = _encodePolicyDataWithSig(binding, ld, nonce, 0);
         vm.prank(executor);
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
     }
 
-    function _encodePolicyDataWithSig(PolicyManager.PolicyBinding memory binding_, MorphoLendPolicy.LendData memory ld)
-        internal
-        view
-        returns (bytes memory)
-    {
-        bytes32 execDigest = _getPolicyExecutionDigest(binding_, abi.encode(ld));
+    function _encodePolicyDataWithSig(
+        PolicyManager.PolicyBinding memory binding_,
+        MorphoLendPolicy.LendData memory ld,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes memory actionData = abi.encode(ld);
+        bytes32 execDigest = _getPolicyExecutionDigest(binding_, actionData, nonce, deadline);
         bytes memory sig = _signExecution(execDigest);
-        return abi.encode(abi.encode(ld), sig);
+
+        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
     }
 
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {
@@ -124,14 +127,17 @@ abstract contract MorphoLendPolicyTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _getPolicyExecutionDigest(PolicyManager.PolicyBinding memory binding_, bytes memory payload)
-        internal
-        view
-        returns (bytes32)
-    {
+    function _getPolicyExecutionDigest(
+        PolicyManager.PolicyBinding memory binding_,
+        bytes memory actionData,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes32) {
         bytes32 policyId = policyManager.getPolicyBindingStructHash(binding_);
+        bytes32 actionDataHash = keccak256(actionData);
+        bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
         bytes32 structHash = keccak256(
-            abi.encode(EXECUTION_TYPEHASH, policyId, binding_.account, binding_.policyConfigHash, keccak256(payload))
+            abi.encode(EXECUTION_TYPEHASH, policyId, binding_.account, binding_.policyConfigHash, executionDataHash)
         );
         return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
     }

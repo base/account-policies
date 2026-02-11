@@ -13,7 +13,7 @@ import {MockCoinbaseSmartWallet} from "../mocks/MockCoinbaseSmartWallet.sol";
 contract AOATestPolicy is AOAPolicy {
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _onAOAExecute(bytes32, AOAConfig memory, bytes memory, bytes memory, bytes memory, address)
+    function _onAOAExecute(bytes32, AOAConfig memory, bytes memory, bytes memory)
         internal
         pure
         override
