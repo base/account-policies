@@ -90,9 +90,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param deadline Signature deadline in seconds.
     error SignatureExpired(uint256 currentTimestamp, uint256 deadline);
 
-    /// @notice Thrown when the execution nonce is zero.
-    error ZeroNonce();
-
     /// @notice Thrown when a nonce has already been used for this policyId.
     ///
     /// @param policyId Policy identifier.
@@ -142,22 +139,14 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
-    /// @notice Deletes the stored config hash for an uninstalled policyId.
-    ///
-    /// @param policyId Policy identifier.
-    function _deleteConfigHash(bytes32 policyId) internal {
-        delete _configHashByPolicyId[policyId];
-    }
-
     /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
     function _isValidExecutorSig(address executor, bytes32 digest, bytes memory signature) internal returns (bool) {
         return
             POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
-    /// @dev Reverts if `nonce` is zero or already used for `policyId`.
+    /// @dev Reverts if `nonce` is already used for `policyId`.
     function _requireUnusedNonce(bytes32 policyId, uint256 nonce) internal view {
-        if (nonce == 0) revert ZeroNonce();
         if (_usedNonces[policyId][nonce]) revert ExecutionNonceAlreadyUsed(policyId, nonce);
     }
 
@@ -205,11 +194,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @inheritdoc Policy
     ///
     /// @dev AOA install hook wrapper: stores config hash, decodes `AOAConfig`, and calls `_onAOAInstall`.
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller)
-        internal
-        override
-    {
-        caller;
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address) internal override {
         _storeConfigHash(policyId, policyConfig);
         (AOAConfig memory aoaConfig, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
         _onAOAInstall(policyId, aoaConfig, policySpecificConfig);
@@ -217,7 +202,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
     /// @inheritdoc Policy
     ///
-    /// @dev AOA uninstall hook wrapper: enforces executor authorization and clears stored config hash.
+    /// @dev AOA uninstall hook wrapper: enforces executor authorization.
     function _onUninstall(
         bytes32 policyId,
         address account,
@@ -228,7 +213,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         // Account can always uninstall without providing config.
         if (caller == account) {
             _onAOAUninstall(policyId, account, caller);
-            _deleteConfigHash(policyId);
             return;
         }
 
@@ -253,7 +237,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         }
 
         _onAOAUninstall(policyId, account, aoaConfig.executor);
-        _deleteConfigHash(policyId);
     }
 
     /// @inheritdoc Policy
