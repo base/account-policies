@@ -77,7 +77,7 @@ abstract contract AOAPolicyTestBase is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, bytes(""));
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {

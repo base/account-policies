@@ -116,7 +116,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig);
+        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)

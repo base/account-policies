@@ -41,26 +41,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 policyConfigHash;
     }
 
-    /// @notice Payload used for install+execute in a single call.
-    ///
-    /// @dev Encoded and passed via the `executionData` parameter of `execute` when the policy is not yet installed.
-    struct InstallAndExecutePayload {
-        /// @dev Binding authorized by `userSig`.
-        PolicyBinding binding;
-        /// @dev Full config preimage bytes whose hash must match `binding.policyConfigHash`.
-        bytes policyConfig;
-        /// @dev ERC-6492-compatible signature by `binding.account` over an execution-bound typed digest:
-        ///      `_hashTypedData(keccak256(abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(executionData), deadline)))`.
-        ///
-        ///      This signs the `InstallAndExecute` struct (typehash `INSTALL_AND_EXECUTE_TYPEHASH`) and cannot be replayed
-        ///      as a plain install because it commits to the `executionData` hash (and optional `deadline`).
-        bytes userSig;
-        /// @dev Policy-defined per-execution payload forwarded to the policy's execute hook.
-        bytes executionData;
-        /// @dev Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
-        uint256 deadline;
-    }
-
     /// @notice Payload used for uninstall+install in a single call.
     struct ReplacePolicyPayload {
         /// @dev Old policy contract address to uninstall.
@@ -108,12 +88,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
         "PolicyBinding(address account,address policy,bytes32 policyConfigHash,uint40 validAfter,uint40 validUntil,uint256 salt)"
     );
-
-    /// @notice EIP-712 hash of InstallAndExecute type.
-    ///
-    /// @dev Binds an installation authorization to a specific policy execution (via a hash of the execution payload).
-    bytes32 public constant INSTALL_AND_EXECUTE_TYPEHASH =
-        keccak256("InstallAndExecute(bytes32 policyId,bytes32 executionDataHash,uint256 deadline)");
 
     /// @notice EIP-712 hash of ReplacePolicy type.
     ///
@@ -255,26 +229,24 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
-    /// @notice Installs a policy using an account signature over the binding.
+    /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
     ///
-    /// @dev Signature validation supports ERC-6492 (including side effects for counterfactual accounts).
-    ///      Installation is idempotent: if the policyId is already installed, this is a no-op.
+    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided is forwarded to
+    ///      the policy's execute hook, which MUST enforce its own execution authorization semantics.
     ///
     /// @param binding Policy binding parameters authorized by the account.
     /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
     /// @param userSig Account signature authorizing the binding.
+    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function installPolicyWithSignature(
         PolicyBinding calldata binding,
         bytes calldata policyConfig,
-        bytes calldata userSig
+        bytes calldata userSig,
+        bytes calldata executionData
     ) external nonReentrant returns (bytes32 policyId) {
-        policyId = getPolicyBindingStructHash(binding);
-        bytes32 digest = _hashTypedData(policyId);
-        _requireValidAccountSig(binding.account, digest, userSig);
-
-        return _install(binding, policyConfig);
+        return _installPolicyWithSignature(binding, policyConfig, userSig, executionData);
     }
 
     /// @notice Installs a policy via a direct call from the account.
@@ -313,47 +285,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
         _execute(policy, policyId, policyRecord.account, policyConfig, executionData, msg.sender);
-    }
-
-    /// @notice Install (with execution-bound authorization) and immediately execute in a single transaction.
-    ///
-    /// @dev This is a typed helper to avoid requiring integrators to deploy a batching contract.
-    ///      If the policyId is already installed, execution proceeds without re-validating install authorization.
-    ///
-    /// @param payload Install+execute payload including the binding and execution-bound account signature.
-    function executeWithInstall(InstallAndExecutePayload calldata payload) external nonReentrant {
-        bytes32 policyId = getPolicyBindingStructHash(payload.binding);
-        address policy = payload.binding.policy;
-        if (policy == address(0)) revert InvalidPayload();
-
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
-        // Idempotent behavior: if already installed, skip installation authorization and execute directly.
-        // This avoids brittleness when multiple parties race to "be first" to install.
-        if (policyRecord.installed) {
-            if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-            _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
-            _execute(policy, policyId, policyRecord.account, payload.policyConfig, payload.executionData, msg.sender);
-            return;
-        }
-
-        // Verify an execution-bound install signature (cannot be replayed as a plain install).
-        _requireNotExpired(payload.deadline);
-        bytes32 digest = _hashTypedData(
-            keccak256(
-                abi.encode(INSTALL_AND_EXECUTE_TYPEHASH, policyId, keccak256(payload.executionData), payload.deadline)
-            )
-        );
-        _requireValidAccountSig(payload.binding.account, digest, payload.userSig);
-
-        // Install policy instance and use the installed config/data for execution.
-        _install(payload.binding, payload.policyConfig);
-        PolicyRecord storage installedPolicyRecord = _policies[policy][policyId];
-        if (installedPolicyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        _checkValidityWindow(installedPolicyRecord.validAfter, installedPolicyRecord.validUntil);
-
-        _execute(
-            policy, policyId, installedPolicyRecord.account, payload.policyConfig, payload.executionData, msg.sender
-        );
     }
 
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by account signature).
@@ -682,6 +613,32 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         Policy(binding.policy).onInstall(policyId, binding.account, policyConfig, msg.sender);
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
+        return policyId;
+    }
+
+    function _installPolicyWithSignature(
+        PolicyBinding calldata binding,
+        bytes calldata policyConfig,
+        bytes calldata userSig,
+        bytes calldata executionData
+    ) internal returns (bytes32 policyId) {
+        policyId = getPolicyBindingStructHash(binding);
+        bytes32 digest = _hashTypedData(policyId);
+        _requireValidAccountSig(binding.account, digest, userSig);
+
+        _install(binding, policyConfig);
+
+        if (executionData.length == 0) return policyId;
+
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+
+        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
+        _execute(binding.policy, policyId, policyRecord.account, policyConfig, executionData, msg.sender);
         return policyId;
     }
 
