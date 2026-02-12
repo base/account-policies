@@ -143,8 +143,8 @@ abstract contract Policy {
     ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
     ///
     /// Default behavior:
-    /// - `role == OldPolicy`: delegates to `_onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller)`
-    /// - `role == NewPolicy`: delegates to `_onInstall(policyId, account, policyConfig, effectiveCaller)`
+    /// - `role == OldPolicy`: delegates to `_onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
+    /// - `role == NewPolicy`: delegates to `_onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
     ///
     /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
     /// @param account Account associated with the replacement.
@@ -194,22 +194,64 @@ abstract contract Policy {
         address caller
     ) internal virtual;
 
-    /// @notice Policy-specific replacement hook.
+    /// @notice Policy-specific replacement uninstall hook.
     ///
-    /// @dev Override to implement replacement-aware state transitions.
+    /// @dev Override to implement replacement-aware uninstallation logic. Prefer overriding this function over `_onReplace`
+    ///      so the meaning of parameters is unambiguous.
     ///
-    /// Default behavior:
-    /// - `role == OldPolicy`: delegate to `_onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller)`
-    /// - `role == NewPolicy`: delegate to `_onInstall(policyId, account, policyConfig, effectiveCaller)`
+    /// Default behavior: delegates to `_onUninstall(..., uninstallData=ctx.replaceData, caller=ctx.effectiveCaller)`.
     ///
-    /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
+    /// @param policyId Policy identifier for this (old) policy instance.
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
     /// @param replaceData Optional policy-defined replacement payload.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
-    /// @param role Whether this hook is being invoked for the old policy or the new policy.
     /// @param effectiveCaller Effective caller forwarded by the manager.
+    function _onUninstallForReplace(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId,
+        address effectiveCaller
+    ) internal virtual {
+        otherPolicy;
+        otherPolicyId;
+        _onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller);
+    }
+
+    /// @notice Policy-specific replacement install hook.
+    ///
+    /// @dev Override to implement replacement-aware installation logic. Prefer overriding this function over `_onReplace`
+    ///      so the meaning of parameters is unambiguous.
+    ///
+    /// Default behavior: delegates to `_onInstall(..., caller=ctx.effectiveCaller)`.
+    ///
+    /// @param policyId Policy identifier for this (new) policy instance.
+    /// @param account Account associated with the replacement.
+    /// @param policyConfig Config bytes for this policy instance.
+    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param otherPolicy The other policy contract involved in the replacement.
+    /// @param otherPolicyId The other policyId involved in the replacement.
+    /// @param effectiveCaller Effective caller forwarded by the manager.
+    function _onInstallForReplace(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId,
+        address effectiveCaller
+    ) internal virtual {
+        replaceData;
+        otherPolicy;
+        otherPolicyId;
+        _onInstall(policyId, account, policyConfig, effectiveCaller);
+    }
+
+    /// @dev Replacement router. Prefer overriding `_onUninstallForReplace` and/or `_onInstallForReplace` instead.
     function _onReplace(
         bytes32 policyId,
         address account,
@@ -219,16 +261,15 @@ abstract contract Policy {
         bytes32 otherPolicyId,
         ReplaceRole role,
         address effectiveCaller
-    ) internal virtual {
-        otherPolicy;
-        otherPolicyId;
-
+    ) internal {
         if (role == ReplaceRole.OldPolicy) {
-            _onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller);
+            _onUninstallForReplace(
+                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
+            );
             return;
         }
 
-        _onInstall(policyId, account, policyConfig, effectiveCaller);
+        _onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller);
     }
 
     ////////////////////////////////////////////////////////////////
