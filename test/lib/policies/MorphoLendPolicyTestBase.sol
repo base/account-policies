@@ -9,7 +9,6 @@ import {PublicERC6492Validator} from "../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../src/PolicyManager.sol";
 import {AOAPolicy} from "../../../src/policies/AOAPolicy.sol";
 import {MorphoLendPolicy} from "../../../src/policies/MorphoLendPolicy.sol";
-import {RecurringAllowance} from "../../../src/policies/accounting/RecurringAllowance.sol";
 
 import {MockCoinbaseSmartWallet} from "../mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoVault} from "../mocks/MockMorpho.sol";
@@ -64,7 +63,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
         bytes memory policySpecificConfig = abi.encode(
             MorphoLendPolicy.LendPolicyConfig({
                 vault: address(vault),
-                depositLimit: RecurringAllowance.Limit({allowance: 1_000_000 ether, period: 1 days, start: 0, end: 0})
+                depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: uint160(1_000_000 ether), period: 1 days})
             })
         );
         policyConfig =

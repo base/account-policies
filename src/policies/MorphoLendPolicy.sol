@@ -22,12 +22,23 @@ contract MorphoLendPolicy is AOAPolicy {
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
 
+    /// @notice Deposit allowance parameters.
+    ///
+    /// @dev The allowance window bounds (`start`/`end`) are derived from the policy validity window
+    ///      (`PolicyManager.policies(policy, policyId).validAfter/validUntil`) to avoid duplicating timestamps in config.
+    struct DepositLimitConfig {
+        /// @dev Maximum deposits per recurring period window.
+        uint160 allowance;
+        /// @dev Period length in seconds.
+        uint48 period;
+    }
+
     /// @notice Policy-specific config for lending into a pinned Morpho vault.
     struct LendPolicyConfig {
         /// @dev Morpho vault to deposit into.
         address vault;
-        /// @dev Recurring deposit allowance bounds.
-        RecurringAllowance.Limit depositLimit;
+        /// @dev Recurring deposit allowance parameters (window bounds derived from policy validity window).
+        DepositLimitConfig depositLimit;
     }
 
     /// @notice Policy-specific execution payload for deposits.
@@ -86,9 +97,10 @@ contract MorphoLendPolicy is AOAPolicy {
         (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
 
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
-        lendPolicyConfig.depositLimit = _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
-        current = RecurringAllowance.getCurrentPeriod(_depositLimitState, policyId, lendPolicyConfig.depositLimit);
+        current = RecurringAllowance.getCurrentPeriod(
+            _depositLimitState, policyId, _hydrateDepositLimit(policyId, lendPolicyConfig.depositLimit)
+        );
     }
 
     /// @notice Return the last stored recurring deposit usage for a policy instance.
@@ -131,9 +143,12 @@ contract MorphoLendPolicy is AOAPolicy {
         LendData memory lendData = abi.decode(actionData, (LendData));
         if (lendData.depositAssets == 0) revert ZeroAmount();
 
-        RecurringAllowance.Limit memory depositLimit =
-            _applyValidityWindowBoundsIfUnset(policyId, lendPolicyConfig.depositLimit);
-        RecurringAllowance.useLimit(_depositLimitState, policyId, depositLimit, lendData.depositAssets);
+        RecurringAllowance.useLimit(
+            _depositLimitState,
+            policyId,
+            _hydrateDepositLimit(policyId, lendPolicyConfig.depositLimit),
+            lendData.depositAssets
+        );
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
             _buildVaultDepositCall(lendPolicyConfig, aoaConfig.account, lendData.depositAssets);
@@ -168,17 +183,15 @@ contract MorphoLendPolicy is AOAPolicy {
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
-    /// @dev Applies validity window bounds if the config uses the (start=0,end=0) sentinel.
-    function _applyValidityWindowBoundsIfUnset(bytes32 policyId, RecurringAllowance.Limit memory limit)
+    function _hydrateDepositLimit(bytes32 policyId, DepositLimitConfig memory depositLimitConfig)
         internal
         view
-        returns (RecurringAllowance.Limit memory)
+        returns (RecurringAllowance.Limit memory depositLimit)
     {
-        // Sentinel: if config leaves both timestamps zero, bind allowance to the policy validity window.
-        if (limit.start == 0 && limit.end == 0) {
-            (limit.start, limit.end) = _getValidityWindowAsLimitBounds(policyId);
-        }
-        return limit;
+        (uint48 start, uint48 end) = _getValidityWindowAsLimitBounds(policyId);
+        return RecurringAllowance.Limit({
+            allowance: depositLimitConfig.allowance, period: depositLimitConfig.period, start: start, end: end
+        });
     }
 
     /// @dev Builds the underlying vault deposit call and approval requirements.
