@@ -100,7 +100,7 @@ For example: a swap policy can snapshot balances before the wallet call, then ve
 
 ### Uninstall
 
-Uninstall revokes an **installed** policy instance and tombstones it permanently.
+Uninstall revokes an **installed** policy instance and permanently disables that `policyId`.
 
 Importantly, uninstall is addressed by **instance identifier**, not by a full binding:
 
@@ -114,14 +114,14 @@ In other words: policies can set the terms of third-party uninstalls, but they c
 
 ### Pre-install uninstallation
 
-Uninstallation can also be used to revoke (tombstone) an installation intent **before** the policy is installed.
+Uninstallation can also be used to revoke (permanently disable) an installation intent **before** the policy is installed.
 
 In binding-mode (when the instance is not installed yet), the manager:
 
 * computes `policyId = hash(binding)`  
 * verifies `keccak256(policyConfig) == binding.policyConfigHash`  
 * calls `policy.onUninstall(...)` for policy-defined authorization  
-* tombstones the `policyId` permanently and emits the uninstall event
+* permanently disables the `policyId` and emits the uninstall event
 
 ### Replace
 
@@ -155,7 +155,7 @@ The manager is the generic, minimal enforcement layer:
 * enforces config hash matching at install and pre-install uninstallation  
 * enforces `validAfter` / `validUntil` at install and execute  
 * maintains policy instance liveness state (installed / uninstalled)  
-* enforces sticky tombstones (uninstallation permanently kills a `policyId`)  
+* enforces sticky disables (uninstallation permanently kills a `policyId`)  
 * mediates all policy hooks and provides a consistent execution environment  
 * guarantees “account can always uninstall installed instances”
 
@@ -189,7 +189,7 @@ The manager stays neutral; policies decide.
 Policies implement the minimal `Policy` hooks:
 
 * `onInstall`: validate installation and optionally initialize policy state  
-* `onUninstall`: authorize uninstall (including pre-install tombstoning) and optionally clean up policy state  
+* `onUninstall`: authorize uninstall (including pre-install permanent disable) and optionally clean up policy state  
 * `onExecute`: authorize execution and return a call plan
 
 Policies are only callable by the manager, which keeps the trust boundary clean and prevents integrators from bypassing lifecycle logic.

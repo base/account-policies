@@ -8,7 +8,7 @@ They exist to standardize a common operational pattern:
 - a designated **executor** (or any relayer acting on their behalf) triggers actions over time
 - each execution is authorized by an **executor-signed intent**
 - policies commonly enforce budgets, replay protection, and guardrails
-- policies support practical operational controls (pause, executor-friendly cancel/uninstall)
+- policies support practical operational controls (pause, executor-friendly uninstall)
 
 This family is optional: `PolicyManager` remains schema-agnostic and does not “know” AOA schemas. AOA defines a canonical envelope and shared auth model so policies in this family behave consistently.
 
@@ -30,16 +30,19 @@ AOA policies commit to:
 
 `policyConfig = abi.encode(AOAConfig{ account, executor }, bytes policySpecificConfig)`
 
-The manager binds a policy instance to `policyConfigHash = keccak256(policyConfig)` at install/cancel time.
+The manager binds a policy instance to `policyConfigHash = keccak256(policyConfig)` at install time (and requires the
+full config preimage for pre-install uninstallation).
 
 ### `executionData` (per execution)
 
 AOA policies commit to:
 
-`executionData = abi.encode(bytes actionData, bytes executorSignature)`
+`executionData = abi.encode(AOAExecutionData{ nonce, deadline, signature }, bytes actionData)`
 
-- `actionData` is policy-defined (e.g., `{amount, nonce, deadline, ...}`)
-- `executorSignature` is validated against an EIP-712 digest computed by the policy
+- `actionData` is policy-defined (e.g., `{amount, ...}`)
+- `AOAExecutionData.signature` is validated against an EIP-712 digest computed by the policy
+- `AOAExecutionData.nonce` provides replay protection
+- `AOAExecutionData.deadline` is optional intent expiry (`0` means “no expiry”)
 
 This makes AOA policies composable: tooling can treat “AOA config + action + signature” as a standard envelope.
 
@@ -80,22 +83,22 @@ Replay protection is policy-defined; AOA policies typically include a per-`polic
 
 AOA policies include an admin-controlled pause/unpause (policy-level kill switch) that blocks execution.
 
-### Cancel / uninstall with optional data buckets
+### Uninstall with `uninstallData`
 
-The protocol passes two optional opaque blobs to policy hooks:
+The protocol passes an optional opaque blob to the uninstall hook:
 
-- `cancelData` → `onCancel(...)`
 - `uninstallData` → `onUninstall(...)`
 
-These can be empty. Policies interpret them however they want; in AOA, they are used to authenticate executor-initiated uninstallation flows.
+It can be empty. Policies interpret it however they want; in AOA, it is used to authenticate executor-initiated uninstall
+flows via relayer-submitted executor signatures.
 
 Default AOA ergonomics:
 
-- the **account** can always cancel/uninstall
-- the **executor** can cancel/uninstall directly by calling
-- a **relayer** can cancel/uninstall if it provides a valid executor signature in `cancelData` / `uninstallData` (optionally with a deadline)
+- the **account** can always uninstall
+- a **relayer** can uninstall if it provides a valid executor signature inside `uninstallData` (optionally with a deadline)
 
-Practical integrator note: for non-account cancel/uninstall, AOA policies require the installed `policyConfig` preimage so they can decode the configured executor and verify the committed config hash.
+Practical integrator note: for non-account uninstall, AOA policies may require the installed `policyConfig` preimage so
+they can decode the configured executor and verify the committed config hash.
 
 ## EIP-712 domains
 

@@ -18,8 +18,8 @@ abstract contract Policy {
     ///         replacement operation.
     ///
     /// @dev `PolicyManager.replace` and `PolicyManager.replaceWithSignature` will call `onReplace` on both the old and
-    ///      new policies, passing
-    ///      the appropriate role value so policies can branch on replacement context.
+    ///      new policies, passing the appropriate role value. Policies SHOULD prefer overriding the role-specific
+    ///      `_onUninstallForReplace` / `_onInstallForReplace` hooks rather than branching on `role` themselves.
     enum ReplaceRole {
         OldPolicy,
         NewPolicy
@@ -115,7 +115,7 @@ abstract contract Policy {
     /// @notice Policy hook invoked during uninstallation.
     ///
     /// @dev Called by `PolicyManager` after the binding has been marked uninstalled.
-    ///      MAY also be called to preemptively tombstone a policyId before installation (pre-install uninstallation),
+    ///      MAY also be called to permanently disable a policyId before installation (pre-install uninstallation),
     ///      in which case `policyConfig` is expected to be the full config preimage bytes.
     ///
     /// `policyConfig` MAY be empty. Policies can use it to re-hydrate authorization (e.g., dynamic executors)
@@ -199,7 +199,7 @@ abstract contract Policy {
     /// @dev Override to implement replacement-aware uninstallation logic. Prefer overriding this function over `_onReplace`
     ///      so the meaning of parameters is unambiguous.
     ///
-    /// Default behavior: delegates to `_onUninstall(..., uninstallData=ctx.replaceData, caller=ctx.effectiveCaller)`.
+    /// Default behavior: delegates to `_onUninstall(..., uninstallData=replaceData, caller=effectiveCaller)`.
     ///
     /// @param policyId Policy identifier for this (old) policy instance.
     /// @param account Account associated with the replacement.
@@ -227,7 +227,7 @@ abstract contract Policy {
     /// @dev Override to implement replacement-aware installation logic. Prefer overriding this function over `_onReplace`
     ///      so the meaning of parameters is unambiguous.
     ///
-    /// Default behavior: delegates to `_onInstall(..., caller=ctx.effectiveCaller)`.
+    /// Default behavior: delegates to `_onInstall(..., caller=effectiveCaller)`.
     ///
     /// @param policyId Policy identifier for this (new) policy instance.
     /// @param account Account associated with the replacement.

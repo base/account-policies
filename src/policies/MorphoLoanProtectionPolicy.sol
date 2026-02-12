@@ -19,8 +19,7 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 ///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
 ///      - executor-signed execution intents
 ///      - trigger LTV threshold
-///      - post-protection LTV bounds (min + max)
-///      - recurring allowance budget (in collateral-token units)
+///      - one-shot execution (a fixed collateral top-up amount, then the policy instance becomes unusable)
 ///      - one active policy per (account, marketId)
 contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
@@ -102,7 +101,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///                 External View Functions                  ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Return recurring collateral limit usage for a policy instance.
     /// @notice Return whether the policyId has been used (one-shot).
     function isPolicyUsed(bytes32 policyId) external view returns (bool) {
         return _usedPolicyId[policyId];

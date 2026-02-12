@@ -221,22 +221,18 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         }
 
         bytes32 storedConfigHash = _configHashByPolicyId[policyId];
-        // If the policyId was never installed, allow a pre-install uninstallation (tombstone) authorized by config.
+        // If the policyId was never installed, allow a pre-install uninstallation (permanent disable) authorized by config.
         if (storedConfigHash == bytes32(0)) {
             (AOAConfig memory preinstallConfig,) = _decodeAOAConfig(account, policyConfig);
 
-            // Optional auth:
-            // - direct caller is executor, OR
-            // - executor-signed uninstall intent (relayers allowed)
-            if (caller != preinstallConfig.executor) {
-                (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
-                if (deadline != 0 && block.timestamp > deadline) {
-                    revert SignatureExpired(block.timestamp, deadline);
-                }
-
-                bytes32 digest = _getUninstallDigest(policyId, account, keccak256(policyConfig), deadline);
-                if (!_isValidExecutorSig(preinstallConfig.executor, digest, signature)) revert Unauthorized(caller);
+            // Executor authorization is always signature-based (relayers allowed).
+            (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
+            if (deadline != 0 && block.timestamp > deadline) {
+                revert SignatureExpired(block.timestamp, deadline);
             }
+
+            bytes32 digest = _getUninstallDigest(policyId, account, keccak256(policyConfig), deadline);
+            if (!_isValidExecutorSig(preinstallConfig.executor, digest, signature)) revert Unauthorized(caller);
 
             _onAOAUninstall(policyId, account, preinstallConfig.executor);
             return;
@@ -246,22 +242,18 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         _requireConfigHash(policyId, policyConfig);
         (AOAConfig memory aoaConfig,) = _decodeAOAConfig(account, policyConfig);
 
-        // Optional auth:
-        // - direct caller is executor, OR
-        // - executor-signed uninstall intent (relayers allowed)
-        if (caller != aoaConfig.executor) {
-            (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
-            if (deadline != 0 && block.timestamp > deadline) {
-                revert SignatureExpired(block.timestamp, deadline);
-            }
-            bytes32 digest = _getUninstallDigest(policyId, account, storedConfigHash, deadline);
-            if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
+        // Executor authorization is always signature-based (relayers allowed).
+        (bytes memory signatureInstalled, uint256 deadlineInstalled) = abi.decode(uninstallData, (bytes, uint256));
+        if (deadlineInstalled != 0 && block.timestamp > deadlineInstalled) {
+            revert SignatureExpired(block.timestamp, deadlineInstalled);
+        }
+        bytes32 digestInstalled = _getUninstallDigest(policyId, account, storedConfigHash, deadlineInstalled);
+        if (!_isValidExecutorSig(aoaConfig.executor, digestInstalled, signatureInstalled)) {
+            revert Unauthorized(caller);
         }
 
         _onAOAUninstall(policyId, account, aoaConfig.executor);
     }
-
-    // NOTE: Pre-install tombstoning is handled via `_onUninstall` (see below). There is no separate "cancel" hook.
 
     /// @inheritdoc Policy
     ///
@@ -365,7 +357,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         return _hashTypedData(keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, configHash, deadline)));
     }
 
-    // No cancel digest: AOA uses uninstall intents for both uninstall and pre-install tombstoning.
+    // No cancel digest: AOA uses uninstall intents for both uninstall and pre-install uninstallation.
 
     /// @notice Computes the execution intent hash committed to by the executor signature.
     ///

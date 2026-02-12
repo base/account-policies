@@ -55,7 +55,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes newPolicyConfig;
     }
 
-    /// @notice Payload used for uninstalling a policyId or cancelling a pre-install intent.
+    /// @notice Payload used for uninstalling a policy.
     ///
     /// @dev This unifies two flows under a single entrypoint:
     /// - Installed lifecycle: address by `(policy, policyId)`; `policyConfig` MAY be empty for account uninstalls.
@@ -66,7 +66,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// - If `binding.policy != address(0)`, the manager uses binding-mode (pre-install uninstallation).
     /// - Otherwise it uses policyId-mode (uninstall by `(policy, policyId)`).
     struct UninstallPayload {
-        /// @dev Binding used for pre-install cancellation. Unused in policyId-mode.
+        /// @dev Binding used for pre-install uninstallation. Unused in policyId-mode.
         PolicyBinding binding;
         /// @dev Policy contract address used in policyId-mode. Unused in binding-mode.
         address policy;
@@ -82,7 +82,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     struct PolicyRecord {
         /// @dev True once installed (never unset).
         bool installed;
-        /// @dev True once uninstalled/cancelled (never unset).
+        /// @dev True once uninstalled (never unset).
         bool uninstalled;
         /// @dev Account associated with the binding (cached from the binding at install/uninstall time).
         address account;
@@ -175,7 +175,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Thrown when a policy instance is expected to be installed but is not.
     error PolicyNotInstalled(bytes32 policyId);
 
-    /// @notice Thrown when attempting an action on an uninstalled or cancelled policyId.
+    /// @notice Thrown when attempting an action on an uninstalled policyId.
     error PolicyIsDisabled(bytes32 policyId);
 
     /// @notice Thrown when attempting to install a policyId that is already installed.
@@ -384,7 +384,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return newPolicyId;
     }
 
-    /// @notice Uninstall a policyId (installed lifecycle) or preemptively tombstone a policyId before installation.
+    /// @notice Uninstall a policyId (installed lifecycle) or permanently disable a policyId before installation.
     ///
     /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
     /// - `policyConfig` MAY be empty. If the effective caller is the account, the manager will still succeed even if the
@@ -395,7 +395,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param payload Uninstall payload selecting binding-mode or policyId-mode.
     ///
-    /// @return policyId Policy identifier that was uninstalled/cancelled.
+    /// @return policyId Policy identifier that was uninstalled.
     function uninstall(UninstallPayload calldata payload) external nonReentrant returns (bytes32 policyId) {
         return _uninstall(payload, msg.sender);
     }
@@ -409,7 +409,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     /// @param policyIds Policy identifiers.
     ///
-    /// @return accounts Accounts associated with each policyId (zero if never installed/cancelled).
+    /// @return accounts Accounts associated with each policyId (zero if never installed).
     function getAccountsForPolicies(address policy, bytes32[] calldata policyIds)
         external
         view
@@ -428,7 +428,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policyIds Policy identifiers.
     ///
     /// @return installed True once installed (never unset), per policyId.
-    /// @return uninstalled True once uninstalled/cancelled (never unset), per policyId.
+    /// @return uninstalled True once uninstalled (never unset), per policyId.
     /// @return account Account associated with each policyId.
     /// @return validAfter Lower bound timestamp (seconds), or zero if unset, per policyId.
     /// @return validUntil Upper bound timestamp (seconds), or zero if unset, per policyId.
@@ -681,7 +681,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         internal
         returns (bytes32 policyId)
     {
-        // Binding-mode: supports pre-install cancellation and (optionally) uninstalling installed instances.
+        // Binding-mode: supports pre-install uninstallation and (optionally) uninstalling installed instances.
         if (payload.binding.policy != address(0)) {
             PolicyBinding calldata binding = payload.binding;
             policyId = getPolicyId(binding);

@@ -16,7 +16,7 @@ import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 ///      - fixed vault (pinned in config)
 ///      - fixed receiver (the account)
 ///      - executor-signed execution intents
-///      - recurring allowance bounds on deposited assets
+///      - recurring allowance bounds on deposited assets (allowance window derived from policy validity window)
 contract MorphoLendPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
