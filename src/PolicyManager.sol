@@ -112,7 +112,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     );
 
     /// @notice Lifecycle records keyed by policy contract and binding-derived policyId.
-    mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) internal _policies;
+    ///
+    /// @dev Exposed as a public getter for integrator/indexer ergonomics.
+    mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) public policies;
 
     ////////////////////////////////////////////////////////////////
     ///                         Events                           ///
@@ -287,7 +289,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         external
         nonReentrant
     {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        PolicyRecord storage policyRecord = policies[policy][policyId];
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
@@ -368,19 +370,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///                 External View Functions                  ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Returns the account stored for a (policy, policyId).
-    ///
-    /// @dev Returns zero if the policyId has never been installed/cancelled.
-    ///
-    /// @param policy Policy contract address.
-    /// @param policyId Policy identifier.
-    ///
-    /// @return account Account associated with the policyId.
-    function getAccountForPolicy(address policy, bytes32 policyId) external view returns (address account) {
-        return _policies[policy][policyId].account;
-    }
-
-    /// @notice Batch version of `getAccountForPolicy`.
+    /// @notice Batch getter for policyId-associated accounts.
     ///
     /// @param policy Policy contract address.
     /// @param policyIds Policy identifiers.
@@ -394,36 +384,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint256 len = policyIds.length;
         accounts = new address[](len);
         for (uint256 i; i < len; ++i) {
-            accounts[i] = _policies[policy][policyIds[i]].account;
+            accounts[i] = policies[policy][policyIds[i]].account;
         }
     }
 
-    /// @notice Return raw policy record fields for a policy instance.
-    ///
-    /// @param policy Policy contract address.
-    /// @param policyId Policy identifier.
-    ///
-    /// @return installed True once installed (never unset).
-    /// @return uninstalled True once uninstalled/cancelled (never unset).
-    /// @return account Account associated with the policyId.
-    /// @return validAfter Lower bound timestamp (seconds), or zero if unset.
-    /// @return validUntil Upper bound timestamp (seconds), or zero if unset.
-    function getPolicyRecord(address policy, bytes32 policyId)
-        external
-        view
-        returns (bool installed, bool uninstalled, address account, uint40 validAfter, uint40 validUntil)
-    {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
-        return (
-            policyRecord.installed,
-            policyRecord.uninstalled,
-            policyRecord.account,
-            policyRecord.validAfter,
-            policyRecord.validUntil
-        );
-    }
-
-    /// @notice Batch version of `getPolicyRecord`.
+    /// @notice Batch getter for raw policy record fields.
     ///
     /// @param policy Policy contract address.
     /// @param policyIds Policy identifiers.
@@ -452,7 +417,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         validUntil = new uint40[](len);
 
         for (uint256 i; i < len; ++i) {
-            PolicyRecord storage policyRecord = _policies[policy][policyIds[i]];
+            PolicyRecord storage policyRecord = policies[policy][policyIds[i]];
             installed[i] = policyRecord.installed;
             uninstalled[i] = policyRecord.uninstalled;
             account[i] = policyRecord.account;
@@ -466,7 +431,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyInstalled(address policy, bytes32 policyId) external view returns (bool) {
-        return _policies[policy][policyId].installed;
+        return policies[policy][policyId].installed;
     }
 
     /// @notice True if the policy has been uninstalled.
@@ -474,7 +439,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyUninstalled(address policy, bytes32 policyId) external view returns (bool) {
-        return _policies[policy][policyId].uninstalled;
+        return policies[policy][policyId].uninstalled;
     }
 
     /// @notice True if the policy is installed and not uninstalled.
@@ -482,7 +447,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyActive(address policy, bytes32 policyId) external view returns (bool) {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        PolicyRecord storage policyRecord = policies[policy][policyId];
         return policyRecord.installed && !policyRecord.uninstalled;
     }
 
@@ -491,7 +456,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier.
     function isPolicyActiveNow(address policy, bytes32 policyId) external view returns (bool) {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        PolicyRecord storage policyRecord = policies[policy][policyId];
         if (!policyRecord.installed || policyRecord.uninstalled) return false;
         uint40 currentTimestamp = uint40(block.timestamp);
         if (policyRecord.validAfter != 0 && currentTimestamp < policyRecord.validAfter) return false;
@@ -537,7 +502,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
-        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
         // Idempotent behavior: installing an already-installed policy instance is a no-op.
@@ -578,7 +543,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
         }
 
-        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
         _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
         _execute(binding.policy, policyId, policyRecord.account, policyConfig, executionData, msg.sender);
@@ -616,8 +581,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         newPolicyId = getPolicyId(newBinding);
         if (newPolicyId == oldPolicyId) revert InvalidPayload();
 
-        PolicyRecord storage oldRecord = _policies[oldPolicy][oldPolicyId];
-        PolicyRecord storage newRecord = _policies[newBinding.policy][newPolicyId];
+        PolicyRecord storage oldRecord = policies[oldPolicy][oldPolicyId];
+        PolicyRecord storage newRecord = policies[newBinding.policy][newPolicyId];
 
         // Idempotent behavior: if the desired end state is already reached, return early.
         // This enables safe retries even after deadlines expire.
@@ -686,7 +651,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (payload.binding.policy != address(0)) {
             PolicyBinding calldata binding = payload.binding;
             policyId = getPolicyId(binding);
-            PolicyRecord storage policyRecordByBinding = _policies[binding.policy][policyId];
+            PolicyRecord storage policyRecordByBinding = policies[binding.policy][policyId];
 
             // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
             if (policyRecordByBinding.uninstalled) return policyId;
@@ -736,7 +701,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // PolicyId-mode: uninstall by (policy, policyId).
         if (payload.policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
         policyId = payload.policyId;
-        PolicyRecord storage policyRecordById = _policies[payload.policy][policyId];
+        PolicyRecord storage policyRecordById = policies[payload.policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecordById.uninstalled) return policyId;
         if (!policyRecordById.installed) revert PolicyNotInstalled(policyId);
@@ -775,7 +740,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId,
         address effectiveCaller
     ) internal {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        PolicyRecord storage policyRecord = policies[policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecord.uninstalled) return;
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
@@ -817,7 +782,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId
     ) internal returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
-        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
         // Idempotent behavior: installing an already-installed policy instance is a no-op.

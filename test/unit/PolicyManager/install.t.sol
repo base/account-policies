@@ -76,7 +76,7 @@ contract installTest is PolicyManagerTestBase {
 
     /// @notice Installs a policy instance and writes a lifecycle record.
     ///
-    /// @dev Verifies that `getPolicyRecord` reflects binding fields.
+    /// @dev Verifies that `policies(policy, policyId)` reflects binding fields.
     function test_installs_andStoresRecord() public {
         vm.skip(true);
     }

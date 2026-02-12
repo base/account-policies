@@ -163,7 +163,7 @@ contract MorphoLendPolicy is AOAPolicy {
 
     /// @dev Returns the policy's validity window encoded as allowance bounds.
     function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
-        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.getPolicyRecord(address(this), policyId);
+        (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.policies(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
