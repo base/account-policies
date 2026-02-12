@@ -326,7 +326,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         nonReentrant
         returns (bytes32 newPolicyId)
     {
-        newPolicyId = getPolicyBindingStructHash(payload.newBinding);
+        newPolicyId = getPolicyId(payload.newBinding);
 
         _requireNotExpired(deadline);
         bytes32 digest = _hashTypedData(
@@ -500,30 +500,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     ////////////////////////////////////////////////////////////////
-    ///                 External Pure Functions                  ///
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice Convenience alias: compute the `policyId` for a binding.
-    ///
-    /// @param binding Policy binding parameters.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
-    function getPolicyId(PolicyBinding calldata binding) external pure returns (bytes32 policyId) {
-        return getPolicyBindingStructHash(binding);
-    }
-
-    ////////////////////////////////////////////////////////////////
     ///                     Public Functions                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Computes the EIP-712 struct hash of a binding.
-    ///
-    /// @dev This value is used as the `policyId` throughout the system.
+    /// @notice Computes the EIP-712 struct hash of a binding, used as the `policyId` throughout the system.
     ///
     /// @param binding Policy binding parameters.
     ///
-    /// @return Hash of the EIP-712-encoded binding struct.
-    function getPolicyBindingStructHash(PolicyBinding calldata binding) public pure returns (bytes32) {
+    /// @return policyId Deterministic policy identifier derived as the hash of the EIP-712-encoded binding struct.
+    function getPolicyId(PolicyBinding calldata binding) public pure returns (bytes32 policyId) {
         // Must match POLICY_BINDING_TYPEHASH field order (EIP-712 struct hashing).
         return keccak256(
             abi.encode(
@@ -551,7 +536,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
-        policyId = getPolicyBindingStructHash(binding);
+        policyId = getPolicyId(binding);
         PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
@@ -580,7 +565,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata userSig,
         bytes calldata executionData
     ) internal returns (bytes32 policyId) {
-        policyId = getPolicyBindingStructHash(binding);
+        policyId = getPolicyId(binding);
         bytes32 digest = _hashTypedData(policyId);
         _requireValidAccountSig(binding.account, digest, userSig);
 
@@ -628,7 +613,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             revert InvalidPayload();
         }
 
-        newPolicyId = getPolicyBindingStructHash(newBinding);
+        newPolicyId = getPolicyId(newBinding);
         if (newPolicyId == oldPolicyId) revert InvalidPayload();
 
         PolicyRecord storage oldRecord = _policies[oldPolicy][oldPolicyId];
@@ -700,7 +685,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Binding-mode: supports pre-install cancellation and (optionally) uninstalling installed instances.
         if (payload.binding.policy != address(0)) {
             PolicyBinding calldata binding = payload.binding;
-            policyId = getPolicyBindingStructHash(binding);
+            policyId = getPolicyId(binding);
             PolicyRecord storage policyRecordByBinding = _policies[binding.policy][policyId];
 
             // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
@@ -831,7 +816,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address otherPolicy,
         bytes32 otherPolicyId
     ) internal returns (bytes32 policyId) {
-        policyId = getPolicyBindingStructHash(binding);
+        policyId = getPolicyId(binding);
         PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 

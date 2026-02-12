@@ -103,7 +103,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
 
     function _execWithNonce(uint256 assets, uint256 nonce) internal {
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: assets});
-        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding);
+        bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory policyData = _encodePolicyDataWithSig(binding, ld, nonce, 0);
         vm.prank(executor);
         policyManager.execute(address(policy), policyId, policyConfig, policyData);
@@ -133,7 +133,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
         uint256 nonce,
         uint256 deadline
     ) internal view returns (bytes32) {
-        bytes32 policyId = policyManager.getPolicyBindingStructHash(binding_);
+        bytes32 policyId = policyManager.getPolicyId(binding_);
         bytes32 actionDataHash = keccak256(actionData);
         bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
         bytes32 structHash = keccak256(
@@ -143,7 +143,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyBindingStructHash(binding_);
+        bytes32 structHash = policyManager.getPolicyId(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

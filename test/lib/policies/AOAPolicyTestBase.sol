@@ -81,7 +81,7 @@ abstract contract AOAPolicyTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyBindingStructHash(binding_);
+        bytes32 structHash = policyManager.getPolicyId(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

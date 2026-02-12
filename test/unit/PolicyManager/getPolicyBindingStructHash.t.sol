@@ -5,7 +5,7 @@ import {PolicyManagerTestBase} from "../../lib/PolicyManagerTestBase.sol";
 
 /// @title getPolicyBindingStructHashTest
 ///
-/// @notice Test contract for `PolicyManager.getPolicyBindingStructHash`.
+/// @notice Test contract for `PolicyManager.getPolicyId`.
 contract getPolicyBindingStructHashTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();

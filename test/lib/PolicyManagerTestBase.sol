@@ -67,7 +67,7 @@ abstract contract PolicyManagerTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyBindingStructHash(binding);
+        bytes32 structHash = policyManager.getPolicyId(binding);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
