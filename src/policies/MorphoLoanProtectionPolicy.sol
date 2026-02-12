@@ -43,7 +43,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
         /// @dev Optional data forwarded to Morpho's callback.
-        bytes callbackData;
+        bytes callbackData; // todo: rename to amount
     }
 
     ////////////////////////////////////////////////////////////////
@@ -183,7 +183,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             data: abi.encodeWithSelector(
                 IMorphoBlue.supplyCollateral.selector,
                 marketParams,
-                config.collateralTopUpAssets,
+                config.collateralTopUpAssets, // todo: use amount from topUpData
                 aoaConfig.account,
                 topUpData.callbackData
             )

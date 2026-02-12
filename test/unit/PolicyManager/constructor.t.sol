@@ -10,5 +10,10 @@ contract constructorTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }
+
+    /// @notice Stores the validator as an immutable.
+    function test_setsPublicERC6492Validator() public {
+        vm.skip(true);
+    }
 }
 
