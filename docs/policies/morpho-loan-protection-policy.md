@@ -11,17 +11,19 @@ The installed config pins:
 - the Morpho Blue contract
 - a specific market (`marketId`)
 - a trigger LTV threshold
-- a fixed one-time collateral top-up amount (`collateralTopUpAssets`)
+- a max top-up amount per execution (`maxTopUpAssets`)
 
-Executions top up collateral by exactly `collateralTopUpAssets` (plus optional callback data), but only when:
+Executions top up collateral by a requested amount `topUpAssets` (plus optional callback data), but only when:
 
 - the current position is unhealthy (above trigger)
 - the executor provides a valid signed intent
 - the policy instance has not been used already (one-shot)
+- `topUpAssets != 0`
+- `topUpAssets <= maxTopUpAssets`
 
 ## Actors
 
-- **Account**: installs with `{executor, morpho, marketId, triggerLtv, collateralTopUpAssets}`, can always uninstall.
+- **Account**: installs with `{executor, morpho, marketId, triggerLtv, maxTopUpAssets}`, can always uninstall.
 - **Executor**: signs top-up intents (EIP-712). Uninstallation is authorized via an executor signature (`uninstallData`).
 - **Relayer**: submits `execute(...)` transactions using executor-signed intents.
 
@@ -36,7 +38,7 @@ abi.encode(
     morpho,
     marketId,
     triggerLtv,
-    collateralTopUpAssets
+    maxTopUpAssets
   }))
 )
 ```
@@ -45,7 +47,7 @@ Install-time invariants:
 
 - `morpho != address(0)`
 - `marketId != 0`
-- `collateralTopUpAssets != 0`
+- `maxTopUpAssets != 0`
 - **Market existence**: fetches `morpho.idToMarketParams(marketId)` and requires nonzero params (loan/collateral token, oracle, irm, and `lltv`) so the market must exist on that Morpho instance
 - **Uniqueness**: at most one active policy per `(account, marketId)` (enforced via an `(account, marketId) -> policyId` mapping and a `policyId -> marketId` mapping for cleanup)
 
@@ -65,8 +67,8 @@ At execution time it enforces:
   - requires `currentLtv >= triggerLtv`
 - **One-shot semantics**: reverts if the policyId was already used, and marks the policyId as used after the first successful execution.
 - **Pinned action**: the wallet call plan is pinned to:
-  - `approve(collateralToken, morpho, collateralTopUpAssets)`
-  - `morpho.supplyCollateral(marketParams, collateralTopUpAssets, account, callbackData)` where `marketParams` is looked up from Morpho by `marketId`
+  - `approve(collateralToken, morpho, topUpAssets)`
+  - `morpho.supplyCollateral(marketParams, topUpAssets, account, callbackData)` where `marketParams` is looked up from Morpho by `marketId`
 
 ## Execution flow (high level)
 

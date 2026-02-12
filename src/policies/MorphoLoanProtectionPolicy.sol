@@ -19,7 +19,7 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 ///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
 ///      - executor-signed execution intents
 ///      - trigger LTV threshold
-///      - one-shot execution (a fixed collateral top-up amount, then the policy instance becomes unusable)
+///      - one-shot execution (top-up amount chosen per execution, bounded by a max committed at install time)
 ///      - one active policy per (account, marketId)
 contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
@@ -36,14 +36,16 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         // LTV constraints in WAD (1e18 = 100%).
         /// @dev Position must be at or above this LTV (wad) to trigger protection.
         uint256 triggerLtv;
-        /// @dev One-time collateral top-up amount (collateral token smallest units).
-        uint256 collateralTopUpAssets;
+        /// @dev Maximum collateral top-up amount allowed per execution (collateral token smallest units).
+        uint256 maxTopUpAssets;
     }
 
     /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
+        /// @dev Collateral top-up amount (collateral token smallest units).
+        uint256 topUpAssets;
         /// @dev Optional data forwarded to Morpho's callback.
-        bytes callbackData; // todo: rename to amount
+        bytes callbackData;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -54,7 +56,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
 
     /// @notice Stored market key per policy instance to support clean uninstallation.
-    mapping(bytes32 policyId => bytes32 marketId) internal _marketIdByPolicyId;
+    mapping(bytes32 policyId => bytes32 marketKey) internal _marketKeyByPolicyId;
 
     /// @notice Tracks whether a policy instance has been executed already (one-shot).
     mapping(bytes32 policyId => bool used) internal _usedPolicyId;
@@ -75,10 +77,13 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Thrown when attempting a zero-amount top-up.
     error ZeroAmount();
 
+    /// @notice Thrown when the requested top-up amount exceeds the config max.
+    error TopUpAboveMax(uint256 topUpAssets, uint256 maxTopUpAssets);
+
     /// @notice Thrown when the position is below the trigger LTV (i.e., is considered healthy).
     error HealthyPosition(uint256 currentLtv, uint256 triggerLtv);
 
-    /// @notice Thrown when the projected post-top-up LTV remains above the maximum bound.
+    /// @notice Thrown when the policyId has already been used (one-shot).
     error PolicyAlreadyUsed(bytes32 policyId);
 
     /// @notice Thrown when the oracle price results in a zero collateral value.
@@ -120,7 +125,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         if (config.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
-        if (config.collateralTopUpAssets == 0) revert ZeroAmount();
+        if (config.maxTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
         _requireMarketParams(config.morpho, config.marketId);
@@ -131,7 +136,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             revert PolicyAlreadyInstalledForMarket(aoaConfig.account, config.marketId);
         }
         _activePolicyByMarket[aoaConfig.account][marketKey] = policyId;
-        _marketIdByPolicyId[policyId] = marketKey;
+        _marketKeyByPolicyId[policyId] = marketKey;
     }
 
     /// @inheritdoc AOAPolicy
@@ -143,11 +148,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
     /// @dev Clears per-install state mappings if still pointing at this policyId.
     function _clearInstallState(bytes32 policyId, address account) internal {
-        bytes32 marketKey = _marketIdByPolicyId[policyId];
+        bytes32 marketKey = _marketKeyByPolicyId[policyId];
         if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
             delete _activePolicyByMarket[account][marketKey];
         }
-        delete _marketIdByPolicyId[policyId];
+        delete _marketKeyByPolicyId[policyId];
     }
 
     /// @inheritdoc AOAPolicy
@@ -163,7 +168,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
-        TopUpData memory topUpData = abi.decode(actionData, (TopUpData));
+        TopUpData memory topUp = abi.decode(actionData, (TopUpData));
+        uint256 topUpAssets = topUp.topUpAssets;
+        if (topUpAssets == 0) revert ZeroAmount();
+        if (topUpAssets > config.maxTopUpAssets) revert TopUpAboveMax(topUpAssets, config.maxTopUpAssets);
         _enforceTriggerLtv(config, marketParams, aoaConfig.account);
 
         _usedPolicyId[policyId] = true;
@@ -175,17 +183,13 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, config.collateralTopUpAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, topUpAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
             target: config.morpho,
             value: 0,
             data: abi.encodeWithSelector(
-                IMorphoBlue.supplyCollateral.selector,
-                marketParams,
-                config.collateralTopUpAssets, // todo: use amount from topUpData
-                aoaConfig.account,
-                topUpData.callbackData
+                IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, aoaConfig.account, topUp.callbackData
             )
         });
 

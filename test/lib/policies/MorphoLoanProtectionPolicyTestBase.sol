@@ -100,7 +100,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, collateralTopUpAssets: 25 ether
+                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
         policyConfig =
@@ -167,7 +167,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         bytes32 configHash = keccak256(policyConfig_);
 
         MorphoLoanProtectionPolicy.TopUpData memory pd =
-            MorphoLoanProtectionPolicy.TopUpData({callbackData: callbackData});
+            MorphoLoanProtectionPolicy.TopUpData({topUpAssets: topUp, callbackData: callbackData});
         bytes memory actionData = abi.encode(pd);
         bytes32 actionDataHash = keccak256(actionData);
         bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
