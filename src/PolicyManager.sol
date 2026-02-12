@@ -321,14 +321,27 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param userSig ERC-6492-compatible signature by `payload.newBinding.account` over the replacement typed digest:
     ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, newPolicyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
+    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
-    function replaceWithSignature(ReplacePayload calldata payload, bytes calldata userSig, uint256 deadline)
-        external
-        nonReentrant
-        returns (bytes32 newPolicyId)
-    {
+    function replaceWithSignature(
+        ReplacePayload calldata payload,
+        bytes calldata userSig,
+        uint256 deadline,
+        bytes calldata executionData
+    ) external nonReentrant returns (bytes32 newPolicyId) {
         newPolicyId = getPolicyId(payload.newBinding);
+
+        // Idempotent behavior: if the desired end state is already reached, return early.
+        // This enables safe retries even after deadlines expire.
+        PolicyRecord storage oldRecord = policies[payload.oldPolicy][payload.oldPolicyId];
+        PolicyRecord storage newRecord = policies[payload.newBinding.policy][newPolicyId];
+        if (
+            oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
+                && newRecord.account == payload.newBinding.account && executionData.length == 0
+        ) {
+            return newPolicyId;
+        }
 
         _requireNotExpired(deadline);
         bytes32 digest = _hashTypedData(
@@ -345,9 +358,30 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
         _requireValidAccountSig(payload.newBinding.account, digest, userSig);
 
-        return _replace(
+        _replace(
             payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.newBinding, payload.newPolicyConfig
         );
+
+        if (executionData.length == 0) return newPolicyId;
+
+        bytes32 actualConfigHash = keccak256(payload.newPolicyConfig);
+        if (actualConfigHash != payload.newBinding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, payload.newBinding.policyConfigHash);
+        }
+
+        PolicyRecord storage policyRecord = policies[payload.newBinding.policy][newPolicyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(newPolicyId);
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
+        _execute(
+            payload.newBinding.policy,
+            newPolicyId,
+            policyRecord.account,
+            payload.newPolicyConfig,
+            executionData,
+            msg.sender
+        );
+
+        return newPolicyId;
     }
 
     /// @notice Uninstall a policyId (installed lifecycle) or preemptively tombstone a policyId before installation.

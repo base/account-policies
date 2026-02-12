@@ -129,7 +129,7 @@ Replacement atomically uninstalls an installed policy instance and installs a ne
 
 It is available both as:
 - `replace(...)`: direct call by the account
-- `replaceWithSignature(payload, userSig, deadline)`: account signature authorization (for relayers)
+- `replaceWithSignature(payload, userSig, deadline, executionData)`: account signature authorization (for relayers), optionally followed by execution
 
 Replacement exists as a standardized atomic migration mechanism so integrators do not need to reinvent their own batching/migration flows, and so policies can rely on consistent lifecycle invariants during transitions.
 
