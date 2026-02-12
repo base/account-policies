@@ -11,6 +11,20 @@ import {PolicyManager} from "../PolicyManager.sol";
 ///      are callable only by the `PolicyManager`.
 abstract contract Policy {
     ////////////////////////////////////////////////////////////////
+    ///                         Types                            ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Identifies whether a policy is being invoked as the old (uninstalled) or new (installed) side of a
+    ///         replacement operation.
+    ///
+    /// @dev `PolicyManager.replacePolicyWithSignature` will call `onReplace` on both the old and new policies, passing
+    ///      the appropriate role value so policies can branch on replacement context.
+    enum ReplaceRole {
+        OldPolicy,
+        NewPolicy
+    }
+
+    ////////////////////////////////////////////////////////////////
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
@@ -139,6 +153,38 @@ abstract contract Policy {
         _onUninstall(policyId, account, policyConfig, uninstallData, effectiveCaller);
     }
 
+    /// @notice Policy hook invoked during atomic replacement.
+    ///
+    /// @dev Called by `PolicyManager.replacePolicyWithSignature` in lieu of separate `onUninstall` + `onInstall`
+    ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
+    ///
+    /// Default behavior:
+    /// - `role == OldPolicy`: delegates to `_onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller)`
+    /// - `role == NewPolicy`: delegates to `_onInstall(policyId, account, policyConfig, effectiveCaller)`
+    ///
+    /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
+    /// @param account Account associated with the replacement.
+    /// @param policyConfig Config bytes for this policy instance.
+    /// @param replaceData Optional policy-defined replacement payload:
+    /// - For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
+    /// - For `role == NewPolicy`, default implementation ignores it.
+    /// @param otherPolicy The other policy contract involved in the replacement.
+    /// @param otherPolicyId The other policyId involved in the replacement.
+    /// @param role Whether this hook is being invoked for the old policy or the new policy.
+    /// @param effectiveCaller Effective caller forwarded by the manager.
+    function onReplace(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId,
+        ReplaceRole role,
+        address effectiveCaller
+    ) external onlyPolicyManager {
+        _onReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, role, effectiveCaller);
+    }
+
     ////////////////////////////////////////////////////////////////
     ///                    Internal Functions                    ///
     ////////////////////////////////////////////////////////////////
@@ -163,6 +209,43 @@ abstract contract Policy {
         bytes calldata uninstallData,
         address caller
     ) internal virtual;
+
+    /// @notice Policy-specific replacement hook.
+    ///
+    /// @dev Override to implement replacement-aware state transitions.
+    ///
+    /// Default behavior:
+    /// - `role == OldPolicy`: delegate to `_onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller)`
+    /// - `role == NewPolicy`: delegate to `_onInstall(policyId, account, policyConfig, effectiveCaller)`
+    ///
+    /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
+    /// @param account Account associated with the replacement.
+    /// @param policyConfig Config bytes for this policy instance.
+    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param otherPolicy The other policy contract involved in the replacement.
+    /// @param otherPolicyId The other policyId involved in the replacement.
+    /// @param role Whether this hook is being invoked for the old policy or the new policy.
+    /// @param effectiveCaller Effective caller forwarded by the manager.
+    function _onReplace(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId,
+        ReplaceRole role,
+        address effectiveCaller
+    ) internal virtual {
+        otherPolicy;
+        otherPolicyId;
+
+        if (role == ReplaceRole.OldPolicy) {
+            _onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller);
+            return;
+        }
+
+        _onInstall(policyId, account, policyConfig, effectiveCaller);
+    }
 
     /// @dev Default: only the account can cancel. Policies can override to allow other roles.
     function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {

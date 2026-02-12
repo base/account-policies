@@ -412,10 +412,18 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         _requireValidAccountSig(payload.newBinding.account, digest, payload.userSig);
 
         // Uninstall old as-if called by the account (signature proves authorization).
-        _uninstall(payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, "", payload.newBinding.account);
+        _uninstallForReplace(
+            payload.oldPolicy,
+            payload.oldPolicyId,
+            payload.oldPolicyConfig,
+            "",
+            payload.newBinding.policy,
+            newPolicyId,
+            payload.newBinding.account
+        );
 
         // Install new policy instance.
-        _install(payload.newBinding, payload.newPolicyConfig);
+        _installForReplace(payload.newBinding, payload.newPolicyConfig, "", payload.oldPolicy, payload.oldPolicyId);
 
         emit PolicyReplaced(
             payload.oldPolicyId, newPolicyId, payload.newBinding.account, payload.oldPolicy, payload.newBinding.policy
@@ -781,6 +789,102 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             if (effectiveCaller != policyRecord.account) revert Unauthorized(effectiveCaller);
         }
         emit PolicyUninstalled(policyId, policyRecord.account, policy);
+    }
+
+    /// @notice Uninstalls a policyId while invoking the replacement-aware policy hook.
+    ///
+    /// @dev Mirrors `_uninstall` semantics (including the account escape hatch) but calls `Policy.onReplace` with
+    ///      `role == OldPolicy` so the policy can distinguish replacement from a standalone uninstallation.
+    ///
+    /// @param policy Policy contract address being uninstalled.
+    /// @param policyId Policy identifier for the old binding.
+    /// @param policyConfig Policy-defined config bytes (often the config preimage).
+    /// @param replaceData Optional policy-defined replacement payload forwarded to `onReplace`.
+    /// @param otherPolicy New policy contract address being installed.
+    /// @param otherPolicyId Policy identifier for the new binding.
+    /// @param effectiveCaller Effective caller forwarded by the manager (used for authorization + escape hatch).
+    function _uninstallForReplace(
+        address policy,
+        bytes32 policyId,
+        bytes memory policyConfig,
+        bytes memory replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId,
+        address effectiveCaller
+    ) internal {
+        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
+        if (policyRecord.uninstalled) return;
+        if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
+        policyRecord.uninstalled = true;
+        try Policy(policy)
+            .onReplace(
+                policyId,
+                policyRecord.account,
+                policyConfig,
+                replaceData,
+                otherPolicy,
+                otherPolicyId,
+                Policy.ReplaceRole.OldPolicy,
+                effectiveCaller
+            ) {}
+        catch {
+            if (effectiveCaller != policyRecord.account) revert Unauthorized(effectiveCaller);
+        }
+        emit PolicyUninstalled(policyId, policyRecord.account, policy);
+    }
+
+    /// @notice Installs a policy instance while invoking the replacement-aware policy hook.
+    ///
+    /// @dev Mirrors `_install` semantics but calls `Policy.onReplace` with `role == NewPolicy` so the policy can
+    ///      distinguish replacement from a standalone installation.
+    ///
+    /// @param binding New binding to install.
+    /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
+    /// @param replaceData Optional policy-defined replacement payload forwarded to `onReplace`.
+    /// @param otherPolicy Old policy contract address being uninstalled.
+    /// @param otherPolicyId Policy identifier for the old binding.
+    ///
+    /// @return policyId Deterministic policy identifier derived from the binding.
+    function _installForReplace(
+        PolicyBinding calldata binding,
+        bytes calldata policyConfig,
+        bytes memory replaceData,
+        address otherPolicy,
+        bytes32 otherPolicyId
+    ) internal returns (bytes32 policyId) {
+        policyId = getPolicyBindingStructHash(binding);
+        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
+
+        // Idempotent behavior: installing an already-installed policy instance is a no-op.
+        if (policyRecord.installed) return policyId;
+
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != binding.policyConfigHash) {
+            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+        }
+        _checkValidityWindow(binding.validAfter, binding.validUntil);
+
+        policyRecord.installed = true;
+        policyRecord.account = binding.account;
+        policyRecord.validAfter = binding.validAfter;
+        policyRecord.validUntil = binding.validUntil;
+
+        Policy(binding.policy)
+            .onReplace(
+                policyId,
+                binding.account,
+                policyConfig,
+                replaceData,
+                otherPolicy,
+                otherPolicyId,
+                Policy.ReplaceRole.NewPolicy,
+                msg.sender
+            );
+        emit PolicyInstalled(policyId, binding.account, binding.policy);
+
+        return policyId;
     }
 
     /// @notice Requires `msg.sender` to equal `sender`.
