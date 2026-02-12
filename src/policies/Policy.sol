@@ -17,7 +17,7 @@ abstract contract Policy {
     /// @notice Identifies whether a policy is being invoked as the old (uninstalled) or new (installed) side of a
     ///         replacement operation.
     ///
-    /// @dev `PolicyManager.replacePolicyWithSignature` will call `onReplace` on both the old and new policies, passing
+    /// @dev `PolicyManager.replace` will call `onReplace` on both the old and new policies, passing
     ///      the appropriate role value so policies can branch on replacement context.
     enum ReplaceRole {
         OldPolicy,
@@ -111,29 +111,11 @@ abstract contract Policy {
         return _onExecute(policyId, account, policyConfig, executionData, caller);
     }
 
-    /// @notice Policy hook invoked during pre-install cancellation.
-    ///
-    /// @dev Called by `PolicyManager.cancelPolicy` before installation. Policies can use this hook to authorize who is
-    ///      allowed to cancel a pending installation intent (e.g., executor/guardian derived from `policyConfig`).
-    ///
-    /// @param policyId Policy identifier for the binding.
-    /// @param account Account that would install the policy (from the binding).
-    /// @param policyConfig Full config preimage bytes.
-    /// @param cancelData Optional policy-defined authorization payload.
-    /// @param caller External caller of the manager entrypoint.
-    function onCancel(
-        bytes32 policyId,
-        address account,
-        bytes calldata policyConfig,
-        bytes calldata cancelData,
-        address caller
-    ) external onlyPolicyManager {
-        _onCancel(policyId, account, policyConfig, cancelData, caller);
-    }
-
     /// @notice Policy hook invoked during uninstallation.
     ///
     /// @dev Called by `PolicyManager` after the binding has been marked uninstalled.
+    ///      MAY also be called to preemptively tombstone a policyId before installation (pre-install uninstallation),
+    ///      in which case `policyConfig` is expected to be the full config preimage bytes.
     ///
     /// `policyConfig` MAY be empty. Policies can use it to re-hydrate authorization (e.g., dynamic executors)
     /// without requiring additional stored state.
@@ -155,7 +137,7 @@ abstract contract Policy {
 
     /// @notice Policy hook invoked during atomic replacement.
     ///
-    /// @dev Called by `PolicyManager.replacePolicyWithSignature` in lieu of separate `onUninstall` + `onInstall`
+    /// @dev Called by `PolicyManager.replace` in lieu of separate `onUninstall` + `onInstall`
     ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
     ///
     /// Default behavior:
@@ -245,11 +227,6 @@ abstract contract Policy {
         }
 
         _onInstall(policyId, account, policyConfig, effectiveCaller);
-    }
-
-    /// @dev Default: only the account can cancel. Policies can override to allow other roles.
-    function _onCancel(bytes32, address account, bytes calldata, bytes calldata, address caller) internal virtual {
-        if (caller != account) revert InvalidCaller(caller, account);
     }
 
     ////////////////////////////////////////////////////////////////

@@ -3,10 +3,10 @@ pragma solidity ^0.8.23;
 
 import {PolicyManagerTestBase} from "../../lib/PolicyManagerTestBase.sol";
 
-/// @title installPolicyTest
+/// @title installTest
 ///
-/// @notice Test contract for `PolicyManager.installPolicy`.
-contract installPolicyTest is PolicyManagerTestBase {
+/// @notice Test contract for `PolicyManager.install`.
+contract installTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }
@@ -119,7 +119,7 @@ contract installPolicyTest is PolicyManagerTestBase {
 
     /// @notice Reinstalling a previously uninstalled policyId remains blocked.
     ///
-    /// @dev After uninstall/cancel, any future install attempt for that policyId must revert `PolicyIsDisabled`.
+    /// @dev After uninstallation, any future install attempt for that policyId must revert `PolicyIsDisabled`.
     function test_reinstall_afterUninstall_stillBlocked() public {
         vm.skip(true);
     }

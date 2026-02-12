@@ -63,13 +63,36 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint256 deadline;
     }
 
+    /// @notice Payload used for uninstalling a policyId or cancelling a pre-install intent.
+    ///
+    /// @dev This unifies two flows under a single entrypoint:
+    /// - Installed lifecycle: address by `(policy, policyId)`; `policyConfig` MAY be empty for account uninstalls.
+    /// - Pre-install uninstallation: address by full `binding` + `policyConfig` so the manager can compute `policyId` and
+    ///   enforce that the provided config matches the binding commitment.
+    ///
+    /// Mode selection:
+    /// - If `binding.policy != address(0)`, the manager uses binding-mode (pre-install uninstallation).
+    /// - Otherwise it uses policyId-mode (uninstall by `(policy, policyId)`).
+    struct UninstallPayload {
+        /// @dev Binding used for pre-install cancellation. Unused in policyId-mode.
+        PolicyBinding binding;
+        /// @dev Policy contract address used in policyId-mode. Unused in binding-mode.
+        address policy;
+        /// @dev Policy identifier used in policyId-mode. Unused in binding-mode.
+        bytes32 policyId;
+        /// @dev Policy-defined config bytes (often the config preimage). Required for binding-mode. Optional for policyId-mode.
+        bytes policyConfig;
+        /// @dev Optional policy-defined authorization payload forwarded to policy hooks.
+        bytes uninstallData;
+    }
+
     /// @notice Lifecycle record stored per (policy, policyId).
     struct PolicyRecord {
         /// @dev True once installed (never unset).
         bool installed;
         /// @dev True once uninstalled/cancelled (never unset).
         bool uninstalled;
-        /// @dev Account associated with the binding (cached from the binding at install/cancel time).
+        /// @dev Account associated with the binding (cached from the binding at install/uninstall time).
         address account;
         /// @dev Cached install window lower bound from the binding.
         uint40 validAfter;
@@ -126,13 +149,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     event PolicyExecuted(
         bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 executionDataHash
     );
-
-    /// @notice Emitted when a policyId is cancelled before installation.
-    ///
-    /// @param policyId EIP-712 struct hash of the binding.
-    /// @param account Account associated with the binding.
-    /// @param policy Policy contract address.
-    event PolicyCancelled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
     /// @notice Emitted when one policy instance is replaced atomically by another.
     ///
@@ -240,13 +256,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
-    function installPolicyWithSignature(
+    function installWithSignature(
         PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata userSig,
         bytes calldata executionData
     ) external nonReentrant returns (bytes32 policyId) {
-        return _installPolicyWithSignature(binding, policyConfig, userSig, executionData);
+        return _installWithSignature(binding, policyConfig, userSig, executionData);
     }
 
     /// @notice Installs a policy via a direct call from the account.
@@ -257,7 +273,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
-    function installPolicy(PolicyBinding calldata binding, bytes calldata policyConfig)
+    function install(PolicyBinding calldata binding, bytes calldata policyConfig)
         external
         nonReentrant
         requireSender(binding.account)
@@ -294,11 +310,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param payload Replace payload containing the old policy instance to uninstall and the new binding to install.
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
-    function replacePolicyWithSignature(ReplacePolicyPayload calldata payload)
-        external
-        nonReentrant
-        returns (bytes32 newPolicyId)
-    {
+    function replace(ReplacePolicyPayload calldata payload) external nonReentrant returns (bytes32 newPolicyId) {
         if (payload.oldPolicy == address(0) || payload.newBinding.policy == address(0)) {
             revert InvalidPayload();
         }
@@ -361,49 +373,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
     }
 
-    /// @notice Cancel a policy installation intent (including preemptively, before installation).
+    /// @notice Uninstall a policyId (installed lifecycle) or preemptively tombstone a policyId before installation.
     ///
-    /// @dev This is distinct from uninstallation:
-    /// - If the policy is already installed, this uninstalls it (calling the policy hook and emitting `PolicyUninstalled`).
-    /// - If the policy is not installed, it marks the policyId as uninstalled to permanently block future installs and
-    ///   emits `PolicyCancelled`.
+    /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
+    /// - `policyConfig` MAY be empty. If the effective caller is the account, the manager will still succeed even if the
+    ///   policy hook reverts due to missing config (account escape hatch).
     ///
-    /// Authorization:
-    /// - If installed: authorization is enforced by the policy's `onUninstall` hook.
-    /// - If not installed: authorization is enforced by the policy's `onCancel` hook.
+    /// Pre-install uninstallation (binding-mode): address by `(binding, policyConfig)` so the manager can compute `policyId`
+    /// and enforce that the provided config matches `binding.policyConfigHash`.
     ///
-    /// To "uncancel", the account must sign/install a new binding with a new salt (i.e., a different `policyId`).
+    /// @param payload Uninstall payload selecting binding-mode or policyId-mode.
     ///
-    /// @param binding Binding whose policyId should be cancelled.
-    /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
-    /// @param cancelData Optional policy-defined authorization payload forwarded to the policy cancel/uninstall hook.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
-    function cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes calldata cancelData)
-        external
-        nonReentrant
-        returns (bytes32 policyId)
-    {
-        return _cancelPolicy(binding, policyConfig, cancelData);
-    }
-
-    /// @notice Uninstall a policy, optionally providing `policyConfig`.
-    ///
-    /// @dev Idempotent: uninstalling an already-uninstalled policyId is a no-op.
-    ///      `policyConfig` MAY be empty. Policies can use `policyConfig` + `uninstallData` to authorize non-account
-    ///      uninstallers (e.g., executor signatures).
-    ///
-    /// @param policy Policy contract address.
-    /// @param policyId Policy identifier for the binding.
-    /// @param policyConfig Optional policy-defined config bytes (often the config preimage).
-    /// @param uninstallData Optional policy-defined authorization payload forwarded to the policy uninstall hook.
-    function uninstallPolicy(
-        address policy,
-        bytes32 policyId,
-        bytes calldata policyConfig,
-        bytes calldata uninstallData
-    ) external nonReentrant {
-        _uninstall(policy, policyId, policyConfig, uninstallData, msg.sender);
+    /// @return policyId Policy identifier that was uninstalled/cancelled.
+    function uninstall(UninstallPayload calldata payload) external nonReentrant returns (bytes32 policyId) {
+        return _uninstall(payload, msg.sender);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -616,7 +599,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return policyId;
     }
 
-    function _installPolicyWithSignature(
+    function _installWithSignature(
         PolicyBinding calldata binding,
         bytes calldata policyConfig,
         bytes calldata userSig,
@@ -671,81 +654,80 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
 
-    /// @notice Cancels a policyId, either by uninstalling it (if installed) or pre-cancelling the install intent.
-    ///
-    /// @dev Idempotent: cancelling an already-uninstalled policyId is a no-op.
-    ///      Authorization is delegated to the policy:
-    ///      - If installed: policy `onUninstall` governs who can uninstall.
-    ///      - If not installed: policy `onCancel` governs who can pre-cancel.
-    ///
-    /// @param binding Binding whose policyId should be cancelled.
-    /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
-    /// @param cancelData Optional policy-defined authorization payload forwarded to the policy hook.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
-    function _cancelPolicy(PolicyBinding calldata binding, bytes calldata policyConfig, bytes memory cancelData)
+    function _uninstall(UninstallPayload calldata payload, address effectiveCaller)
         internal
         returns (bytes32 policyId)
     {
-        if (binding.policy == address(0)) revert InvalidPayload();
-        policyId = getPolicyBindingStructHash(binding);
-        PolicyRecord storage policyRecord = _policies[binding.policy][policyId];
+        // Binding-mode: supports pre-install cancellation and (optionally) uninstalling installed instances.
+        if (payload.binding.policy != address(0)) {
+            PolicyBinding calldata binding = payload.binding;
+            policyId = getPolicyBindingStructHash(binding);
+            PolicyRecord storage policyRecordByBinding = _policies[binding.policy][policyId];
 
-        // Idempotent behavior: cancelling an already-uninstalled policyId is a no-op.
-        if (policyRecord.uninstalled) return policyId;
+            // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
+            if (policyRecordByBinding.uninstalled) return policyId;
 
-        bytes32 actualConfigHash = keccak256(policyConfig);
-        if (actualConfigHash != binding.policyConfigHash) {
-            revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
-        }
+            // Installed lifecycle: uninstall by policyId. Config may be empty (account escape hatch).
+            if (policyRecordByBinding.installed) {
+                policyRecordByBinding.uninstalled = true;
+                try Policy(binding.policy)
+                    .onUninstall(
+                        policyId,
+                        policyRecordByBinding.account,
+                        payload.policyConfig,
+                        payload.uninstallData,
+                        effectiveCaller
+                    ) {}
+                catch {
+                    if (effectiveCaller != policyRecordByBinding.account) {
+                        revert Unauthorized(effectiveCaller);
+                    }
+                }
+                emit PolicyUninstalled(policyId, policyRecordByBinding.account, binding.policy);
+                return policyId;
+            }
 
-        // If installed, uninstall normally (hook + event) using the caller.
-        if (policyRecord.installed) {
-            _uninstall(binding.policy, policyId, policyConfig, cancelData, msg.sender);
+            if (payload.policyConfig.length == 0) revert InvalidPayload();
+            bytes32 actualConfigHash = keccak256(payload.policyConfig);
+            if (actualConfigHash != binding.policyConfigHash) {
+                revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
+            }
+
+            // Pre-install uninstallation: enforce policy-defined authorization.
+            policyRecordByBinding.uninstalled = true;
+            policyRecordByBinding.account = binding.account;
+            policyRecordByBinding.validAfter = binding.validAfter;
+            policyRecordByBinding.validUntil = binding.validUntil;
+
+            try Policy(binding.policy)
+                .onUninstall(policyId, binding.account, payload.policyConfig, payload.uninstallData, effectiveCaller) {}
+            catch {
+                if (effectiveCaller != binding.account) revert Unauthorized(effectiveCaller);
+            }
+
+            emit PolicyUninstalled(policyId, binding.account, binding.policy);
             return policyId;
         }
 
-        // Pre-install cancel: enforce policy-defined authorization.
-        Policy(binding.policy).onCancel(policyId, binding.account, policyConfig, cancelData, msg.sender);
-
-        // Mark as uninstalled to permanently block future installs.
-        policyRecord.uninstalled = true;
-        policyRecord.account = binding.account;
-        policyRecord.validAfter = binding.validAfter;
-        policyRecord.validUntil = binding.validUntil;
-
-        emit PolicyCancelled(policyId, binding.account, binding.policy);
-        return policyId;
-    }
-
-    /// @notice Uninstalls a policyId for a policy contract.
-    ///
-    /// @dev Idempotent: uninstalling an already-uninstalled policyId is a no-op.
-    ///      Account escape hatch: if the policy hook reverts, uninstallation still succeeds when
-    ///      `effectiveCaller == account`. Otherwise the call reverts as `Unauthorized`.
-    ///
-    /// @param policy Policy contract address.
-    /// @param policyId Policy identifier for the binding.
-    /// @param policyConfig Policy-defined config bytes (often the config preimage).
-    /// @param uninstallData Policy-defined uninstall authorization payload.
-    /// @param effectiveCaller Logical caller used for policy authorization (may differ from `msg.sender`).
-    function _uninstall(
-        address policy,
-        bytes32 policyId,
-        bytes memory policyConfig,
-        bytes memory uninstallData,
-        address effectiveCaller
-    ) internal {
-        PolicyRecord storage policyRecord = _policies[policy][policyId];
+        // PolicyId-mode: uninstall by (policy, policyId).
+        if (payload.policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
+        policyId = payload.policyId;
+        PolicyRecord storage policyRecordById = _policies[payload.policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
-        if (policyRecord.uninstalled) return;
-        if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
-        policyRecord.uninstalled = true;
-        try Policy(policy).onUninstall(policyId, policyRecord.account, policyConfig, uninstallData, effectiveCaller) {}
+        if (policyRecordById.uninstalled) return policyId;
+        if (!policyRecordById.installed) revert PolicyNotInstalled(policyId);
+        policyRecordById.uninstalled = true;
+        try Policy(payload.policy)
+            .onUninstall(
+                policyId, policyRecordById.account, payload.policyConfig, payload.uninstallData, effectiveCaller
+            ) {}
         catch {
-            if (effectiveCaller != policyRecord.account) revert Unauthorized(effectiveCaller);
+            if (effectiveCaller != policyRecordById.account) {
+                revert Unauthorized(effectiveCaller);
+            }
         }
-        emit PolicyUninstalled(policyId, policyRecord.account, policy);
+        emit PolicyUninstalled(policyId, policyRecordById.account, payload.policy);
+        return policyId;
     }
 
     /// @notice Uninstalls a policyId while invoking the replacement-aware policy hook.

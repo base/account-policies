@@ -30,7 +30,7 @@ contract AOATestPolicy is AOAPolicy {
 
 /// @title AOAPolicyTestBase
 ///
-/// @notice Shared fixture for testing AOA wrapper semantics (pause/uninstall/cancel).
+/// @notice Shared fixture for testing AOA wrapper semantics (pause/uninstall).
 abstract contract AOAPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
@@ -77,7 +77,7 @@ abstract contract AOAPolicyTestBase is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installPolicyWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {

@@ -50,9 +50,9 @@ PolicyBinding {
 
 ### Config and execution payloads
 
-* **`policyConfig`**: opaque config bytes (preimage), decoded in the context of a specific policy. The manager authenticates it at install/cancel time via `keccak256(policyConfig) == policyConfigHash`.  
+* **`policyConfig`**: opaque config bytes (preimage), decoded in the context of a specific policy. The manager authenticates it at install time (and for pre-install uninstallation) via `keccak256(policyConfig) == policyConfigHash`.  
 * **`executionData`**: opaque per-execution payload bytes. Policies interpret and authenticate these.
-* **`cancelData` / `uninstallData`**: optional opaque bytes passed to policy cancellation/uninstall hooks for policy-defined authorization (e.g., executor signatures). These can be empty when not needed.
+* **`uninstallData`**: optional opaque bytes passed to policy uninstall hooks for policy-defined authorization (e.g., executor signatures). This can be empty when not needed.
 
 The manager does not impose a schema on either as this is left up to the interpreting policy.
 
@@ -104,7 +104,7 @@ Uninstall revokes an **installed** policy instance and tombstones it permanently
 
 Importantly, uninstall is addressed by **instance identifier**, not by a full binding:
 
-- `uninstallPolicy(policy, policyId, ...)` takes `(policy, policyId)` where `policyId = hash(binding)`.
+- `uninstall(UninstallPayload{policy, policyId, ...})` supports a policyId-mode that addresses the instance by `(policy, policyId)` where `policyId = hash(binding)`.
 - It does *not* take the full `PolicyBinding` fields; those fields may not be available to relayers/indexers once an instance is installed.
 
 The manager provides one global guarantee: **The account can always uninstall its own installed policy instances.**
@@ -112,33 +112,16 @@ The manager provides one global guarantee: **The account can always uninstall it
 If a policy’s uninstall hook reverts, the manager only allows that revert to block uninstallation for non-account callers. This prevents policies from trapping the account.
 In other words: policies can set the terms of third-party uninstalls, but they can never make uninstall impossible for the user account.
 
-### Cancel
+### Pre-install uninstallation
 
-Cancellation revokes an installation intent (and can also be used as an uninstall convenience for installed instances).
+Uninstallation can also be used to revoke (tombstone) an installation intent **before** the policy is installed.
 
-This is intentionally distinct from uninstall:
-
-* `uninstallPolicy` is installed-lifecycle only and is addressed by `(policy, policyId)`.
-* `cancelPolicy` is addressed by the full `(binding, policyConfig)` so the manager can compute the `policyId` and enforce that the provided config matches the binding commitment.
-
-Cancel behavior when **not installed** (pre-install):
+In binding-mode (when the instance is not installed yet), the manager:
 
 * computes `policyId = hash(binding)`  
 * verifies `keccak256(policyConfig) == binding.policyConfigHash`  
-* calls `policy.onCancel(...)` (policy-defined authorization)  
-* tombstones the `policyId` permanently
-
-Cancel behavior when **already installed**:
-
-* verifies `keccak256(policyConfig) == binding.policyConfigHash`
-* uninstalls the instance (calling `policy.onUninstall(...)`) and emits the uninstall event
-
-Sticky cancellation is intentional:
-
-* once a `policyId` is cancelled/uninstalled, it cannot be installed again,  
-* to “uncancel,” the account must authorize a new binding (e.g., new salt → new `policyId`).
-
-This design prevents “uninstall-before-install” griefing: pre-install cancellations require policy-authenticated cancellation with full context.
+* calls `policy.onUninstall(...)` for policy-defined authorization  
+* tombstones the `policyId` permanently and emits the uninstall event
 
 ### Replace
 
@@ -146,11 +129,12 @@ Replacement atomically uninstalls an installed policy instance and installs a ne
 
 Replacement exists as a standardized atomic migration mechanism so integrators do not need to reinvent their own batching/migration flows, and so policies can rely on consistent lifecycle invariants during transitions.
 
-### Atomic install+execute helper
+### Install + optional execute convenience
 
-The protocol includes an install+execute helper that binds installation authorization to a specific execution commitment (via `executionDataHash`). This prevents splitting “install now, execute later” and reduces trust in the executor/integrator in workflows where atomic intent matters.
+The protocol includes an install+optional-execute convenience via `installWithSignature(..., executionData)`.
 
-It does not provide mempool privacy; it provides **atomic intent binding**.
+This **does not bind** the installation signature to the `executionData` (i.e., it is not an atomic intent-binding
+signature). Policies MUST enforce their own execution authorization semantics.
 
 ---
 
@@ -164,10 +148,10 @@ The manager is the generic, minimal enforcement layer:
 
 * computes deterministic `policyId` from the binding  
 * validates account signatures (or calls) for installs/replacements (ERC-6492 capable)  
-* enforces config hash matching at install/cancel  
+* enforces config hash matching at install and pre-install uninstallation  
 * enforces `validAfter` / `validUntil` at install and execute  
 * maintains policy instance liveness state (installed / uninstalled)  
-* enforces sticky tombstones (cancel/uninstall permanently kills a `policyId`)  
+* enforces sticky tombstones (uninstallation permanently kills a `policyId`)  
 * mediates all policy hooks and provides a consistent execution environment  
 * guarantees “account can always uninstall installed instances”
 
@@ -180,7 +164,7 @@ Policies define all policy-specific semantics:
 * replay protection and nonce discipline for executions  
 * policy-specific limits and invariants (budgets, pinning, slippage bounds, thresholds, etc.)  
 * any policy-specific state (stored config fields, budgets, uniqueness constraints, nonces)  
-* optional third-party cancellation/uninstallation rules (using `cancelData` / `uninstallData`)  
+* optional third-party uninstallation rules (using `uninstallData`)  
 * optional post-call validation/cleanup via the “policy → account → policy” sandwich
 
 ### Config handling strategy is explicitly policy-defined
@@ -201,8 +185,7 @@ The manager stays neutral; policies decide.
 Policies implement the minimal `Policy` hooks:
 
 * `onInstall`: validate installation and optionally initialize policy state  
-* `onCancel`: authorize pre-install cancellation (default: account-only)  
-* `onUninstall`: authorize uninstall and optionally clean up policy state  
+* `onUninstall`: authorize uninstall (including pre-install tombstoning) and optionally clean up policy state  
 * `onExecute`: authorize execution and return a call plan
 
 Policies are only callable by the manager, which keeps the trust boundary clean and prevents integrators from bypassing lifecycle logic.

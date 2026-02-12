@@ -26,7 +26,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     struct AOAConfig {
         /// @dev Account that installs the policy and is the target of policy executions.
         address account;
-        /// @dev Executor authorized to execute/cancel/uninstall (directly or via signature).
+        /// @dev Executor authorized to execute and uninstall (directly or via signature).
         address executor;
     }
 
@@ -60,10 +60,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @notice EIP-712 typehash for executor-signed uninstall intents.
     bytes32 public constant AOA_UNINSTALL_TYPEHASH =
         keccak256("AOAUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
-
-    /// @notice EIP-712 typehash for executor-signed cancel intents.
-    bytes32 public constant AOA_CANCEL_TYPEHASH =
-        keccak256("AOACancel(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -224,7 +220,29 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             return;
         }
 
-        // Non-account uninstallers must provide the installed config preimage.
+        bytes32 storedConfigHash = _configHashByPolicyId[policyId];
+        // If the policyId was never installed, allow a pre-install uninstallation (tombstone) authorized by config.
+        if (storedConfigHash == bytes32(0)) {
+            (AOAConfig memory preinstallConfig,) = _decodeAOAConfig(account, policyConfig);
+
+            // Optional auth:
+            // - direct caller is executor, OR
+            // - executor-signed uninstall intent (relayers allowed)
+            if (caller != preinstallConfig.executor) {
+                (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
+                if (deadline != 0 && block.timestamp > deadline) {
+                    revert SignatureExpired(block.timestamp, deadline);
+                }
+
+                bytes32 digest = _getUninstallDigest(policyId, account, keccak256(policyConfig), deadline);
+                if (!_isValidExecutorSig(preinstallConfig.executor, digest, signature)) revert Unauthorized(caller);
+            }
+
+            _onAOAUninstall(policyId, account, preinstallConfig.executor);
+            return;
+        }
+
+        // Installed lifecycle: non-account uninstallers must provide the installed config preimage.
         _requireConfigHash(policyId, policyConfig);
         (AOAConfig memory aoaConfig,) = _decodeAOAConfig(account, policyConfig);
 
@@ -236,38 +254,14 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             if (deadline != 0 && block.timestamp > deadline) {
                 revert SignatureExpired(block.timestamp, deadline);
             }
-            bytes32 digest = _getUninstallDigest(policyId, account, deadline);
+            bytes32 digest = _getUninstallDigest(policyId, account, storedConfigHash, deadline);
             if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
         }
 
         _onAOAUninstall(policyId, account, aoaConfig.executor);
     }
 
-    /// @inheritdoc Policy
-    ///
-    /// @dev AOA cancel hook wrapper: enforces executor authorization for pre-install cancellation.
-    function _onCancel(
-        bytes32 policyId,
-        address account,
-        bytes calldata policyConfig,
-        bytes calldata cancelData,
-        address caller
-    ) internal override {
-        // Account can always cancel.
-        if (caller == account) return;
-
-        // Non-account cancellers must be the configured executor (derivable from config) OR provide an executor signature.
-        (AOAConfig memory aoaConfig,) = _decodeAOAConfig(account, policyConfig);
-
-        if (caller != aoaConfig.executor) {
-            (bytes memory signature, uint256 deadline) = abi.decode(cancelData, (bytes, uint256));
-            if (deadline != 0 && block.timestamp > deadline) {
-                revert SignatureExpired(block.timestamp, deadline);
-            }
-            bytes32 digest = _getCancelDigest(policyId, account, policyConfig, deadline);
-            if (!_isValidExecutorSig(aoaConfig.executor, digest, signature)) revert Unauthorized(caller);
-        }
-    }
+    // NOTE: Pre-install tombstoning is handled via `_onUninstall` (see below). There is no separate "cancel" hook.
 
     /// @inheritdoc Policy
     ///
@@ -363,32 +357,15 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param deadline Optional signature expiry timestamp (seconds). Zero means “no expiry”.
     ///
     /// @return EIP-712 digest to be signed by the executor.
-    function _getUninstallDigest(bytes32 policyId, address account, uint256 deadline) internal view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, _configHashByPolicyId[policyId], deadline))
-        );
-    }
-
-    /// @notice Computes the EIP-712 digest for an executor-signed cancel intent.
-    ///
-    /// @dev Commits to the policy instance (`policyId`), its associated account, and the config preimage hash so the
-    ///      signature cannot be reused across different configs.
-    ///
-    /// @param policyId Policy identifier for the binding.
-    /// @param account Account associated with the policyId.
-    /// @param policyConfig Full config preimage bytes.
-    /// @param deadline Optional signature expiry timestamp (seconds). Zero means “no expiry”.
-    ///
-    /// @return EIP-712 digest to be signed by the executor.
-    function _getCancelDigest(bytes32 policyId, address account, bytes calldata policyConfig, uint256 deadline)
+    function _getUninstallDigest(bytes32 policyId, address account, bytes32 configHash, uint256 deadline)
         internal
         view
         returns (bytes32)
     {
-        return _hashTypedData(
-            keccak256(abi.encode(AOA_CANCEL_TYPEHASH, policyId, account, keccak256(policyConfig), deadline))
-        );
+        return _hashTypedData(keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, account, configHash, deadline)));
     }
+
+    // No cancel digest: AOA uses uninstall intents for both uninstall and pre-install tombstoning.
 
     /// @notice Computes the execution intent hash committed to by the executor signature.
     ///
