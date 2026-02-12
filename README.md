@@ -125,7 +125,11 @@ In binding-mode (when the instance is not installed yet), the manager:
 
 ### Replace
 
-Replacement atomically uninstalls an installed policy instance and installs a new one (authorized by account signature).
+Replacement atomically uninstalls an installed policy instance and installs a new one.
+
+It is available both as:
+- `replace(...)`: direct call by the account
+- `replaceWithSignature(payload, userSig, deadline)`: account signature authorization (for relayers)
 
 Replacement exists as a standardized atomic migration mechanism so integrators do not need to reinvent their own batching/migration flows, and so policies can rely on consistent lifecycle invariants during transitions.
 

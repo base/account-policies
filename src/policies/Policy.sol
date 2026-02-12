@@ -17,7 +17,8 @@ abstract contract Policy {
     /// @notice Identifies whether a policy is being invoked as the old (uninstalled) or new (installed) side of a
     ///         replacement operation.
     ///
-    /// @dev `PolicyManager.replace` will call `onReplace` on both the old and new policies, passing
+    /// @dev `PolicyManager.replace` and `PolicyManager.replaceWithSignature` will call `onReplace` on both the old and
+    ///      new policies, passing
     ///      the appropriate role value so policies can branch on replacement context.
     enum ReplaceRole {
         OldPolicy,
@@ -137,7 +138,8 @@ abstract contract Policy {
 
     /// @notice Policy hook invoked during atomic replacement.
     ///
-    /// @dev Called by `PolicyManager.replace` in lieu of separate `onUninstall` + `onInstall`
+    /// @dev Called by `PolicyManager.replace` / `PolicyManager.replaceWithSignature` in lieu of separate `onUninstall`
+    ///      + `onInstall`
     ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
     ///
     /// Default behavior:
