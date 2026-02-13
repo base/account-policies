@@ -80,31 +80,40 @@ contract UninstallTest is PolicyManagerTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts in policyId-mode when `policy` is zero or `policyId` is zero.
+    /// @notice Reverts in policyId-mode when `policy` is zero (even if `policyId` is non-zero).
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.
     ///
-    /// @param caseSeed Seed used to pick which invalid case: (0,0), (0,non-zero), or (non-zero,0).
-    /// @param nonZeroPolicy Policy address used when policy must be non-zero (case 2).
-    /// @param nonZeroPolicyId Policy identifier used when policyId must be non-zero (case 1).
-    function test_reverts_policyIdMode_whenPolicyOrPolicyIdIsZero(
-        uint256 caseSeed,
-        address nonZeroPolicy,
-        bytes32 nonZeroPolicyId
-    ) public {
-        uint256 caseIndex = caseSeed % 3;
-        address policy;
-        bytes32 policyId;
-        if (caseIndex == 0) {
-            policy = address(0);
-            policyId = bytes32(0);
-        } else if (caseIndex == 1) {
-            policy = address(0);
-            policyId = bytes32(bound(uint256(nonZeroPolicyId), 1, type(uint256).max));
-        } else {
-            policy = address(uint160(bound(uint256(uint160(nonZeroPolicy)), 1, type(uint160).max)));
-            policyId = bytes32(0);
-        }
+    /// @param policyIdUint Policy identifier (as uint256). Must be non-zero.
+    function test_reverts_policyIdMode_whenPolicyIsZero(uint256 policyIdUint) public {
+        vm.assume(policyIdUint != 0);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(0),
+            policyId: bytes32(policyIdUint),
+            policyConfig: "",
+            uninstallData: ""
+        });
+
+        vm.expectRevert(PolicyManager.InvalidPayload.selector);
+        policyManager.uninstall(payload);
+    }
+
+    /// @notice Reverts in policyId-mode when `policyId` is zero (even if `policy` is non-zero).
+    ///
+    /// @dev Expects `PolicyManager.InvalidPayload`.
+    ///
+    /// @param policy Policy address. Must be non-zero.
+    function test_reverts_policyIdMode_whenPolicyIdIsZero(address policy) public {
+        vm.assume(policy != address(0));
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
@@ -116,7 +125,7 @@ contract UninstallTest is PolicyManagerTestBase {
                 policyConfigHash: bytes32(0)
             }),
             policy: policy,
-            policyId: policyId,
+            policyId: bytes32(0),
             policyConfig: "",
             uninstallData: ""
         });
@@ -129,9 +138,10 @@ contract UninstallTest is PolicyManagerTestBase {
     ///
     /// @dev Expects `PolicyManager.PolicyNotInstalled`.
     ///
-    /// @param policyId Policy identifier that was never installed (bounded to non-zero for policyId-mode).
-    function test_reverts_policyIdMode_whenPolicyNotInstalled(bytes32 policyId) public {
-        policyId = bytes32(bound(uint256(policyId), 1, type(uint256).max));
+    /// @param policyIdUint Policy identifier (as uint256) that was never installed.
+    function test_reverts_policyIdMode_whenPolicyNotInstalled(uint256 policyIdUint) public {
+        vm.assume(policyIdUint != 0);
+        bytes32 policyId = bytes32(policyIdUint);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
@@ -207,19 +217,14 @@ contract UninstallTest is PolicyManagerTestBase {
     ///
     /// @dev Expects `PolicyManager.Unauthorized`.
     ///
-    /// @param callerSeed Seed used to derive a caller address distinct from the account.
+    /// @param caller Caller attempting the uninstall; must not be the account.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the binding (hashed into `policyId`).
-    function test_reverts_whenPolicyHookReverts_andCallerNotAccount(
-        uint256 callerSeed,
-        bytes32 configSeed,
-        uint256 salt
-    ) public {
-        address caller = address(uint160(bound(uint256(callerSeed), 1, type(uint160).max)));
-        uint160 accountUint = uint160(address(account));
-        if (caller == address(account)) {
-            caller = address(accountUint == type(uint160).max ? 1 : accountUint + 1);
-        }
+    function test_reverts_whenPolicyHookReverts_andCallerNotAccount(address caller, bytes32 configSeed, uint256 salt)
+        public
+    {
+        vm.assume(caller != address(0));
+        vm.assume(caller != address(account));
 
         (bytes32 policyId, bytes memory policyConfig) =
             _installPolicy(address(revertPolicy), abi.encode(configSeed), salt);

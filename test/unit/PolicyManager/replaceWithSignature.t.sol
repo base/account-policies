@@ -609,7 +609,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(revertingReceiver),
             value: 0,
-            data: abi.encodeWithSelector(revertingReceiver.ping.selector, bytes32(0)),
+            data: abi.encodeWithSelector(revertingReceiver.ping.selector),
             revertOnExecute: false,
             postAction: CallForwardingPolicy.PostAction.None
         });

@@ -11,7 +11,7 @@ contract RevertingReceiver {
     error ReceiverReverted();
 
     /// @notice Always reverts (and is payable to allow value-forwarding tests).
-    function ping(bytes32) external payable {
+    function ping() external payable {
         revert ReceiverReverted();
     }
 }

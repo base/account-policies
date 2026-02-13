@@ -111,11 +111,12 @@ contract InstallTest is PolicyManagerTestBase {
         bytes32 mismatchedConfigSeed,
         uint256 salt
     ) public {
-        bytes memory committedConfig = abi.encode(_safeConfigSeed(committedConfigSeed));
-        bytes memory policyConfig = abi.encode(_safeConfigSeed(mismatchedConfigSeed));
-        if (keccak256(policyConfig) == keccak256(committedConfig)) {
-            policyConfig[0] = bytes1(uint8(policyConfig[0]) ^ 0x01);
-        }
+        bytes32 committed = _safeConfigSeed(committedConfigSeed);
+        bytes32 mismatched = _safeConfigSeed(mismatchedConfigSeed);
+        if (mismatched == committed) mismatched = committed ^ bytes32(uint256(1));
+
+        bytes memory committedConfig = abi.encode(committed);
+        bytes memory policyConfig = abi.encode(mismatched);
 
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), committedConfig, salt);
 

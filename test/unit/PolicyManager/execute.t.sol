@@ -255,7 +255,7 @@ contract ExecuteTest is PolicyManagerTestBase {
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(revertingReceiver),
             value: value,
-            data: abi.encodeWithSelector(revertingReceiver.ping.selector, tag),
+            data: abi.encodeWithSelector(revertingReceiver.ping.selector),
             revertOnExecute: false,
             postAction: CallForwardingPolicy.PostAction.None
         });
@@ -324,13 +324,13 @@ contract ExecuteTest is PolicyManagerTestBase {
     ///
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the binding (hashed into `policyId`).
-    /// @param relayerSeed Seed used to derive the relayer address for `msg.sender`.
+    /// @param relayer Relayer address used as `msg.sender` for the manager call.
     /// @param tag Arbitrary tag forwarded to the receiver call data.
     /// @param value ETH value forwarded to the receiver call (bounded in-test).
     function test_callsPolicyOnExecute_withImmediateCaller(
         bytes32 configSeed,
         uint256 salt,
-        bytes32 relayerSeed,
+        address relayer,
         bytes32 tag,
         uint256 value
     ) public {
@@ -339,8 +339,7 @@ contract ExecuteTest is PolicyManagerTestBase {
 
         (bytes32 policyId, bytes memory policyConfig) = _installCallPolicy(abi.encode(configSeed), salt, 0, 0);
 
-        address relayer = address(uint160(uint256(relayerSeed)));
-        if (relayer == address(0)) relayer = address(1);
+        vm.assume(relayer != address(0));
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(receiver),
             value: value,
