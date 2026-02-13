@@ -58,6 +58,9 @@ This repository contains the Account Policies Protocol, a modular system for all
   - Stub tests must be explicitly skipped via `vm.skip(true);` so `forge test` stays green while cases are being finalized.
 - **Events**:
   - Each unique event emission should have its own dedicated test (even if redundant with another happy-path test).
+- **NatSpec on tests**:
+  - Unit tests should be documented with NatSpec.
+  - Fuzz tests must include `@param` for every fuzz parameter.
 
 ## Claude Permissions and Workflow
 

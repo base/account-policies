@@ -8,12 +8,22 @@ import {Policy} from "../../../src/policies/Policy.sol";
 /// @notice Test-only policy that forwards an arbitrary call through an account's `execute` entrypoint.
 ///         Intended for verifying `PolicyManager` execution plumbing (manager -> policy -> account).
 contract CallForwardingPolicy is Policy {
+    enum PostAction {
+        None,
+        CallPost,
+        RevertPost
+    }
+
     struct ForwardCall {
         address target;
         uint256 value;
         bytes data;
-        bool doPost;
+        bool revertOnExecute;
+        PostAction postAction;
     }
+
+    error OnExecuteReverted();
+    error PostCallReverted(bytes32 policyId);
 
     bytes32 public lastExecutedPolicyId;
     address public lastAccount;
@@ -34,14 +44,18 @@ contract CallForwardingPolicy is Policy {
     {
         ForwardCall memory f = abi.decode(executionData, (ForwardCall));
 
+        if (f.revertOnExecute) revert OnExecuteReverted();
+
         lastExecutedPolicyId = policyId;
         lastAccount = account;
         lastManagerCaller = caller;
         lastForwardHash = keccak256(abi.encode(f.target, f.value, keccak256(f.data)));
 
         accountCallData = abi.encodeWithSignature("execute(address,uint256,bytes)", f.target, f.value, f.data);
-        if (f.doPost) {
+        if (f.postAction == PostAction.CallPost) {
             postCallData = abi.encodeWithSelector(this.post.selector, policyId);
+        } else if (f.postAction == PostAction.RevertPost) {
+            postCallData = abi.encodeWithSelector(this.postRevert.selector, policyId);
         }
     }
 
@@ -49,6 +63,11 @@ contract CallForwardingPolicy is Policy {
         _requireSender(address(POLICY_MANAGER));
         postCalls++;
         lastExecutedPolicyId = policyId;
+    }
+
+    function postRevert(bytes32 policyId) external view {
+        _requireSender(address(POLICY_MANAGER));
+        revert PostCallReverted(policyId);
     }
 }
 

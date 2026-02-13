@@ -46,6 +46,12 @@ Keep separation of concerns:
 - Core protocol tests separate from policy/hook tests.
 - Policy/hook suites focus on authorization, input validation, math/bounds, replay/nonce, lifecycle (install/execute/uninstall), and event emission.
 
+## NatSpec for tests (required)
+
+- Test functions MUST have a NatSpec `@notice` that describes the case being asserted.
+- Any fuzzed test function MUST NatSpec every parameter with `@param <name> ...` (no unnamed parameters).
+- Use `@dev` only when it adds durable clarity (e.g., expected typed error, important invariants, or why a bound/transform is used).
+
 ## Reverts + events (preferred patterns)
 
 - Reverts:
