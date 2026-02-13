@@ -1,14 +1,79 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {PolicyManagerTestBase} from "../../lib/PolicyManagerTestBase.sol";
+import {PolicyManager} from "../../../src/PolicyManager.sol";
 
-/// @title uninstallTest
+import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
+import {RecordAccountOnUninstallPolicy} from "../../lib/testPolicies/RecordAccountOnUninstallPolicy.sol";
+import {RevertOnUninstallPolicy} from "../../lib/testPolicies/RevertOnUninstallPolicy.sol";
+
+/// @title UninstallTest
 ///
 /// @notice Test contract for `PolicyManager.uninstall` (both policyId-mode and binding-mode).
-contract uninstallTest is PolicyManagerTestBase {
+contract UninstallTest is PolicyManagerTestBase {
+    /// @dev Maximum length for fuzzed `bytes` inputs to keep fuzz runs fast.
+    uint256 internal constant MAX_BYTES_LEN = 256;
+
+    RevertOnUninstallPolicy internal revertPolicy;
+    RecordAccountOnUninstallPolicy internal recordPolicy;
+
     function setUp() public {
         setUpPolicyManagerBase();
+        revertPolicy = new RevertOnUninstallPolicy(address(policyManager));
+        recordPolicy = new RecordAccountOnUninstallPolicy(address(policyManager));
+    }
+
+    /// @notice Installs `callPolicy` for `account` using the given config + binding parameters.
+    ///
+    /// @param installPolicyConfig Policy config bytes used for installation (hashed into the binding).
+    /// @param salt Salt used to derive a distinct `policyId`.
+    /// @param validAfter Lower-bound timestamp (seconds) for the binding.
+    /// @param validUntil Upper-bound timestamp (seconds) for the binding.
+    ///
+    /// @return policyId Deterministic binding identifier derived from the provided binding inputs.
+    /// @return policyConfig The same config bytes passed to install (returned for convenience).
+    function _installCallPolicy(bytes memory installPolicyConfig, uint256 salt, uint40 validAfter, uint40 validUntil)
+        internal
+        returns (bytes32 policyId, bytes memory policyConfig)
+    {
+        policyConfig = installPolicyConfig;
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: salt,
+            policyConfigHash: keccak256(policyConfig)
+        });
+
+        vm.prank(address(account));
+        policyId = policyManager.install(binding, policyConfig);
+    }
+
+    /// @notice Installs `policyContract` for `account` with the given config.
+    ///
+    /// @param policyContract Policy contract to install.
+    /// @param installPolicyConfig Policy config bytes used for installation.
+    /// @param salt Salt used to derive `policyId`.
+    ///
+    /// @return policyId Deterministic binding identifier.
+    /// @return policyConfig The same config bytes passed to install.
+    function _installPolicy(address policyContract, bytes memory installPolicyConfig, uint256 salt)
+        internal
+        returns (bytes32 policyId, bytes memory policyConfig)
+    {
+        policyConfig = installPolicyConfig;
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: policyContract,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfigHash: keccak256(policyConfig)
+        });
+
+        vm.prank(address(account));
+        policyId = policyManager.install(binding, policyConfig);
     }
 
     // =============================================================
@@ -18,43 +83,165 @@ contract uninstallTest is PolicyManagerTestBase {
     /// @notice Reverts in policyId-mode when `policy` is zero or `policyId` is zero.
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.
-    function test_reverts_policyIdMode_whenPolicyOrPolicyIdIsZero(address policy, bytes32 policyId) public {
-        vm.skip(true);
+    ///
+    /// @param caseSeed Seed used to pick which invalid case: (0,0), (0,non-zero), or (non-zero,0).
+    /// @param nonZeroPolicy Policy address used when policy must be non-zero (case 2).
+    /// @param nonZeroPolicyId Policy identifier used when policyId must be non-zero (case 1).
+    function test_reverts_policyIdMode_whenPolicyOrPolicyIdIsZero(
+        uint256 caseSeed,
+        address nonZeroPolicy,
+        bytes32 nonZeroPolicyId
+    ) public {
+        uint256 caseIndex = caseSeed % 3;
+        address policy;
+        bytes32 policyId;
+        if (caseIndex == 0) {
+            policy = address(0);
+            policyId = bytes32(0);
+        } else if (caseIndex == 1) {
+            policy = address(0);
+            policyId = bytes32(bound(uint256(nonZeroPolicyId), 1, type(uint256).max));
+        } else {
+            policy = address(uint160(bound(uint256(uint160(nonZeroPolicy)), 1, type(uint160).max)));
+            policyId = bytes32(0);
+        }
 
-        policy;
-        policyId;
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: policy,
+            policyId: policyId,
+            policyConfig: "",
+            uninstallData: ""
+        });
+
+        vm.expectRevert(PolicyManager.InvalidPayload.selector);
+        policyManager.uninstall(payload);
     }
 
     /// @notice Reverts in policyId-mode when the policyId is not installed.
     ///
     /// @dev Expects `PolicyManager.PolicyNotInstalled`.
+    ///
+    /// @param policyId Policy identifier that was never installed (bounded to non-zero for policyId-mode).
     function test_reverts_policyIdMode_whenPolicyNotInstalled(bytes32 policyId) public {
-        vm.skip(true);
+        policyId = bytes32(bound(uint256(policyId), 1, type(uint256).max));
 
-        policyId;
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(callPolicy),
+            policyId: policyId,
+            policyConfig: "",
+            uninstallData: ""
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotInstalled.selector, policyId));
+        policyManager.uninstall(payload);
     }
 
     /// @notice Reverts in binding-mode (pre-install) when `policyConfig` is empty.
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.
     function test_reverts_bindingMode_preInstall_whenPolicyConfigEmpty() public {
-        vm.skip(true);
+        bytes memory policyConfig = abi.encode(bytes32("config"));
+        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, 1);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: "", uninstallData: ""
+        });
+
+        vm.expectRevert(PolicyManager.InvalidPayload.selector);
+        policyManager.uninstall(payload);
     }
 
     /// @notice Reverts in binding-mode (pre-install) when `policyConfig` hash does not match the binding commitment.
     ///
     /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    function test_reverts_bindingMode_preInstall_whenPolicyConfigHashMismatch(bytes memory policyConfig) public {
-        vm.skip(true);
+    ///
+    /// @param realConfigSeed Seed used to build the binding's committed config (hashed into policyConfigHash).
+    /// @param mismatchConfigSeed Seed used to build mismatched config bytes.
+    /// @param salt Salt used to build the binding.
+    /// @param flipByteIndex Index of byte to flip when seeds produce matching hashes (ensures mismatch).
+    function test_reverts_bindingMode_preInstall_whenPolicyConfigHashMismatch(
+        bytes32 realConfigSeed,
+        bytes32 mismatchConfigSeed,
+        uint256 salt,
+        uint256 flipByteIndex
+    ) public {
+        bytes memory realConfig = abi.encode(realConfigSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), realConfig, salt);
 
-        policyConfig;
+        bytes memory policyConfig = abi.encode(mismatchConfigSeed);
+        if (keccak256(policyConfig) == binding.policyConfigHash) {
+            policyConfig = abi.encode(mismatchConfigSeed);
+            uint256 idx = flipByteIndex % policyConfig.length;
+            policyConfig[idx] = bytes1(uint8(policyConfig[idx]) ^ 0x01);
+        }
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(policyConfig), binding.policyConfigHash
+            )
+        );
+        policyManager.uninstall(payload);
     }
 
     /// @notice Reverts with `Unauthorized` when the policy uninstall hook reverts and caller is not the account.
-    function test_reverts_whenPolicyHookReverts_andCallerNotAccount(address caller) public {
-        vm.skip(true);
+    ///
+    /// @dev Expects `PolicyManager.Unauthorized`.
+    ///
+    /// @param callerSeed Seed used to derive a caller address distinct from the account.
+    /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_reverts_whenPolicyHookReverts_andCallerNotAccount(
+        uint256 callerSeed,
+        bytes32 configSeed,
+        uint256 salt
+    ) public {
+        address caller = address(uint160(bound(uint256(callerSeed), 1, type(uint160).max)));
+        uint160 accountUint = uint160(address(account));
+        if (caller == address(account)) {
+            caller = address(accountUint == type(uint160).max ? 1 : accountUint + 1);
+        }
 
-        caller;
+        (bytes32 policyId, bytes memory policyConfig) =
+            _installPolicy(address(revertPolicy), abi.encode(configSeed), salt);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(revertPolicy),
+            policyId: policyId,
+            policyConfig: policyConfig,
+            uninstallData: ""
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.Unauthorized.selector, caller));
+        vm.prank(caller);
+        policyManager.uninstall(payload);
     }
 
     // =============================================================
@@ -62,33 +249,155 @@ contract uninstallTest is PolicyManagerTestBase {
     // =============================================================
 
     /// @notice Emits `PolicyUninstalled` when uninstalling an installed policy instance (policyId-mode).
-    function test_emitsPolicyUninstalled_policyIdMode_installedLifecycle() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_emitsPolicyUninstalled_policyIdMode_installedLifecycle(bytes32 configSeed, uint256 salt) public {
+        (bytes32 policyId, bytes memory policyConfig) = _installCallPolicy(abi.encode(configSeed), salt, 0, 0);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(callPolicy),
+            policyId: policyId,
+            policyConfig: policyConfig,
+            uninstallData: ""
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstalled(policyId, address(account), address(callPolicy));
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
     }
 
     /// @notice Emits `PolicyUninstalled` when permanently disabling a pre-install policyId (binding-mode).
-    function test_emitsPolicyUninstalled_bindingMode_preInstall() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_emitsPolicyUninstalled_bindingMode_preInstall(bytes32 configSeed, uint256 salt) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, salt);
+        bytes32 policyId = policyManager.getPolicyId(binding);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstalled(policyId, address(account), address(callPolicy));
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
     }
 
     /// @notice Uninstall is idempotent: uninstalling an already-uninstalled policyId is a no-op.
-    function test_isIdempotent_whenAlreadyUninstalled_noHookNoEvent() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_isIdempotent_whenAlreadyUninstalled_noHookNoEvent(bytes32 configSeed, uint256 salt) public {
+        (bytes32 policyId, bytes memory policyConfig) = _installCallPolicy(abi.encode(configSeed), salt, 0, 0);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(callPolicy),
+            policyId: policyId,
+            policyConfig: policyConfig,
+            uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+
+        vm.recordLogs();
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+
+        assertEq(vm.getRecordedLogs().length, 0);
     }
 
     /// @notice Account can always uninstall an installed instance even if the policy hook reverts.
-    function test_accountEscapeHatch_installedLifecycle_policyIdMode() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_accountEscapeHatch_installedLifecycle_policyIdMode(bytes32 configSeed, uint256 salt) public {
+        (bytes32 policyId, bytes memory policyConfig) =
+            _installPolicy(address(revertPolicy), abi.encode(configSeed), salt);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0),
+                policy: address(0),
+                validAfter: 0,
+                validUntil: 0,
+                salt: 0,
+                policyConfigHash: bytes32(0)
+            }),
+            policy: address(revertPolicy),
+            policyId: policyId,
+            policyConfig: policyConfig,
+            uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(revertPolicy), policyId));
     }
 
     /// @notice Account can always uninstall an installed instance even if the policy hook reverts.
-    function test_accountEscapeHatch_installedLifecycle_bindingMode() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_accountEscapeHatch_installedLifecycle_bindingMode(bytes32 configSeed, uint256 salt) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
+
+        vm.prank(address(account));
+        bytes32 policyId = policyManager.install(binding, policyConfig);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+
+        assertTrue(policyManager.isPolicyUninstalled(address(revertPolicy), policyId));
     }
 
     /// @notice In binding-mode installed lifecycle, uninstall uses the stored record account (not the payload binding account).
-    function test_bindingMode_installedLifecycle_usesStoredRecordAccount() public {
-        vm.skip(true);
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_bindingMode_installedLifecycle_usesStoredRecordAccount(bytes32 configSeed, uint256 salt) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        (, bytes memory policyConfigCopy) = _installPolicy(address(recordPolicy), policyConfig, salt);
+
+        PolicyManager.PolicyBinding memory binding = _binding(address(recordPolicy), policyConfigCopy, salt);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding,
+            policy: address(0),
+            policyId: bytes32(0),
+            policyConfig: policyConfigCopy,
+            uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+
+        assertEq(recordPolicy.lastUninstallAccount(), address(account));
     }
 }
-

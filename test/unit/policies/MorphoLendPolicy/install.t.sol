@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {MorphoLendPolicyTestBase} from "../../../lib/policies/MorphoLendPolicyTestBase.sol";
+import {
+    MorphoLendPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLendPolicyTestBase.sol";
 
 /// @title installTest
 ///

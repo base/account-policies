@@ -32,6 +32,14 @@ Recommended shape (examples):
   - Common fixtures (accounts, deployed contracts, default configs)
   - Fuzz bounds helpers (wrap `bound()` into semantically-named helpers)
 
+## Golden reference (recommended)
+
+- Use `test/unit/PolicyManager/execute.t.sol` as the canonical reference for:
+  - Fuzzing style (maximize meaningful fuzzing, avoid discarding by deriving offsets/seeds)
+  - Typed revert assertions and event expectations
+  - NatSpec on tests/helpers (including `@param` for all fuzz params)
+  - Helper layout inside a test file
+
 ## Naming + organization
 
 - **Test file names**:

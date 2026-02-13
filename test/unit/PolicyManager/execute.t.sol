@@ -3,16 +3,9 @@ pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../src/PolicyManager.sol";
 
-import {PolicyManagerTestBase} from "../../lib/PolicyManagerTestBase.sol";
-import {CallForwardingPolicy} from "../../lib/policies/CallForwardingPolicy.sol";
-
-contract RevertingReceiver {
-    error ReceiverReverted();
-
-    function ping(bytes32) external payable {
-        revert ReceiverReverted();
-    }
-}
+import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
+import {CallForwardingPolicy} from "../../lib/testPolicies/CallForwardingPolicy.sol";
+import {RevertingReceiver} from "../../lib/mocks/RevertingReceiver.sol";
 
 /// @title executeTest
 ///

@@ -3,31 +3,57 @@ pragma solidity ^0.8.23;
 
 import {Test} from "forge-std/Test.sol";
 
-import {PublicERC6492Validator} from "../../src/PublicERC6492Validator.sol";
-import {PolicyManager} from "../../src/PolicyManager.sol";
+import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
+import {PolicyManager} from "../../../../src/PolicyManager.sol";
+import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
 
-import {CallForwardingPolicy} from "./policies/CallForwardingPolicy.sol";
-import {CallReceiver} from "./mocks/CallReceiver.sol";
-import {MockCoinbaseSmartWallet} from "./mocks/MockCoinbaseSmartWallet.sol";
+import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 
-/// @title PolicyManagerTestBase
+/// @notice Minimal AOA policy used for testing shared AOA behaviors.
+contract AOATestPolicy is AOAPolicy {
+    constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
+
+    function _onAOAExecute(bytes32, AOAConfig memory, bytes memory, bytes memory)
+        internal
+        pure
+        override
+        returns (bytes memory, bytes memory)
+    {
+        return ("", "");
+    }
+
+    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+        name = "AOA Test Policy";
+        version = "1";
+    }
+}
+
+/// @title AOAPolicyTestBase
 ///
-/// @notice Shared fixture + helpers for `PolicyManager` unit tests.
-abstract contract PolicyManagerTestBase is Test {
+/// @notice Shared fixture for testing AOA wrapper semantics (pause/uninstall).
+abstract contract AOAPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
+    uint256 internal constant DEFAULT_SALT = 1;
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
+    uint256 internal executorPk = uint256(keccak256("executor"));
+    address internal executor = vm.addr(executorPk);
 
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
+    AOATestPolicy internal policy;
 
-    CallForwardingPolicy internal callPolicy;
-    CallReceiver internal receiver;
+    bytes internal policyConfig;
+    PolicyManager.PolicyBinding internal binding;
 
-    function setUpPolicyManagerBase() public virtual {
+    function setUpAOABase() internal {
+        setUpAOABaseWithSalt(DEFAULT_SALT);
+    }
+
+    function setUpAOABaseWithSalt(uint256 salt) internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -35,39 +61,27 @@ abstract contract PolicyManagerTestBase is Test {
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
+        policy = new AOATestPolicy(address(policyManager), owner);
 
-        callPolicy = new CallForwardingPolicy(address(policyManager));
-        receiver = new CallReceiver();
-
-        // PolicyManager must be an owner to call wallet execution methods.
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
-        vm.label(address(account), "Account");
-        vm.label(address(policyManager), "PolicyManager");
-        vm.label(address(validator), "PublicERC6492Validator");
-        vm.label(address(callPolicy), "CallForwardingPolicy");
-        vm.label(address(receiver), "CallReceiver");
-        vm.label(owner, "Owner");
-    }
-
-    function _binding(address policy, bytes memory policyConfig, uint256 salt)
-        internal
-        view
-        returns (PolicyManager.PolicyBinding memory binding)
-    {
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), bytes(""));
         binding = PolicyManager.PolicyBinding({
             account: address(account),
-            policy: policy,
+            policy: address(policy),
             validAfter: 0,
             validUntil: 0,
             salt: salt,
             policyConfigHash: keccak256(policyConfig)
         });
+
+        bytes memory userSig = _signInstall(binding);
+        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
     }
 
-    function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyId(binding);
+    function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
+        bytes32 structHash = policyManager.getPolicyId(binding_);
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

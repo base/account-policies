@@ -5,13 +5,13 @@ import {Test} from "forge-std/Test.sol";
 
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
-import {PublicERC6492Validator} from "../../../src/PublicERC6492Validator.sol";
-import {PolicyManager} from "../../../src/PolicyManager.sol";
-import {Id, Market, MarketParams, Position} from "../../../src/interfaces/morpho/BlueTypes.sol";
-import {AOAPolicy} from "../../../src/policies/AOAPolicy.sol";
-import {MorphoLoanProtectionPolicy} from "../../../src/policies/MorphoLoanProtectionPolicy.sol";
-import {MockCoinbaseSmartWallet} from "../mocks/MockCoinbaseSmartWallet.sol";
-import {MockMorphoBlue, MockMorphoOracle} from "../mocks/MockMorphoBlue.sol";
+import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
+import {PolicyManager} from "../../../../src/PolicyManager.sol";
+import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
+import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
+import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
+import {MockMorphoBlue, MockMorphoOracle} from "../../mocks/MockMorphoBlue.sol";
 
 contract MintableToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}

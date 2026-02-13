@@ -6,7 +6,7 @@ import {Policy} from "../../../src/policies/Policy.sol";
 /// @title CallForwardingPolicy
 ///
 /// @notice Test-only policy that forwards an arbitrary call through an account's `execute` entrypoint.
-///         Intended for verifying `PolicyManager` execution plumbing (manager -> policy -> account).
+///         Intended for verifying `PolicyManager` execution plumbing (manager -> policy -> manager -> account).
 contract CallForwardingPolicy is Policy {
     enum PostAction {
         None,
