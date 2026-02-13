@@ -6,7 +6,7 @@ import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTe
 /// @title installWithSignatureTest
 ///
 /// @notice Test contract for `PolicyManager.installWithSignature`.
-contract installWithSignatureTest is PolicyManagerTestBase {
+contract InstallWithSignatureTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }

@@ -6,7 +6,7 @@ import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseCo
 /// @title uninstallTest
 ///
 /// @notice Test contract for AOA uninstall authorization.
-contract uninstallTest is AOAPolicyTestBase {
+contract UninstallTest is AOAPolicyTestBase {
     function setUp() public {
         setUpAOABase();
     }

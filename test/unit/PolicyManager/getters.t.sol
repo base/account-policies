@@ -6,7 +6,7 @@ import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTe
 /// @title gettersTest
 ///
 /// @notice Test contract for `PolicyManager` view/pure getters and read helpers.
-contract gettersTest is PolicyManagerTestBase {
+contract GettersTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }

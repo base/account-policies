@@ -8,7 +8,7 @@ import {
 /// @title installTest
 ///
 /// @notice Test contract for Morpho lend install-time behavior.
-contract installTest is MorphoLendPolicyTestBase {
+contract InstallTest is MorphoLendPolicyTestBase {
     function setUp() public {
         setUpMorphoLendBase(333);
     }

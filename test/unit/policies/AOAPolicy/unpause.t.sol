@@ -6,7 +6,7 @@ import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseCo
 /// @title unpauseTest
 ///
 /// @notice Test contract for `AOAPolicy.unpause`.
-contract unpauseTest is AOAPolicyTestBase {
+contract UnpauseTest is AOAPolicyTestBase {
     function setUp() public {
         setUpAOABase();
     }

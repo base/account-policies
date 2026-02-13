@@ -14,7 +14,7 @@ import {RevertingReceiver} from "../../lib/mocks/RevertingReceiver.sol";
 /// @title replaceWithSignatureTest
 ///
 /// @notice Test contract for `PolicyManager.replaceWithSignature`.
-contract replaceWithSignatureTest is PolicyManagerTestBase {
+contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     /// @dev Maximum length for fuzzed `bytes` inputs (calldata) to keep fuzz runs fast.
     uint256 internal constant MAX_BYTES_LEN = 256;
     /// @dev Base timestamp used when warping for validity-window and deadline tests.

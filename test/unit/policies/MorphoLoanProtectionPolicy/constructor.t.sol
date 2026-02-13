@@ -8,7 +8,7 @@ import {
 /// @title constructorTest
 ///
 /// @notice Test contract for `MorphoLoanProtectionPolicy` constructor behavior.
-contract constructorTest is MorphoLoanProtectionPolicyTestBase {
+contract ConstructorTest is MorphoLoanProtectionPolicyTestBase {
     function setUp() public {
         setUpMorphoLoanProtectionBase(111);
     }

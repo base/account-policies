@@ -6,7 +6,7 @@ import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseCo
 /// @title constructorTest
 ///
 /// @notice Test contract for `AOAPolicy` constructor behavior.
-contract constructorTest is AOAPolicyTestBase {
+contract ConstructorTest is AOAPolicyTestBase {
     function setUp() public {
         setUpAOABase();
     }

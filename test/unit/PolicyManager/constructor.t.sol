@@ -6,7 +6,7 @@ import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTe
 /// @title constructorTest
 ///
 /// @notice Test contract for `PolicyManager` constructor behavior.
-contract constructorTest is PolicyManagerTestBase {
+contract ConstructorTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }

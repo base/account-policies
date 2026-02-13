@@ -9,7 +9,7 @@ import {InstallTestPolicy} from "../../lib/testPolicies/InstallTestPolicy.sol";
 /// @title installTest
 ///
 /// @notice Test contract for `PolicyManager.install`.
-contract installTest is PolicyManagerTestBase {
+contract InstallTest is PolicyManagerTestBase {
     /// @dev Maximum length for fuzzed `bytes` inputs to keep fuzz runs fast.
     uint256 internal constant MAX_BYTES_LEN = 256;
     /// @dev Base timestamp used for warp-based tests (replaces magic values).

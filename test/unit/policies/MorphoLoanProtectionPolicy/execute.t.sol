@@ -8,7 +8,7 @@ import {
 /// @title executeTest
 ///
 /// @notice Test contract for Morpho loan protection execution behavior.
-contract executeTest is MorphoLoanProtectionPolicyTestBase {
+contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
     function setUp() public {
         setUpMorphoLoanProtectionBase(111);
     }

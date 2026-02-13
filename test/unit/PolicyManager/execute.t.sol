@@ -10,7 +10,7 @@ import {RevertingReceiver} from "../../lib/mocks/RevertingReceiver.sol";
 /// @title executeTest
 ///
 /// @notice Test contract for `PolicyManager.execute`.
-contract executeTest is PolicyManagerTestBase {
+contract ExecuteTest is PolicyManagerTestBase {
     /// @dev Maximum length for fuzzed `bytes` inputs (calldata) to keep fuzz runs fast.
     uint256 internal constant MAX_BYTES_LEN = 256;
     /// @dev Maximum ETH value forwarded through the wallet call.

@@ -8,7 +8,7 @@ import {
 /// @title isPolicyUsedTest
 ///
 /// @notice Test contract for `MorphoLoanProtectionPolicy.isPolicyUsed`.
-contract isPolicyUsedTest is MorphoLoanProtectionPolicyTestBase {
+contract IsPolicyUsedTest is MorphoLoanProtectionPolicyTestBase {
     function setUp() public {
         setUpMorphoLoanProtectionBase(111);
     }

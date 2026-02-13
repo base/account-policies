@@ -6,7 +6,7 @@ import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTe
 /// @title replaceTest
 ///
 /// @notice Test contract for `PolicyManager.replace`.
-contract replaceTest is PolicyManagerTestBase {
+contract ReplaceTest is PolicyManagerTestBase {
     function setUp() public {
         setUpPolicyManagerBase();
     }

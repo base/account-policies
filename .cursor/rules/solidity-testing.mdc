@@ -45,7 +45,9 @@ Recommended shape (examples):
 - **Test file names**:
   - Contract-scoped suites: `ContractName.t.sol`
   - Function-scoped suites: `functionName.t.sol` (lower camelCase; matches the Solidity function name)
-- **Test contract names**: `ContractNameTest` or `functionNameTest`
+- **Test contract names**:
+  - Contract-scoped suites: `ContractNameTest`
+  - Function-scoped suites: `FunctionNameTest` (CapWords, even when the file is lower camelCase like `install.t.sol`)
 - **Test function names**:
   - If contract name already scopes the function, use `test_outcome_optionalContext`
   - Otherwise use `test_functionName_outcome_optionalContext`

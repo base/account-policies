@@ -8,7 +8,7 @@ import {
 /// @title getDepositLimitLastUpdatedTest
 ///
 /// @notice Test contract for `MorphoLendPolicy.getDepositLimitLastUpdated`.
-contract getDepositLimitLastUpdatedTest is MorphoLendPolicyTestBase {
+contract GetDepositLimitLastUpdatedTest is MorphoLendPolicyTestBase {
     function setUp() public {
         setUpMorphoLendBase(555);
     }
