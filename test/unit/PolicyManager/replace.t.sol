@@ -54,17 +54,17 @@ contract replaceTest is PolicyManagerTestBase {
         vm.skip(true);
     }
 
-    /// @notice Reverts when the old policy instance is not installed for the same account as the new binding.
+    /// @notice Reverts when the old policy instance is installed for a different account than `newBinding.account`.
     ///
-    /// @dev Expects `PolicyManager.InvalidPayload`.
-    function test_reverts_whenOldPolicyAccountMismatch() public {
+    /// @dev Expects `PolicyManager.InvalidPayload` (unless end state already reached and returns early).
+    function test_reverts_whenOldPolicyAccountMismatch_andOldPolicyStillInstalled() public {
         vm.skip(true);
     }
 
-    /// @notice Reverts when the new policyId is already installed.
+    /// @notice Reverts when the new policyId is already installed but the old policy is not yet uninstalled.
     ///
-    /// @dev Expects `PolicyManager.PolicyAlreadyInstalled`.
-    function test_reverts_whenNewPolicyAlreadyInstalled() public {
+    /// @dev Expects `PolicyManager.PolicyAlreadyInstalled` (unless end state already reached and returns early).
+    function test_reverts_whenNewPolicyAlreadyInstalled_andOldPolicyNotYetUninstalled() public {
         vm.skip(true);
     }
 

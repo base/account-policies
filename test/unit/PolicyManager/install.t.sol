@@ -24,7 +24,7 @@ contract installTest is PolicyManagerTestBase {
         caller;
     }
 
-    /// @notice Reverts when the policyId has been cancelled/uninstalled (prevents future installs).
+    /// @notice Reverts when the policyId has been uninstalled (prevents future installs).
     ///
     /// @dev Expects `PolicyManager.PolicyIsDisabled`.
     function test_reverts_whenPolicyIsDisabled() public {

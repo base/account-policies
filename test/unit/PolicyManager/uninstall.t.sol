@@ -81,6 +81,11 @@ contract uninstallTest is PolicyManagerTestBase {
         vm.skip(true);
     }
 
+    /// @notice Account can always uninstall an installed instance even if the policy hook reverts.
+    function test_accountEscapeHatch_installedLifecycle_bindingMode() public {
+        vm.skip(true);
+    }
+
     /// @notice In binding-mode installed lifecycle, uninstall uses the stored record account (not the payload binding account).
     function test_bindingMode_installedLifecycle_usesStoredRecordAccount() public {
         vm.skip(true);
