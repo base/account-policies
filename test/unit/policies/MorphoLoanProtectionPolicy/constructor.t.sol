@@ -5,7 +5,7 @@ import {
     MorphoLoanProtectionPolicyTestBase
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLoanProtectionPolicyTestBase.sol";
 
-/// @title constructorTest
+/// @title ConstructorTest
 ///
 /// @notice Test contract for `MorphoLoanProtectionPolicy` constructor behavior.
 contract ConstructorTest is MorphoLoanProtectionPolicyTestBase {

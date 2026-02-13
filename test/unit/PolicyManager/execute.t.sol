@@ -7,7 +7,7 @@ import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTe
 import {CallForwardingPolicy} from "../../lib/testPolicies/CallForwardingPolicy.sol";
 import {RevertingReceiver} from "../../lib/mocks/RevertingReceiver.sol";
 
-/// @title executeTest
+/// @title ExecuteTest
 ///
 /// @notice Test contract for `PolicyManager.execute`.
 contract ExecuteTest is PolicyManagerTestBase {

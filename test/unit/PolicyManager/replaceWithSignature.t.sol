@@ -11,7 +11,7 @@ import {RevertOnReplacePolicy} from "../../lib/testPolicies/RevertOnReplacePolic
 import {RevertOnUninstallForReplacePolicy} from "../../lib/testPolicies/RevertOnUninstallForReplacePolicy.sol";
 import {RevertingReceiver} from "../../lib/mocks/RevertingReceiver.sol";
 
-/// @title replaceWithSignatureTest
+/// @title ReplaceWithSignatureTest
 ///
 /// @notice Test contract for `PolicyManager.replaceWithSignature`.
 contract ReplaceWithSignatureTest is PolicyManagerTestBase {

@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
 
-/// @title uninstallTest
+/// @title UninstallTest
 ///
 /// @notice Test contract for AOA uninstall authorization.
 contract UninstallTest is AOAPolicyTestBase {

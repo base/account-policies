@@ -5,7 +5,7 @@ import {
     MorphoLendPolicyTestBase
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLendPolicyTestBase.sol";
 
-/// @title getDepositLimitPeriodUsageTest
+/// @title GetDepositLimitPeriodUsageTest
 ///
 /// @notice Test contract for `MorphoLendPolicy.getDepositLimitPeriodUsage`.
 contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {

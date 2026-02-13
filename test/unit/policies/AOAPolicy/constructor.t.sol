@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
 
-/// @title constructorTest
+/// @title ConstructorTest
 ///
 /// @notice Test contract for `AOAPolicy` constructor behavior.
 contract ConstructorTest is AOAPolicyTestBase {

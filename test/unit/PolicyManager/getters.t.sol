@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
 
-/// @title gettersTest
+/// @title GettersTest
 ///
 /// @notice Test contract for `PolicyManager` view/pure getters and read helpers.
 contract GettersTest is PolicyManagerTestBase {

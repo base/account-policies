@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
 
-/// @title installWithSignatureTest
+/// @title InstallWithSignatureTest
 ///
 /// @notice Test contract for `PolicyManager.installWithSignature`.
 contract InstallWithSignatureTest is PolicyManagerTestBase {

@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
 
-/// @title constructorTest
+/// @title ConstructorTest
 ///
 /// @notice Test contract for `PolicyManager` constructor behavior.
 contract ConstructorTest is PolicyManagerTestBase {

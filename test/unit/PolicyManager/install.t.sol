@@ -6,7 +6,7 @@ import {PolicyManager} from "../../../src/PolicyManager.sol";
 import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
 import {InstallTestPolicy} from "../../lib/testPolicies/InstallTestPolicy.sol";
 
-/// @title installTest
+/// @title InstallTest
 ///
 /// @notice Test contract for `PolicyManager.install`.
 contract InstallTest is PolicyManagerTestBase {
