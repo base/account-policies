@@ -11,15 +11,42 @@ import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 
 /// @notice Minimal AOA policy used for testing shared AOA behaviors.
 contract AOATestPolicy is AOAPolicy {
+    bytes32 public lastExecutePolicyId;
+    address public lastExecuteAccount;
+    address public lastExecuteExecutor;
+    bytes public lastActionData;
+    uint256 public executeCalls;
+
+    bytes32 public lastUninstallPolicyId;
+    address public lastUninstallAccount;
+    address public lastUninstallCaller;
+    uint256 public uninstallCalls;
+
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _onAOAExecute(bytes32, AOAConfig memory, bytes memory, bytes memory)
+    function _onAOAExecute(bytes32 policyId, AOAConfig memory aoaConfig, bytes memory, bytes memory actionData)
         internal
-        pure
         override
         returns (bytes memory, bytes memory)
     {
+        lastExecutePolicyId = policyId;
+        lastExecuteAccount = aoaConfig.account;
+        lastExecuteExecutor = aoaConfig.executor;
+        lastActionData = actionData;
+        executeCalls++;
         return ("", "");
+    }
+
+    function _onAOAUninstall(bytes32 policyId, address account, address caller) internal override {
+        lastUninstallPolicyId = policyId;
+        lastUninstallAccount = account;
+        lastUninstallCaller = caller;
+        uninstallCalls++;
+    }
+
+    /// @dev Exposes internal config hash for testing.
+    function getConfigHash(bytes32 policyId) external view returns (bytes32) {
+        return _configHashByPolicyId[policyId];
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
@@ -30,11 +57,14 @@ contract AOATestPolicy is AOAPolicy {
 
 /// @title AOAPolicyTestBase
 ///
-/// @notice Shared fixture for testing AOA wrapper semantics (pause/uninstall).
+/// @notice Shared fixture for testing AOA wrapper semantics.
 abstract contract AOAPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
-    uint256 internal constant DEFAULT_SALT = 1;
+    bytes32 internal constant EXECUTION_TYPEHASH =
+        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
+    bytes32 internal constant AOA_UNINSTALL_TYPEHASH =
+        keccak256("AOAUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
@@ -50,10 +80,6 @@ abstract contract AOAPolicyTestBase is Test {
     PolicyManager.PolicyBinding internal binding;
 
     function setUpAOABase() internal {
-        setUpAOABaseWithSalt(DEFAULT_SALT);
-    }
-
-    function setUpAOABaseWithSalt(uint256 salt) internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -72,12 +98,57 @@ abstract contract AOAPolicyTestBase is Test {
             policy: address(policy),
             validAfter: 0,
             validUntil: 0,
-            salt: salt,
+            salt: 0,
             policyConfigHash: keccak256(policyConfig)
         });
 
         bytes memory userSig = _signInstall(binding);
         policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+    }
+
+    /// @dev Builds a binding for the default account + policy using given config and salt.
+    function _binding(bytes memory config, uint256 salt) internal view returns (PolicyManager.PolicyBinding memory) {
+        return PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfigHash: keccak256(config)
+        });
+    }
+
+    /// @dev Builds AOA execution data with a valid executor signature for the default binding.
+    function _buildExecutionData(bytes memory actionData, uint256 nonce, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 policyId = policyManager.getPolicyId(binding);
+        bytes32 configHash = keccak256(policyConfig);
+        bytes32 executionDataHash = keccak256(abi.encode(keccak256(actionData), nonce, deadline));
+        bytes32 structHash =
+            keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, address(account), configHash, executionDataHash));
+        bytes32 digest = _hashTypedData(address(policy), "AOA Test Policy", "1", structHash);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
+    }
+
+    /// @dev Signs an executor uninstall intent.
+    function _signUninstall(bytes32 policyId, bytes32 configHash, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
+        );
+        bytes32 digest = _hashTypedData(address(policy), "AOA Test Policy", "1", structHash);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
@@ -103,4 +174,3 @@ abstract contract AOAPolicyTestBase is Test {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 }
-

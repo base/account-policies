@@ -44,7 +44,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
     bytes internal policyConfig;
     PolicyManager.PolicyBinding internal binding;
 
-    function setUpMorphoLendBase(uint256 salt) internal {
+    function setUpMorphoLendBase() internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -74,7 +74,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
             policy: address(policy),
             validAfter: 0,
             validUntil: 0,
-            salt: salt,
+            salt: 0,
             policyConfigHash: keccak256(policyConfig)
         });
 
