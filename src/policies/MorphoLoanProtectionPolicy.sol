@@ -13,11 +13,10 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 
 /// @title MorphoLoanProtectionPolicy
 ///
-/// @notice AOA policy that supplies Morpho Blue collateral when an account's LTV crosses a trigger threshold.
+/// @notice AOA policy that can supply collateral to Morpho Blue if an account's LTV exceeds a trigger threshold.
 ///
-/// @dev Hard-enforces:
+/// @dev Properties:
 ///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
-///      - executor-signed execution intents
 ///      - trigger LTV threshold
 ///      - one-shot execution (top-up amount chosen per execution, bounded by a max committed at install time)
 ///      - one active policy per (account, marketId)
@@ -55,7 +54,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
 
-    /// @notice Stored market key per policy instance to support clean uninstallation.
+    /// @notice Stored market key per policy instance to validate uninstallation.
     mapping(bytes32 policyId => bytes32 marketKey) internal _marketKeyByPolicyId;
 
     /// @notice Tracks whether a policy instance has been executed already (one-shot).
@@ -107,6 +106,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Return whether the policyId has been used (one-shot).
+    ///
+    /// @param policyId Policy identifier to check.
+    ///
+    /// @return True if the policy has already executed its one-shot top-up.
     function isPolicyUsed(bytes32 policyId) external view returns (bool) {
         return _usedPolicyId[policyId];
     }
@@ -146,7 +149,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _clearInstallState(policyId, account);
     }
 
-    /// @dev Clears per-install state mappings if still pointing at this policyId.
+    /// @dev Clears per-install state mappings (`_activePolicyByMarket`, `_marketKeyByPolicyId`) if they
+    ///      still reference `policyId`. Safe to call even if state was already cleared or never set.
+    ///
+    /// @param policyId Policy identifier whose state should be cleared.
+    /// @param account  Account associated with the policy instance.
     function _clearInstallState(bytes32 policyId, address account) internal {
         bytes32 marketKey = _marketKeyByPolicyId[policyId];
         if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
@@ -197,7 +204,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         postCallData = "";
     }
 
-    /// @dev Enforces trigger LTV bound using current position, market totals, and oracle price.
+    /// @dev Computes the account's current LTV for the configured market and reverts with `HealthyPosition`
+    ///      if it is strictly below the `triggerLtv` threshold (i.e., the position does not need protection).
+    ///
+    /// @param config       Policy config containing the trigger LTV and Morpho address.
+    /// @param marketParams On-chain market parameters for the pinned market.
+    /// @param account      Account whose position LTV is evaluated.
     function _enforceTriggerLtv(
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
@@ -206,10 +218,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         uint256 currentLtv = _computeCurrentLtv(config, marketParams, account);
         if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
     }
-
-    ////////////////////////////////////////////////////////////////
-    ///                 Internal Functions                  ///
-    ////////////////////////////////////////////////////////////////
 
     /// @notice Looks up market params from `marketId` and reverts if the market is not initialized.
     ///
@@ -230,7 +238,16 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         ) revert MarketNotFound(marketId);
     }
 
-    /// @dev Computes current LTV (wad) for the pinned market and account position.
+    /// @dev Computes the account's current LTV as a WAD-scaled value (1e18 = 100%) using the Morpho Blue
+    ///      position, market totals, and oracle price. Reverts with `ZeroCollateralValue` if the collateral
+    ///      position has zero value after oracle pricing (which would cause a division-by-zero in the LTV
+    ///      calculation).
+    ///
+    /// @param config       Policy config containing the Morpho address and market identifier.
+    /// @param marketParams On-chain market parameters (used to locate the oracle and collateral token).
+    /// @param account      Account whose position is evaluated.
+    ///
+    /// @return currentLtvWad Current LTV in WAD (1e18 = 100%).
     function _computeCurrentLtv(
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
@@ -260,7 +277,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         currentLtvWad = Math.mulDiv(debtAssets, 1e18, collateralValueBefore);
     }
 
-    /// @dev EIP-712 domain metadata.
+    /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
+    ///
+    /// @return name    Domain name (`"Morpho Loan Protection Policy"`).
+    /// @return version Domain version (`"1"`).
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Loan Protection Policy";
         version = "1";
