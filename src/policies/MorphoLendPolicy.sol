@@ -29,7 +29,7 @@ contract MorphoLendPolicy is AOAPolicy {
     struct DepositLimitConfig {
         /// @dev Maximum deposits per recurring period window.
         uint160 allowance;
-        /// @dev Period length in seconds.
+        /// @dev RecurringAllowance.Limit.period length in seconds.
         uint48 period;
     }
 
@@ -99,7 +99,7 @@ contract MorphoLendPolicy is AOAPolicy {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(
-            _depositLimitState, policyId, _hydrateDepositLimit(policyId, lendPolicyConfig.depositLimit)
+            _depositLimitState, policyId, _addTimeBoundsToDepositLimit(policyId, lendPolicyConfig.depositLimit)
         );
     }
 
@@ -146,44 +146,48 @@ contract MorphoLendPolicy is AOAPolicy {
         RecurringAllowance.useLimit(
             _depositLimitState,
             policyId,
-            _hydrateDepositLimit(policyId, lendPolicyConfig.depositLimit),
+            _addTimeBoundsToDepositLimit(policyId, lendPolicyConfig.depositLimit),
             lendData.depositAssets
         );
 
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
             _buildVaultDepositCall(lendPolicyConfig, aoaConfig.account, lendData.depositAssets);
 
-        // Build wallet call plan:
-        // - approve
-        // - protocol call
-        if (approvalToken != address(0) && approvalSpender != address(0)) {
-            CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
-            calls[0] = CoinbaseSmartWallet.Call({
-                target: approvalToken,
-                value: 0,
-                data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, lendData.depositAssets)
-            });
-            calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
-            accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
-        } else {
-            accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, target, value, callData);
-        }
+        CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
+        calls[0] = CoinbaseSmartWallet.Call({
+            target: approvalToken,
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.approve.selector, approvalSpender, lendData.depositAssets)
+        });
+        calls[1] = CoinbaseSmartWallet.Call({target: target, value: value, data: callData});
+        accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
 
         postCallData = "";
     }
 
-    ////////////////////////////////////////////////////////////////
-    ///                 Internal Functions                  ///
-    ////////////////////////////////////////////////////////////////
-
-    /// @dev Returns the policy's validity window encoded as allowance bounds.
+    /// @dev Reads the policy's `validAfter`/`validUntil` timestamps from the PolicyManager and returns them
+    ///      as `uint48` bounds suitable for `RecurringAllowance.Limit`. A zero `validUntil` (no expiry) is
+    ///      mapped to `type(uint48).max`.
+    ///
+    /// @param policyId Policy identifier whose validity window is queried.
+    ///
+    /// @return start Lower bound (inclusive) of the allowance window.
+    /// @return end   Upper bound (inclusive) of the allowance window.
     function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.policies(address(this), policyId);
         start = uint48(validAfter);
         end = validUntil == 0 ? type(uint48).max : uint48(validUntil);
     }
 
-    function _hydrateDepositLimit(bytes32 policyId, DepositLimitConfig memory depositLimitConfig)
+    /// @dev Constructs a full `RecurringAllowance.Limit` by combining the caller-supplied
+    ///      `DepositLimitConfig` (allowance, period) with the policy's on-chain validity window
+    ///      (start, end) retrieved via `_getValidityWindowAsLimitBounds`.
+    ///
+    /// @param policyId            Policy identifier used to look up validity timestamps.
+    /// @param depositLimitConfig  Allowance and period parameters from the policy config.
+    ///
+    /// @return depositLimit Fully populated limit struct ready for `RecurringAllowance` consumption.
+    function _addTimeBoundsToDepositLimit(bytes32 policyId, DepositLimitConfig memory depositLimitConfig)
         internal
         view
         returns (RecurringAllowance.Limit memory depositLimit)
@@ -194,7 +198,19 @@ contract MorphoLendPolicy is AOAPolicy {
         });
     }
 
-    /// @dev Builds the underlying vault deposit call and approval requirements.
+    /// @dev Builds the low-level call components for a Morpho vault `deposit`, along with the ERC-20
+    ///      approval that must precede it. The vault's `asset()` is queried on-chain to determine the
+    ///      token to approve, and the vault itself is both the call target and the approval spender.
+    ///
+    /// @param lendPolicyConfig Policy config containing the pinned vault address.
+    /// @param receiver         Address that will receive the minted vault shares (always the account).
+    /// @param depositAssets    Amount of underlying assets to deposit.
+    ///
+    /// @return target          Call target (the vault).
+    /// @return value           Native value to send (always 0).
+    /// @return callData        ABI-encoded `IMorphoVault.deposit(depositAssets, receiver)` calldata.
+    /// @return approvalToken   ERC-20 token to approve (the vault's underlying asset).
+    /// @return approvalSpender Address to approve (the vault).
     function _buildVaultDepositCall(LendPolicyConfig memory lendPolicyConfig, address receiver, uint256 depositAssets)
         internal
         view
@@ -209,7 +225,10 @@ contract MorphoLendPolicy is AOAPolicy {
         return (target, value, callData, approvalToken, approvalSpender);
     }
 
-    /// @dev EIP-712 domain metadata.
+    /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
+    ///
+    /// @return name    Domain name (`"Morpho Lend Policy"`).
+    /// @return version Domain version (`"1"`).
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Morpho Lend Policy";
         version = "1";
