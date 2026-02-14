@@ -163,23 +163,31 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         uint256 deadline,
         bytes memory callbackData
     ) internal view returns (bytes memory) {
-        bytes32 policyId = policyManager.getPolicyId(binding_);
-        bytes32 configHash = keccak256(policyConfig_);
-
-        MorphoLoanProtectionPolicy.TopUpData memory pd =
-            MorphoLoanProtectionPolicy.TopUpData({topUpAssets: topUp, callbackData: callbackData});
-        bytes memory actionData = abi.encode(pd);
-        bytes32 actionDataHash = keccak256(actionData);
-        bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
-        bytes32 structHash = keccak256(
-            abi.encode(policy.EXECUTION_TYPEHASH(), policyId, address(account), configHash, executionDataHash)
+        bytes memory actionData = abi.encode(
+            MorphoLoanProtectionPolicy.TopUpData({topUpAssets: topUp, callbackData: callbackData})
         );
-        bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
+
+        bytes32 digest = _hashTypedData(
+            address(policy),
+            "Morpho Loan Protection Policy",
+            "1",
+            keccak256(
+                abi.encode(
+                    policy.EXECUTION_TYPEHASH(),
+                    policyManager.getPolicyId(binding_),
+                    address(account),
+                    keccak256(policyConfig_),
+                    keccak256(abi.encode(keccak256(actionData), nonce, deadline))
+                )
+            )
+        );
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
-        bytes memory sig = abi.encodePacked(r, s, v);
 
-        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
+        return abi.encode(
+            AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: abi.encodePacked(r, s, v)}),
+            actionData
+        );
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
