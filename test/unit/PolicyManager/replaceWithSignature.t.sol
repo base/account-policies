@@ -986,4 +986,54 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         vm.expectRevert(PolicyManager.InvalidSignature.selector);
         policyManager.replaceWithSignature(payload, bytes("invalid"), 0, executionData);
     }
+
+    /// @notice When end state is already reached and execution is requested, validates the new config hash before executing.
+    ///
+    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
+    ///
+    /// @param mismatchConfigSeed Seed used to build a config whose hash differs from the binding commitment.
+    function test_reverts_whenEndStateAlreadyReached_andExecutionRequested_andNewPolicyConfigHashMismatch(uint256 mismatchConfigSeed)
+        public
+    {
+        mismatchConfigSeed = bound(mismatchConfigSeed, 2, type(uint256).max);
+        bytes memory mismatchedNewPolicyConfig = abi.encode(mismatchConfigSeed);
+
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+        PolicyManager.PolicyBinding memory newBinding =
+            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+
+        _replaceViaAccount(
+            address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding, abi.encode(DEFAULT_NEW_CONFIG_SEED)
+        );
+
+        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+
+        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
+            target: address(receiver),
+            value: 0,
+            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
+            revertOnExecute: false,
+            postAction: CallForwardingPolicy.PostAction.None
+        });
+        bytes memory executionData = abi.encode(f);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            newBinding: newBinding,
+            newPolicyConfig: mismatchedNewPolicyConfig
+        });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PolicyManager.PolicyConfigHashMismatch.selector,
+                keccak256(mismatchedNewPolicyConfig),
+                newBinding.policyConfigHash
+            )
+        );
+        policyManager.replaceWithSignature(payload, userSig, 0, executionData);
+    }
 }

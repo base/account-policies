@@ -300,6 +300,85 @@ contract UninstallTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
     }
 
+    /// @notice In binding-mode (pre-install), uninstall is idempotent: uninstalling an already-uninstalled policyId is a no-op.
+    ///
+    /// @dev Covers the binding-mode idempotent early return branch.
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_isIdempotent_bindingMode_preInstall_whenAlreadyUninstalled_noHookNoEvent(
+        bytes32 configSeed,
+        uint256 salt
+    ) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, salt);
+        bytes32 policyId = policyManager.getPolicyId(binding);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        bytes32 firstRet = policyManager.uninstall(payload);
+        assertEq(firstRet, policyId);
+
+        vm.recordLogs();
+        vm.prank(address(account));
+        bytes32 secondRet = policyManager.uninstall(payload);
+        assertEq(secondRet, policyId);
+        assertEq(vm.getRecordedLogs().length, 0);
+    }
+
+    /// @notice In binding-mode (pre-install), a policy hook revert reverts with `Unauthorized` when caller is not the account.
+    ///
+    /// @dev Expects `PolicyManager.Unauthorized`.
+    ///
+    /// @param caller Caller attempting the uninstall; must not be the account.
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_reverts_bindingMode_preInstall_whenPolicyHookReverts_andCallerNotAccount(
+        address caller,
+        bytes32 configSeed,
+        uint256 salt
+    ) public {
+        vm.assume(caller != address(0));
+        vm.assume(caller != address(account));
+
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.Unauthorized.selector, caller));
+        vm.prank(caller);
+        policyManager.uninstall(payload);
+    }
+
+    /// @notice In binding-mode (pre-install), the account can permanently disable a policyId even if the policy hook reverts.
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_accountEscapeHatch_bindingMode_preInstall_whenPolicyHookReverts(bytes32 configSeed, uint256 salt)
+        public
+    {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
+        bytes32 policyId = policyManager.getPolicyId(binding);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.prank(address(account));
+        bytes32 ret = policyManager.uninstall(payload);
+
+        assertEq(ret, policyId);
+        assertFalse(policyManager.isPolicyInstalled(address(revertPolicy), policyId));
+        assertTrue(policyManager.isPolicyUninstalled(address(revertPolicy), policyId));
+    }
+
     /// @notice Uninstall is idempotent: uninstalling an already-uninstalled policyId is a no-op.
     ///
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
