@@ -25,20 +25,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Policy binding parameters authorized by the account.
     ///
-    /// @dev The EIP-712 struct hash of this binding is the `policyId`.
+    /// @dev The EIP-712 struct hash of this binding is the `policyId`. Field order matches `POLICY_BINDING_TYPEHASH`.
     struct PolicyBinding {
         /// @dev Account that authorizes installation and is the target of policy executions.
         address account;
         /// @dev Policy contract implementing the hook interface.
         address policy;
+        /// @dev Hash of the policy’s config preimage (opaque bytes interpreted by the policy).
+        bytes32 policyConfigHash;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means “no lower bound”.
         uint40 validAfter;
         /// @dev Latest timestamp (seconds) after which execution is disallowed. Zero means “no upper bound”.
         uint40 validUntil;
         /// @dev User-supplied salt to allow multiple distinct bindings for the same (account, policy, configHash).
         uint256 salt;
-        /// @dev Hash of the policy’s config preimage (opaque bytes interpreted by the policy).
-        bytes32 policyConfigHash;
     }
 
     /// @notice Payload used for uninstall+install in a single call.

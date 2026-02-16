@@ -37,10 +37,10 @@ A **policy instance** is a specific authorization of a specific policy contract 
 PolicyBinding {
   account,
   policy,
+  policyConfigHash,
   validAfter,
   validUntil,
-  salt,
-  policyConfigHash
+  salt
 }
 ```
 
@@ -205,6 +205,18 @@ During execution, the `PolicyManager` calls the policy's `onExecute` hook and fo
 If a policy contract is deployed behind an upgradeable proxy, the proxy admin could change the policy's logic after users have installed it, causing it to return arbitrary calldata — potentially removing wallet owners, adding new owners, upgrading the wallet, or transferring funds.
 
 **Policy contracts must be non-upgradeable.** Account holders should verify that any policy they install is not deployed behind a proxy before authorizing installation.
+
+### Escape-hatch uninstall bypasses policy cleanup hooks
+
+When the account force-uninstalls a policy via the escape hatch (i.e., the policy's `onUninstall` hook reverts but `effectiveCaller == account`), the manager marks the policyId as uninstalled but the policy's internal cleanup code does not run. Any per-policy state that would normally be cleared during uninstall (e.g., uniqueness constraints, market linkage maps) remains stale.
+
+For the current AOA policy implementations, this is not a practical concern — the account-path fast path in `AOAPolicy._onUninstall` directly calls the cleanup logic (`_onAOAUninstall`) with only simple storage operations that cannot revert.
+
+However, future policy authors should keep this in mind:
+
+* **Policy uninstall hooks (especially the account path) should be kept simple and revert-free.** If the hook can revert, the escape hatch will bypass it, and any per-policy state won't be cleaned up.
+* **Stale per-policy state can block re-installation.** For example, if a policy enforces a uniqueness constraint (e.g., one active policy per market), stale state from a bypassed uninstall could prevent installing a new policy for the same scope.
+* **The manager's idempotency guard prevents re-running hooks.** Once a policyId is marked uninstalled, calling `uninstall` again is a no-op — the hook will not be retried.
 
 ### Install signatures do not bind to execution data
 
