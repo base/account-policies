@@ -100,6 +100,23 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param nonce Execution nonce.
     error ExecutionNonceAlreadyUsed(bytes32 policyId, uint256 nonce);
 
+    /// @notice Thrown when the caller is not the executor for the given policy.
+    ///
+    /// @param caller The unauthorized caller.
+    /// @param executor Expected executor address.
+    error UnauthorizedCanceller(address caller, address executor);
+
+    ////////////////////////////////////////////////////////////////
+    ///                         Events                           ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Emitted when a nonce is explicitly cancelled.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param nonce The cancelled nonce.
+    /// @param canceller The address that cancelled the nonce (executor or account).
+    event NonceCancelled(bytes32 indexed policyId, uint256 nonce, address canceller);
+
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
     ////////////////////////////////////////////////////////////////
@@ -129,6 +146,34 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @dev Only callable by `DEFAULT_ADMIN_ROLE`.
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    /// @notice Cancels one or more nonces, preventing future execution intents that use them.
+    ///
+    /// @dev Callable only by the configured executor. Requires the installed config preimage to authenticate the
+    ///      caller (consistent with the calldata-heavy pattern). Already-used nonces are skipped silently for
+    ///      idempotency; only freshly-cancelled nonces emit `NonceCancelled`.
+    ///
+    ///      Not gated by `whenNotPaused` — nonce cancellation is a safety/revocation mechanism that should always work.
+    ///      Accounts that wish to revoke all executor authority should use `uninstall` instead.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param nonces Array of nonces to cancel.
+    /// @param policyConfig Full config preimage bytes (hash must match the stored config hash for `policyId`).
+    function cancelNonces(bytes32 policyId, uint256[] calldata nonces, bytes calldata policyConfig) external {
+        _requireConfigHash(policyId, policyConfig);
+        (AOAConfig memory aoaConfig,) = abi.decode(policyConfig, (AOAConfig, bytes));
+
+        if (msg.sender != aoaConfig.executor) {
+            revert UnauthorizedCanceller(msg.sender, aoaConfig.executor);
+        }
+
+        for (uint256 i; i < nonces.length; ++i) {
+            if (!_usedNonces[policyId][nonces[i]]) {
+                _usedNonces[policyId][nonces[i]] = true;
+                emit NonceCancelled(policyId, nonces[i], msg.sender);
+            }
+        }
     }
 
     ////////////////////////////////////////////////////////////////
