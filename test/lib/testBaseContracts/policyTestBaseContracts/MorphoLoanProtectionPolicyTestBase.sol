@@ -147,12 +147,8 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         return account.wrapSignature(0, signature);
     }
 
-    function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline, bytes memory callbackData)
-        internal
-        view
-        returns (bytes memory)
-    {
-        return _encodePolicyDataLocal(binding, policyConfig, topUp, nonce, deadline, callbackData);
+    function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline) internal view returns (bytes memory) {
+        return _encodePolicyDataLocal(binding, policyConfig, topUp, nonce, deadline);
     }
 
     function _encodePolicyDataLocal(
@@ -160,12 +156,9 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         bytes memory policyConfig_,
         uint256 topUp,
         uint256 nonce,
-        uint256 deadline,
-        bytes memory callbackData
+        uint256 deadline
     ) internal view returns (bytes memory) {
-        bytes memory actionData = abi.encode(
-            MorphoLoanProtectionPolicy.TopUpData({topUpAssets: topUp, callbackData: callbackData})
-        );
+        bytes memory actionData = abi.encode(MorphoLoanProtectionPolicy.TopUpData({topUpAssets: topUp}));
 
         bytes32 digest = _hashTypedData(
             address(policy),

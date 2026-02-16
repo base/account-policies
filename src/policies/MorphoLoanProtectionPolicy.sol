@@ -43,8 +43,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     struct TopUpData {
         /// @dev Collateral top-up amount (collateral token smallest units).
         uint256 topUpAssets;
-        /// @dev Optional data forwarded to Morpho's callback.
-        bytes callbackData;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -185,7 +183,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)
-        // - morpho.supplyCollateral(marketParams, amount, account, callbackData)
+        // - morpho.supplyCollateral(marketParams, amount, account, "")
         CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
@@ -196,7 +194,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             target: config.morpho,
             value: 0,
             data: abi.encodeWithSelector(
-                IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, aoaConfig.account, topUp.callbackData
+                IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, aoaConfig.account, bytes("")
             )
         });
 

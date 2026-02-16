@@ -27,7 +27,7 @@ contract IsPolicyUsedTest is MorphoLoanProtectionPolicyTestBase {
         topUpAssets = bound(topUpAssets, 1, 25 ether);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
 
         assertTrue(policy.isPolicyUsed(policyId));

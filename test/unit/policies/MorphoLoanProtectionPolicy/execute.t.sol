@@ -58,7 +58,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         _exec(topUpAssets, nonce1);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce2, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce2, 0);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.PolicyAlreadyUsed.selector, policyId));
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
@@ -69,7 +69,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
     /// @param nonce Executor-chosen nonce.
     function test_reverts_whenTopUpAmountIsZero(uint256 nonce) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(0, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(0, nonce, 0);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroAmount.selector);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
@@ -83,7 +83,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         topUpAssets = bound(topUpAssets, MAX_TOP_UP + 1, type(uint256).max);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(MorphoLoanProtectionPolicy.TopUpAboveMax.selector, topUpAssets, MAX_TOP_UP)
@@ -125,7 +125,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         uint256 expectedLtv = (uint256(borrowShares) * WAD) / uint256(collateral);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(MorphoLoanProtectionPolicy.HealthyPosition.selector, expectedLtv, TRIGGER_LTV)
@@ -161,7 +161,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         topUpAssets = bound(topUpAssets, 1, MAX_TOP_UP);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
 
         vm.expectEmit(true, true, true, true, address(collateralToken));
         emit IERC20.Approval(address(account), address(morpho), topUpAssets);
@@ -191,7 +191,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         topUpAssets = bound(topUpAssets, 1, MAX_TOP_UP);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
 
         vm.expectEmit(true, true, true, true, address(policyManager));
         emit PolicyManager.PolicyExecuted(policyId, address(account), address(policy), keccak256(executionData));
@@ -204,7 +204,7 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
 
     function _exec(uint256 topUp, uint256 nonce) internal {
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData = _encodePolicyData(topUp, nonce, 0, bytes(""));
+        bytes memory executionData = _encodePolicyData(topUp, nonce, 0);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
 }
