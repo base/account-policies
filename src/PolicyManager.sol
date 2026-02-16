@@ -882,10 +882,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         }
     }
 
-    /// @notice Reverts if the current timestamp is outside the validity window.
+    /// @notice Reverts if the current timestamp is outside the validity window `[validAfter, validUntil)`.
     ///
-    /// @param validAfter Lower bound timestamp (seconds), or zero if unset.
-    /// @param validUntil Upper bound timestamp (seconds), or zero if unset.
+    /// @dev The window is a half-open interval: `validAfter` is inclusive (a timestamp equal to `validAfter` is
+    ///      valid) and `validUntil` is exclusive (a timestamp equal to `validUntil` is invalid). A zero value for
+    ///      either bound disables that bound.
+    ///
+    /// @param validAfter Lower bound timestamp (seconds), inclusive. Zero disables the lower bound.
+    /// @param validUntil Upper bound timestamp (seconds), exclusive. Zero disables the upper bound.
     function _checkValidityWindow(uint40 validAfter, uint40 validUntil) internal view {
         uint40 currentTimestamp = uint40(block.timestamp);
         if (validAfter != 0 && currentTimestamp < validAfter) revert BeforeValidAfter(currentTimestamp, validAfter);
