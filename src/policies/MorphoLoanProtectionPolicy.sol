@@ -170,6 +170,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         if (_usedPolicyId[policyId]) revert PolicyAlreadyUsed(policyId);
+        _usedPolicyId[policyId] = true;
 
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
@@ -178,8 +179,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (topUpAssets == 0) revert ZeroAmount();
         if (topUpAssets > config.maxTopUpAssets) revert TopUpAboveMax(topUpAssets, config.maxTopUpAssets);
         _enforceTriggerLtv(config, marketParams, aoaConfig.account);
-
-        _usedPolicyId[policyId] = true;
 
         // Build wallet call plan:
         // - approve(collateralToken, morpho, amount)

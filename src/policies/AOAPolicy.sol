@@ -396,6 +396,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         address caller
     ) internal {
         _requireUnusedNonce(policyId, aoaExecutionData.nonce);
+        _markNonceUsed(policyId, aoaExecutionData.nonce);
+
         if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
             revert SignatureExpired(block.timestamp, aoaExecutionData.deadline);
         }
@@ -408,7 +410,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         );
 
         if (!_isValidExecutorSig(executor, digest, aoaExecutionData.signature)) revert Unauthorized(caller);
-        _markNonceUsed(policyId, aoaExecutionData.nonce);
     }
 }
 
