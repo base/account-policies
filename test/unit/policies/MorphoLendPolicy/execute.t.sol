@@ -139,4 +139,46 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
         vm.prank(executor);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
+
+    /// @notice Deposits succeed when the policy binding has a non-zero validUntil.
+    ///
+    /// @dev Covers the `validUntil != 0` path in `_getValidityWindowAsLimitBounds`, where
+    ///      `end = uint48(validUntil)` instead of `type(uint48).max`.
+    ///
+    /// @param depositAssets Amount of underlying assets to deposit.
+    /// @param nonce Executor-chosen nonce.
+    /// @param validUntil Fuzzed non-zero expiry timestamp, bounded to be in the future.
+    /// @param salt Fuzzed salt for deriving a unique policyId.
+    function test_depositsIntoVault_withNonZeroValidUntil(
+        uint256 depositAssets,
+        uint256 nonce,
+        uint40 validUntil,
+        uint256 salt
+    ) public {
+        depositAssets = bound(depositAssets, 1, MAX_DEPOSIT);
+        validUntil = uint40(bound(validUntil, block.timestamp + 1, type(uint40).max));
+        loanToken.mint(address(account), depositAssets);
+
+        PolicyManager.PolicyBinding memory altBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: validUntil,
+            salt: salt,
+            policyConfigHash: keccak256(policyConfig)
+        });
+        bytes memory userSig = _signInstall(altBinding);
+        policyManager.installWithSignature(altBinding, policyConfig, userSig, bytes(""));
+
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: depositAssets});
+        bytes32 altPolicyId = policyManager.getPolicyId(altBinding);
+        bytes memory executionData = _encodePolicyDataWithSig(altBinding, ld, nonce, 0);
+
+        uint256 vaultBalanceBefore = loanToken.balanceOf(address(vault));
+
+        vm.prank(executor);
+        policyManager.execute(address(policy), altPolicyId, policyConfig, executionData);
+
+        assertEq(loanToken.balanceOf(address(vault)), vaultBalanceBefore + depositAssets);
+    }
 }
