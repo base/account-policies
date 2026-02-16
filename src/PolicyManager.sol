@@ -799,7 +799,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Installs a policy instance while invoking the replacement-aware policy hook.
     ///
     /// @dev Mirrors `_install` semantics but calls `Policy.onReplace` with `role == NewPolicy` so the policy can
-    ///      distinguish replacement from a standalone installation.
+    ///      distinguish replacement from a standalone installation. The `effectiveCaller` passed to the hook is
+    ///      `binding.account` (not `msg.sender`) so both the old-policy uninstall and new-policy install see a
+    ///      consistent caller identity — the account that authorized the replacement.
     ///
     /// @param binding New binding to install.
     /// @param policyConfig Full config preimage bytes whose hash must match `binding.policyConfigHash`.
@@ -816,6 +818,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId
     ) internal returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
+        address account = binding.account;
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
@@ -829,22 +832,22 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
         policyRecord.installed = true;
-        policyRecord.account = binding.account;
+        policyRecord.account = account;
         policyRecord.validAfter = binding.validAfter;
         policyRecord.validUntil = binding.validUntil;
 
         Policy(binding.policy)
             .onReplace(
                 policyId,
-                binding.account,
+                account,
                 policyConfig,
                 replaceData,
                 otherPolicy,
                 otherPolicyId,
                 Policy.ReplaceRole.NewPolicy,
-                msg.sender
+                account
             );
-        emit PolicyInstalled(policyId, binding.account, binding.policy);
+        emit PolicyInstalled(policyId, account, binding.policy);
 
         return policyId;
     }

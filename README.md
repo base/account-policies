@@ -182,6 +182,36 @@ There is no universal best choice; it depends on config size, expected number of
 
 The manager stays neutral; policies decide.
 
+### Uninstall is intentionally permissionless at the manager level
+
+`PolicyManager.uninstall()` can be called by anyone. The manager does **not** gate uninstall to the account — it delegates uninstall authorization entirely to the policy's `onUninstall` hook. Policies define who (beyond the account) may trigger uninstall and under what conditions (e.g., executor signatures in AOA policies).
+
+The manager's one guarantee is that **the account can always uninstall**, even if the policy hook reverts. Non-account callers are blocked when the hook reverts; this is the escape hatch.
+
+Policy implementors must be aware: if `onUninstall` does not validate the `effectiveCaller` and does not revert for unauthorized callers, anyone will be able to uninstall that policy instance.
+
+### Execute is intentionally permissionless at the manager level
+
+`PolicyManager.execute()` can be called by anyone. Execution authorization is fully delegated to the policy's `onExecute` hook. Policies MUST enforce their own execution authorization (e.g., executor signature validation in AOA policies). A policy that does not validate the caller in `onExecute` would allow anyone to trigger execution.
+
+---
+
+## Security considerations for policy contracts
+
+### Policy contracts MUST NOT be upgradeable
+
+During execution, the `PolicyManager` calls the policy's `onExecute` hook and forwards the returned calldata to the account wallet. The PolicyManager is an execution-enabled owner of the wallet, so whatever calldata the policy returns will be executed with full account authority.
+
+If a policy contract is deployed behind an upgradeable proxy, the proxy admin could change the policy's logic after users have installed it, causing it to return arbitrary calldata — potentially removing wallet owners, adding new owners, upgrading the wallet, or transferring funds.
+
+**Policy contracts must be non-upgradeable.** Account holders should verify that any policy they install is not deployed behind a proxy before authorizing installation.
+
+### Install signatures do not bind to execution data
+
+The `installWithSignature` convenience allows a relayer to atomically install a policy and trigger an execution. However, the account's install signature authorizes only the binding, not the execution data. The same install signature can be re-submitted with different execution data to trigger additional executions after the install becomes a no-op.
+
+This is safe only if the policy independently authorizes each execution (as AOA policies do via executor signatures with per-execution nonces). Policy implementors must not rely on the install signature as proof of execution authorization.
+
 ---
 
 ## Notes on policy implementation
