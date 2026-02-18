@@ -34,7 +34,7 @@ Because the vault pulls exactly `depositAssets` via `transferFrom`, the ERC-20 a
 
 ```
 abi.encode(
-  AOAConfig({ account, executor }),
+  AOAConfig({ executor }),
   abi.encode(LendPolicyConfig({ vault, depositLimit }))
 )
 ```

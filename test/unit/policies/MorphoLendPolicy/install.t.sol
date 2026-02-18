@@ -34,7 +34,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
             })
         );
         bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -70,7 +70,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
             })
         );
         bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),

@@ -127,7 +127,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @inheritdoc AOAPolicy
     ///
     /// @dev Validates config, enforces one-policy-per-market, and stores market linkage for uninstall.
-    function _onAOAInstall(bytes32 policyId, AOAConfig memory aoaConfig, bytes memory policySpecificConfig)
+    function _onAOAInstall(bytes32 policyId, address account, AOAConfig memory, bytes memory policySpecificConfig)
         internal
         override
     {
@@ -140,10 +140,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(config.marketId);
-        if (_activePolicyByMarket[aoaConfig.account][marketKey] != bytes32(0)) {
-            revert PolicyAlreadyInstalledForMarket(aoaConfig.account, config.marketId);
+        if (_activePolicyByMarket[account][marketKey] != bytes32(0)) {
+            revert PolicyAlreadyInstalledForMarket(account, config.marketId);
         }
-        _activePolicyByMarket[aoaConfig.account][marketKey] = policyId;
+        _activePolicyByMarket[account][marketKey] = policyId;
         _marketKeyByPolicyId[policyId] = marketKey;
     }
 
@@ -172,7 +172,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @dev Executes a collateral top-up once, enforcing trigger LTV and one-shot semantics.
     function _onAOAExecute(
         bytes32 policyId,
-        AOAConfig memory aoaConfig,
+        address account,
+        AOAConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
@@ -191,7 +192,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (topUpAssets > config.maxTopUpAssets) revert TopUpAboveMax(topUpAssets, config.maxTopUpAssets);
 
         // Enforce LTV trigger: revert if the position is healthy (below threshold).
-        uint256 currentLtv = _computeCurrentLtv(config, marketParams, aoaConfig.account);
+        uint256 currentLtv = _computeCurrentLtv(config, marketParams, account);
         if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
 
         // Build wallet call plan: approve collateral token spend, then supply collateral to Morpho.
@@ -205,7 +206,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             target: morpho,
             value: 0,
             data: abi.encodeWithSelector(
-                IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, aoaConfig.account, bytes("")
+                IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, account, bytes("")
             )
         });
 

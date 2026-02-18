@@ -31,7 +31,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: Id.wrap(bytes32(0)), triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -48,7 +48,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 0
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -70,7 +70,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: badMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -89,7 +89,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 

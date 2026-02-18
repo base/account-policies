@@ -105,7 +105,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
             })
         );
         policyConfig =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),

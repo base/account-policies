@@ -28,7 +28,7 @@ AOA owns the internal hook implementations and enforces canonical ABI encoding.
 
 AOA policies commit to:
 
-`policyConfig = abi.encode(AOAConfig{ account, executor }, bytes policySpecificConfig)`
+`policyConfig = abi.encode(AOAConfig{ executor }, bytes policySpecificConfig)`
 
 The manager binds a policy instance to `policyConfigHash = keccak256(policyConfig)` at install time (and requires the
 full config preimage for pre-install uninstallation).

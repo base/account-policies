@@ -52,7 +52,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -100,7 +100,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),

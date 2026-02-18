@@ -18,36 +18,13 @@ contract InstallTest is AOAPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the AOAConfig account does not match the expected account.
-    ///
-    /// @param salt Salt for deriving a unique policyId.
-    /// @param wrongAccount Address that differs from the binding's account.
-    /// @param policySpecificConfig Arbitrary policy-specific config bytes.
-    function test_reverts_whenAOAConfigAccountMismatch(
-        uint256 salt,
-        address wrongAccount,
-        bytes calldata policySpecificConfig
-    ) public {
-        vm.assume(wrongAccount != address(account));
-
-        bytes memory badConfig =
-            abi.encode(AOAPolicy.AOAConfig({account: wrongAccount, executor: executor}), policySpecificConfig);
-        PolicyManager.PolicyBinding memory b = _binding(badConfig, salt);
-        bytes memory userSig = _signInstall(b);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(AOAPolicy.InvalidAOAConfigAccount.selector, wrongAccount, address(account))
-        );
-        policyManager.installWithSignature(b, badConfig, userSig, bytes(""));
-    }
-
     /// @notice Reverts when the AOAConfig executor is the zero address.
     ///
     /// @param salt Salt for deriving a unique policyId.
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_reverts_whenExecutorIsZeroAddress(uint256 salt, bytes calldata policySpecificConfig) public {
         bytes memory badConfig =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: address(0)}), policySpecificConfig);
+            abi.encode(AOAPolicy.AOAConfig({executor: address(0)}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(badConfig, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -65,7 +42,7 @@ contract InstallTest is AOAPolicyTestBase {
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_storesConfigHash(uint256 salt, bytes calldata policySpecificConfig) public {
         bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(config, salt);
         bytes memory userSig = _signInstall(b);
         policyManager.installWithSignature(b, config, userSig, bytes(""));

@@ -24,13 +24,13 @@ contract AOATestPolicy is AOAPolicy {
 
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _onAOAExecute(bytes32 policyId, AOAConfig memory aoaConfig, bytes memory, bytes memory actionData)
+    function _onAOAExecute(bytes32 policyId, address account, AOAConfig memory aoaConfig, bytes memory, bytes memory actionData)
         internal
         override
         returns (bytes memory, bytes memory)
     {
         lastExecutePolicyId = policyId;
-        lastExecuteAccount = aoaConfig.account;
+        lastExecuteAccount = account;
         lastExecuteExecutor = aoaConfig.executor;
         lastActionData = actionData;
         executeCalls++;
@@ -92,7 +92,7 @@ abstract contract AOAPolicyTestBase is Test {
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
-        policyConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), bytes(""));
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), bytes(""));
         binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),

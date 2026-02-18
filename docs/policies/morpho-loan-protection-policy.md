@@ -34,7 +34,7 @@ Executions top up collateral by a requested amount `topUpAssets`, but only when:
 
 ```
 abi.encode(
-  AOAConfig({ account, executor }),
+  AOAConfig({ executor }),
   abi.encode(LoanProtectionPolicyConfig({
     marketId,
     triggerLtv,

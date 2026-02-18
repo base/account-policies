@@ -40,7 +40,7 @@ contract ExecuteTest is AOAPolicyTestBase {
     function test_reverts_whenConfigHashMismatch(bytes calldata configSuffix, bytes calldata executionData) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory wrongConfig =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), configSuffix);
+            abi.encode(AOAPolicy.AOAConfig({executor: executor}), configSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
 
         vm.expectRevert(

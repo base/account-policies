@@ -123,7 +123,7 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @inheritdoc AOAPolicy
     ///
     /// @dev Validates Morpho vault config at install time.
-    function _onAOAInstall(bytes32, AOAConfig memory, bytes memory policySpecificConfig) internal override {
+    function _onAOAInstall(bytes32, address, AOAConfig memory, bytes memory policySpecificConfig) internal override {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
     }
@@ -133,7 +133,8 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @dev Executes a Morpho vault deposit, enforcing recurring allowance bounds.
     function _onAOAExecute(
         bytes32 policyId,
-        AOAConfig memory aoaConfig,
+        address account,
+        AOAConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
@@ -163,7 +164,7 @@ contract MorphoLendPolicy is AOAPolicy {
         calls[1] = CoinbaseSmartWallet.Call({
             target: vault,
             value: 0,
-            data: abi.encodeWithSelector(IMorphoVault.deposit.selector, lendData.depositAssets, aoaConfig.account)
+            data: abi.encodeWithSelector(IMorphoVault.deposit.selector, lendData.depositAssets, account)
         });
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
 
