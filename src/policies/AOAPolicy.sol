@@ -50,6 +50,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
 
     /// @notice Tracks used nonces per policyId to prevent replay of executor-signed executions.
+    /// @review consider 2d nonce for better median gas efficiency
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
     /// @notice EIP-712 typehash for executor-signed execution intents.
