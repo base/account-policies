@@ -30,8 +30,8 @@ AOA policies commit to:
 
 `policyConfig = abi.encode(AOAConfig{ executor }, bytes policySpecificConfig)`
 
-The manager binds a policy instance to `policyConfigHash = keccak256(policyConfig)` at install time (and requires the
-full config preimage for pre-install uninstallation).
+The manager binds a policy instance to this config at install time (embedded in the `PolicyBinding`). AOA policies
+store a hash of the config and require the full preimage on each execution.
 
 ### `executionData` (per execution)
 
@@ -67,7 +67,7 @@ Common binding properties (policy-defined, but usually includes):
 
 - `policyId` (binds to a specific installed instance)
 - `account` (binds to a specific account)
-- `policyConfigHash` (binds to the committed config)
+- `policyConfigHash` (binds to the committed config, stored at install time)
 - a hash of the action payload (binds to the specific intent)
 
 Signature verification is done through the manager’s ERC-6492-capable validator, allowing:

@@ -59,10 +59,10 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: newSalt,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes memory userSig = _signInstall(newBinding);
-        policyManager.installWithSignature(newBinding, newConfig, userSig, bytes(""));
+        policyManager.installWithSignature(newBinding, userSig, bytes(""));
 
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         assertTrue(newPolicyId != policyId);
@@ -107,10 +107,10 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: newSalt,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes memory userSig = _signInstall(newBinding);
-        policyManager.installWithSignature(newBinding, newConfig, userSig, bytes(""));
+        policyManager.installWithSignature(newBinding, userSig, bytes(""));
     }
 
     // =============================================================

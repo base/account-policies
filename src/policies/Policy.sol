@@ -75,7 +75,7 @@ abstract contract Policy {
     /// @dev MUST revert if the policy refuses the installation.
     ///
     /// `policyId` is the EIP-712 struct hash of `binding` as computed by `PolicyManager`.
-    /// `policyConfig` is the full config preimage bytes that match `binding.policyConfigHash`.
+    /// `policyConfig` is the config bytes from the binding.
     ///
     /// @param policyId Deterministic policy identifier derived from the binding.
     /// @param account Account that installed the policy.

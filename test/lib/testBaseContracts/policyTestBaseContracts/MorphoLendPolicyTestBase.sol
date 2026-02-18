@@ -66,8 +66,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: uint160(1_000_000 ether), period: 1 days})
             })
         );
-        policyConfig =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -75,11 +74,11 @@ abstract contract MorphoLendPolicyTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: 0,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)
@@ -136,7 +135,9 @@ abstract contract MorphoLendPolicyTestBase is Test {
         bytes32 actionDataHash = keccak256(actionData);
         bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
         bytes32 structHash = keccak256(
-            abi.encode(EXECUTION_TYPEHASH, policyId, binding_.account, binding_.policyConfigHash, executionDataHash)
+            abi.encode(
+                EXECUTION_TYPEHASH, policyId, binding_.account, keccak256(binding_.policyConfig), executionDataHash
+            )
         );
         return _hashTypedData(address(policy), "Morpho Lend Policy", "1", structHash);
     }

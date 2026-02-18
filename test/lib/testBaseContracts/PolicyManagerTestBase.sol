@@ -62,7 +62,7 @@ abstract contract PolicyManagerTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
     }
 

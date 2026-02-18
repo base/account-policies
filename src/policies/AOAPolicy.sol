@@ -313,10 +313,12 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @notice Policy-specific install hook for AOA policies.
     ///
     /// @dev Override to initialize per-policy state.
-    function _onAOAInstall(bytes32 policyId, address account, AOAConfig memory aoaConfig, bytes memory policySpecificConfig)
-        internal
-        virtual
-    {
+    function _onAOAInstall(
+        bytes32 policyId,
+        address account,
+        AOAConfig memory aoaConfig,
+        bytes memory policySpecificConfig
+    ) internal virtual {
         policyId;
         account;
         aoaConfig;

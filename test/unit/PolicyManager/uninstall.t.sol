@@ -43,11 +43,11 @@ contract UninstallTest is PolicyManagerTestBase {
             validAfter: validAfter,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         vm.prank(address(account));
-        policyId = policyManager.install(binding, policyConfig);
+        policyId = policyManager.install(binding);
     }
 
     /// @notice Installs `policyContract` for `account` with the given config.
@@ -69,11 +69,11 @@ contract UninstallTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         vm.prank(address(account));
-        policyId = policyManager.install(binding, policyConfig);
+        policyId = policyManager.install(binding);
     }
 
     // =============================================================
@@ -90,12 +90,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(0),
             policyId: bytes32(policyIdUint),
@@ -117,12 +112,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: policy,
             policyId: bytes32(0),
@@ -145,12 +135,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(callPolicy),
             policyId: policyId,
@@ -166,50 +151,13 @@ contract UninstallTest is PolicyManagerTestBase {
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.
     function test_reverts_bindingMode_preInstall_whenPolicyConfigEmpty() public {
-        bytes memory policyConfig = abi.encode(bytes32("config"));
-        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, 1);
+        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), bytes(""), 1);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: "", uninstallData: ""
         });
 
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
-        policyManager.uninstall(payload);
-    }
-
-    /// @notice Reverts in binding-mode (pre-install) when `policyConfig` hash does not match the binding commitment.
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param realConfigSeed Seed used to build the binding's committed config (hashed into policyConfigHash).
-    /// @param mismatchConfigSeed Seed used to build mismatched config bytes.
-    /// @param salt Salt used to build the binding.
-    /// @param flipByteIndex Index of byte to flip when seeds produce matching hashes (ensures mismatch).
-    function test_reverts_bindingMode_preInstall_whenPolicyConfigHashMismatch(
-        bytes32 realConfigSeed,
-        bytes32 mismatchConfigSeed,
-        uint256 salt,
-        uint256 flipByteIndex
-    ) public {
-        bytes memory realConfig = abi.encode(realConfigSeed);
-        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), realConfig, salt);
-
-        bytes memory policyConfig = abi.encode(mismatchConfigSeed);
-        if (keccak256(policyConfig) == binding.policyConfigHash) {
-            policyConfig = abi.encode(mismatchConfigSeed);
-            uint256 idx = flipByteIndex % policyConfig.length;
-            policyConfig[idx] = bytes1(uint8(policyConfig[idx]) ^ 0x01);
-        }
-
-        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
-            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
-        });
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(policyConfig), binding.policyConfigHash
-            )
-        );
         policyManager.uninstall(payload);
     }
 
@@ -231,12 +179,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(revertPolicy),
             policyId: policyId,
@@ -262,12 +205,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(callPolicy),
             policyId: policyId,
@@ -388,12 +326,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(callPolicy),
             policyId: policyId,
@@ -421,12 +354,7 @@ contract UninstallTest is PolicyManagerTestBase {
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(revertPolicy),
             policyId: policyId,
@@ -449,7 +377,7 @@ contract UninstallTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
 
         vm.prank(address(account));
-        bytes32 policyId = policyManager.install(binding, policyConfig);
+        bytes32 policyId = policyManager.install(binding);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""

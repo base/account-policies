@@ -37,11 +37,11 @@ contract GettersTest is PolicyManagerTestBase {
             validAfter: validAfter,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         vm.prank(address(account));
-        policyId = policyManager.install(binding, policyConfig);
+        policyId = policyManager.install(binding);
     }
 
     /// @notice Uninstalls a policyId-mode installed binding via the account.
@@ -264,14 +264,14 @@ contract GettersTest is PolicyManagerTestBase {
         assertTrue(policyIdA != policyIdB);
     }
 
-    /// @notice Changing `policyConfigHash` changes the policyId.
-    function test_getPolicyId_changesWithPolicyConfigHash(bytes32 policyConfigHashA, bytes32 policyConfigHashB) public {
-        if (policyConfigHashB == policyConfigHashA) policyConfigHashB = policyConfigHashA ^ bytes32(uint256(1));
+    /// @notice Changing `policyConfig` changes the policyId.
+    function test_getPolicyId_changesWithPolicyConfig(bytes32 policyConfigSeedA, bytes32 policyConfigSeedB) public {
+        if (policyConfigSeedB == policyConfigSeedA) policyConfigSeedB = policyConfigSeedA ^ bytes32(uint256(1));
 
         PolicyManager.PolicyBinding memory bindingA = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(callPolicy),
-            policyConfigHash: policyConfigHashA,
+            policyConfig: abi.encode(policyConfigSeedA),
             validAfter: 0,
             validUntil: 0,
             salt: 0
@@ -279,7 +279,7 @@ contract GettersTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory bindingB = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(callPolicy),
-            policyConfigHash: policyConfigHashB,
+            policyConfig: abi.encode(policyConfigSeedB),
             validAfter: 0,
             validUntil: 0,
             salt: 0
@@ -297,7 +297,7 @@ contract GettersTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory bindingA = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(callPolicy),
-            policyConfigHash: bytes32(0),
+            policyConfig: bytes(""),
             validAfter: validAfter,
             validUntil: validUntil,
             salt: 0
@@ -305,7 +305,7 @@ contract GettersTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory bindingB = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(callPolicy),
-            policyConfigHash: bytes32(0),
+            policyConfig: bytes(""),
             validAfter: validAfterB,
             validUntil: validUntil,
             salt: 0
@@ -321,7 +321,7 @@ contract GettersTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(callPolicy),
-            policyConfigHash: bytes32(uint256(1)),
+            policyConfig: abi.encode(bytes32(uint256(1))),
             validAfter: 2,
             validUntil: 3,
             salt: 4
@@ -332,7 +332,7 @@ contract GettersTest is PolicyManagerTestBase {
                 policyManager.POLICY_BINDING_TYPEHASH(),
                 binding.account,
                 binding.policy,
-                binding.policyConfigHash,
+                keccak256(binding.policyConfig),
                 binding.validAfter,
                 binding.validUntil,
                 binding.salt

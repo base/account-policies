@@ -23,13 +23,12 @@ contract InstallTest is AOAPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_reverts_whenExecutorIsZeroAddress(uint256 salt, bytes calldata policySpecificConfig) public {
-        bytes memory badConfig =
-            abi.encode(AOAPolicy.AOAConfig({executor: address(0)}), policySpecificConfig);
+        bytes memory badConfig = abi.encode(AOAPolicy.AOAConfig({executor: address(0)}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(badConfig, salt);
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(AOAPolicy.ZeroExecutor.selector);
-        policyManager.installWithSignature(b, badConfig, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     // =============================================================
@@ -41,11 +40,10 @@ contract InstallTest is AOAPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_storesConfigHash(uint256 salt, bytes calldata policySpecificConfig) public {
-        bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(config, salt);
         bytes memory userSig = _signInstall(b);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
 
         bytes32 policyId = policyManager.getPolicyId(b);
         assertEq(policy.getConfigHash(policyId), keccak256(config));

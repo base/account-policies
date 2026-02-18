@@ -165,10 +165,10 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
             validAfter: 0,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
         bytes memory userSig = _signInstall(altBinding);
-        policyManager.installWithSignature(altBinding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(altBinding, userSig, bytes(""));
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: depositAssets});
         bytes32 altPolicyId = policyManager.getPolicyId(altBinding);

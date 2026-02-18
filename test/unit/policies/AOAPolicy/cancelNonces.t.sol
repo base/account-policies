@@ -25,8 +25,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
     /// @param wrongConfigSuffix Arbitrary bytes that produce a different config hash.
     function test_reverts_whenConfigHashMismatch(bytes calldata wrongConfigSuffix) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory wrongConfig =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), wrongConfigSuffix);
+        bytes memory wrongConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), wrongConfigSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
 
         uint256[] memory nonces = new uint256[](1);

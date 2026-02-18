@@ -33,8 +33,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: period})
             })
         );
-        bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -42,12 +41,12 @@ contract InstallTest is MorphoLendPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(config)
+            policyConfig: config
         });
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLendPolicy.ZeroVault.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     // =============================================================
@@ -69,8 +68,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: period})
             })
         );
-        bytes memory config =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -78,10 +76,10 @@ contract InstallTest is MorphoLendPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(config)
+            policyConfig: config
         });
         bytes memory userSig = _signInstall(b);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
 
         bytes32 policyId = policyManager.getPolicyId(b);
         // getDepositLimitPeriodUsage calls _requireConfigHash internally — success proves the hash was stored

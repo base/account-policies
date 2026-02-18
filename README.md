@@ -37,7 +37,7 @@ A **policy instance** is a specific authorization of a specific policy contract 
 PolicyBinding {
   account,
   policy,
-  policyConfigHash,
+  policyConfig,
   validAfter,
   validUntil,
   salt
@@ -50,7 +50,7 @@ PolicyBinding {
 
 ### Config and execution payloads
 
-* **`policyConfig`**: opaque config bytes (preimage), decoded in the context of a specific policy. The manager authenticates it at install time (and for pre-install uninstallation) via `keccak256(policyConfig) == policyConfigHash`.  
+* **`policyConfig`**: opaque config bytes embedded directly in the binding, decoded in the context of a specific policy. The EIP-712 encoding hashes this field (`keccak256(policyConfig)`) per the standard rules for dynamic `bytes` types.  
 * **`executionData`**: opaque per-execution payload bytes. Policies interpret and authenticate these.
 * **`uninstallData`**: optional opaque bytes passed to policy uninstall hooks for policy-defined authorization (e.g., executor signatures). This can be empty when not needed.
 
@@ -119,7 +119,6 @@ Uninstallation can also be used to revoke (permanently disable) an installation 
 In binding-mode (when the instance is not installed yet), the manager:
 
 * computes `policyId = hash(binding)`  
-* verifies `keccak256(policyConfig) == binding.policyConfigHash`  
 * calls `policy.onUninstall(...)` for policy-defined authorization  
 * permanently disables the `policyId` and emits the uninstall event
 

@@ -78,11 +78,11 @@ contract ExecuteTest is PolicyManagerTestBase {
             validAfter: validAfter,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         vm.prank(address(account));
-        policyId = policyManager.install(binding, policyConfig);
+        policyId = policyManager.install(binding);
     }
 
     // =============================================================

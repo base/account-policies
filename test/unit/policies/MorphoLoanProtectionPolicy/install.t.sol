@@ -36,7 +36,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroMarketId.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when maxTopUpAssets is zero.
@@ -53,7 +53,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroAmount.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when the Morpho market for the given marketId is not found or not initialized.
@@ -75,7 +75,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, badMarketId));
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when a policy is already installed for the same (account, marketId) pair.
@@ -98,7 +98,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 MorphoLoanProtectionPolicy.PolicyAlreadyInstalledForMarket.selector, address(account), marketId
             )
         );
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     // =============================================================
@@ -136,7 +136,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(config)
+            policyConfig: config
         });
     }
 }

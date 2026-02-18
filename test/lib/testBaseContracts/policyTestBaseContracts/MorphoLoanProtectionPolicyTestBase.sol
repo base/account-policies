@@ -104,8 +104,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        policyConfig =
-            abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -113,11 +112,11 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: 0,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)

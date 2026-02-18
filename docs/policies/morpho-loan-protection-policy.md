@@ -57,7 +57,7 @@ At execution time it enforces:
 - **Executor authorization**: validates an executor signature over a typed intent binding:
   - `policyId`
   - `account`
-  - the committed config hash (`policyConfigHash`)
+  - the committed config hash (`policyConfigHash` (stored at install time))
   - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
 - **Replay protection**: per-`policyId` nonce tracking at the AOA layer.
 - **Signature expiry**: optional `deadline` in the AOA execution envelope (`AOAExecutionData.deadline`).

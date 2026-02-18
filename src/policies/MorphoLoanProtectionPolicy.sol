@@ -48,7 +48,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Morpho Blue singleton contract address. 
+    /// @notice Morpho Blue singleton contract address.
     address public immutable morpho;
 
     /// @notice Tracks one active policy per (account, marketId).
@@ -186,14 +186,16 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         MarketParams memory marketParams = _requireMarketParams(config.marketId);
 
         // Validate top-up amount and enforce LTV trigger.
-        TopUpData memory topUp = abi.decode(actionData, (TopUpData));
-        uint256 topUpAssets = topUp.topUpAssets;
-        if (topUpAssets == 0) revert ZeroAmount();
-        if (topUpAssets > config.maxTopUpAssets) revert TopUpAboveMax(topUpAssets, config.maxTopUpAssets);
+        uint256 topUpAssets;
+        {
+            TopUpData memory topUp = abi.decode(actionData, (TopUpData));
+            topUpAssets = topUp.topUpAssets;
+            if (topUpAssets == 0) revert ZeroAmount();
+            if (topUpAssets > config.maxTopUpAssets) revert TopUpAboveMax(topUpAssets, config.maxTopUpAssets);
 
-        // Enforce LTV trigger: revert if the position is healthy (below threshold).
-        uint256 currentLtv = _computeCurrentLtv(config, marketParams, account);
-        if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
+            uint256 currentLtv = _computeCurrentLtv(config, marketParams, account);
+            if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
+        }
 
         // Build wallet call plan: approve collateral token spend, then supply collateral to Morpho.
         CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);

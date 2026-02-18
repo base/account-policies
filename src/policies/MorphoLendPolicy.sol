@@ -94,7 +94,7 @@ contract MorphoLendPolicy is AOAPolicy {
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
     {
         _requireConfigHash(policyId, policyConfig);
-        (, bytes memory policySpecificConfig) = _decodeAOAConfig(account, policyConfig);
+        (, bytes memory policySpecificConfig) = _decodeAOAConfig(policyConfig);
 
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);

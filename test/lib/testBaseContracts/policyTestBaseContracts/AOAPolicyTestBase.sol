@@ -24,11 +24,13 @@ contract AOATestPolicy is AOAPolicy {
 
     constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
 
-    function _onAOAExecute(bytes32 policyId, address account, AOAConfig memory aoaConfig, bytes memory, bytes memory actionData)
-        internal
-        override
-        returns (bytes memory, bytes memory)
-    {
+    function _onAOAExecute(
+        bytes32 policyId,
+        address account,
+        AOAConfig memory aoaConfig,
+        bytes memory,
+        bytes memory actionData
+    ) internal override returns (bytes memory, bytes memory) {
         lastExecutePolicyId = policyId;
         lastExecuteAccount = account;
         lastExecuteExecutor = aoaConfig.executor;
@@ -99,11 +101,11 @@ abstract contract AOAPolicyTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: 0,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @dev Builds a binding for the default account + policy using given config and salt.
@@ -114,7 +116,7 @@ abstract contract AOAPolicyTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(config)
+            policyConfig: config
         });
     }
 
