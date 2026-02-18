@@ -40,6 +40,31 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
     // Reverts
     // =============================================================
 
+    /// @notice Reverts when the policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`. Signature is valid but the policy address is an EOA.
+    ///
+    /// @param policy Fuzzed address with no code.
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_whenPolicyNotContract(address policy, uint256 salt) public {
+        vm.assume(policy != address(0));
+        vm.assume(policy.code.length == 0);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: policy,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+        bytes memory userSig = _signInstall(binding);
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
+    }
+
     /// @notice Reverts when the account signature is invalid.
     ///
     /// @dev Expects `PolicyManager.InvalidSignature`.
