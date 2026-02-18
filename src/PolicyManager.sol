@@ -581,12 +581,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata executionData
     ) internal returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
+
+        // Check signature
         bytes32 digest = _hashTypedData(policyId);
         _requireValidAccountSig(binding.account, digest, userSig);
 
+        // Install policy
         _install(binding, policyConfig);
 
         if (executionData.length == 0) return policyId;
+
+        /// @review I feel like I only want to see _execute() called after the early return. If we can't do that, I feel like we could massage our internal abstractions a bit to make it so.
 
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != binding.policyConfigHash) {
@@ -624,10 +629,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         PolicyBinding calldata newBinding,
         bytes calldata newPolicyConfig
     ) internal returns (bytes32 newPolicyId) {
+        // Check non-zero policy contracts
         if (oldPolicy == address(0) || newBinding.policy == address(0)) {
             revert InvalidPayload();
         }
 
+        // Check policyId is not the same
         newPolicyId = getPolicyId(newBinding);
         if (newPolicyId == oldPolicyId) revert InvalidPayload();
 
@@ -693,6 +700,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
 
+    /// @review Natspec
+    /// @review Gut says this function is too big, can we slim down even if less gas efficient somehow?
     function _uninstall(UninstallPayload calldata payload, address effectiveCaller)
         internal
         returns (bytes32 policyId)
