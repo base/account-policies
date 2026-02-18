@@ -252,6 +252,7 @@ abstract contract Policy {
     }
 
     /// @dev Replacement router. Prefer overriding `_onUninstallForReplace` and/or `_onInstallForReplace` instead.
+    /// @review if this isn't virtual, then add to onReplace external?
     function _onReplace(
         bytes32 policyId,
         address account,
