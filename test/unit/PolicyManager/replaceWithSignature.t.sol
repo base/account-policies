@@ -81,11 +81,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: validAfter,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         vm.prank(address(account));
-        policyId = policyManager.install(binding, policyConfig);
+        policyId = policyManager.install(binding);
     }
 
     /// @notice Performs a replacement via direct account call (no signature).
@@ -93,24 +93,19 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     /// @param oldPolicy Old policy contract address.
     /// @param oldPolicyId Old policy identifier.
     /// @param oldPolicyConfig Old policy config bytes.
-    /// @param newBinding New policy binding.
-    /// @param newPolicyConfig New policy config bytes.
+    /// @param newBinding New policy binding (carries its own policyConfig).
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
     function _replaceViaAccount(
         address oldPolicy,
         bytes32 oldPolicyId,
         bytes memory oldPolicyConfig,
-        PolicyManager.PolicyBinding memory newBinding,
-        bytes memory newPolicyConfig
+        PolicyManager.PolicyBinding memory newBinding
     ) internal returns (bytes32 newPolicyId) {
-        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: oldPolicy,
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newPolicyConfig
-        });
+        PolicyManager.ReplacePayload memory payload =
+            PolicyManager.ReplacePayload({
+                oldPolicy: oldPolicy, oldPolicyId: oldPolicyId, oldPolicyConfig: oldPolicyConfig, newBinding: newBinding
+            });
         vm.prank(newBinding.account);
         return policyManager.replace(payload);
     }
@@ -130,11 +125,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(0), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(0),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: "",
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            oldPolicy: address(0), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
         });
 
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
@@ -163,8 +154,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(configSeed),
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.DeadlineExpired.selector, uint256(nowTs), deadline));
@@ -188,8 +178,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(configSeed),
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(PolicyManager.InvalidSignature.selector);
@@ -225,11 +214,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: "",
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            oldPolicy: address(callPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotInstalled.selector, oldPolicyId));
@@ -258,11 +243,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: "",
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            oldPolicy: address(callPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, oldPolicyId));
@@ -286,10 +267,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: DEFAULT_OLD_SALT,
-            policyConfigHash: keccak256(abi.encode(bytes32(0)))
+            policyConfig: abi.encode(bytes32(0))
         });
         vm.prank(address(otherAccount));
-        bytes32 oldPolicyId = policyManager.install(oldBinding, abi.encode(bytes32(0)));
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
 
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
@@ -301,8 +282,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(bytes32(0)),
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
@@ -319,7 +299,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         vm.prank(address(account));
-        policyManager.install(newBinding, abi.encode(DEFAULT_NEW_CONFIG_SEED));
+        policyManager.install(newBinding);
 
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
@@ -328,84 +308,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, newPolicyId));
-        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
-    }
-
-    /// @notice Reverts when `executionData` is provided but the new config does not match the binding.
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param configSeed Seed for config; bounded to exclude 1 so hash differs from binding.
-    function test_reverts_whenExecutionDataProvided_andNewPolicyConfigHashMismatch(uint256 configSeed) public {
-        configSeed = bound(configSeed, 2, type(uint256).max);
-        bytes memory newPolicyConfig = abi.encode(configSeed);
-
-        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
-            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
-        PolicyManager.PolicyBinding memory newBinding =
-            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
-        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
-
-        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newPolicyConfig
-        });
-
-        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
-            target: address(receiver),
-            value: 0,
-            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
-            revertOnExecute: false,
-            postAction: CallForwardingPolicy.PostAction.None
-        });
-        bytes memory executionData = abi.encode(f);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(newPolicyConfig), newBinding.policyConfigHash
-            )
-        );
-        policyManager.replaceWithSignature(payload, userSig, 0, executionData);
-    }
-
-    /// @notice Reverts when `newPolicyConfig` hash does not match `newBinding.policyConfigHash` (during replacement).
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param configSeed Seed for config; bounded to exclude 1 so hash differs from binding.
-    function test_reverts_whenNewPolicyConfigHashMismatch(uint256 configSeed) public {
-        configSeed = bound(configSeed, 2, type(uint256).max);
-        bytes memory newPolicyConfig = abi.encode(configSeed);
-
-        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
-            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
-        PolicyManager.PolicyBinding memory newBinding =
-            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
-        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
-
-        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newPolicyConfig
-        });
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(newPolicyConfig), newBinding.policyConfigHash
-            )
-        );
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
@@ -432,7 +338,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: validAfter,
             validUntil: 0,
             salt: DEFAULT_NEW_SALT,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
@@ -441,8 +347,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newConfig
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, uint40(nowTs), validAfter));
@@ -462,14 +367,13 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: DEFAULT_NEW_SALT,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newConfig
+            newBinding: newBinding
         });
 
         vm.expectRevert(RevertOnReplacePolicy.OnReplaceReverted.selector);
@@ -505,8 +409,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, newPolicyId));
@@ -537,12 +440,12 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: validUntil,
             salt: DEFAULT_NEW_SALT,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
 
-        _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding, newConfig);
+        _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
         vm.warp(uint256(validUntil));
 
@@ -550,8 +453,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newConfig
+            newBinding: newBinding
         });
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
@@ -579,8 +481,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
@@ -619,8 +520,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(RevertingReceiver.ReceiverReverted.selector);
@@ -649,8 +549,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(CallForwardingPolicy.PostCallReverted.selector, newPolicyId));
@@ -676,8 +575,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectEmit(true, true, true, true, address(policyManager));
@@ -700,8 +598,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectEmit(true, true, true, true, address(policyManager));
@@ -724,8 +621,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectEmit(true, true, true, true, address(policyManager));
@@ -746,10 +642,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: DEFAULT_OLD_SALT,
-            policyConfigHash: keccak256(oldConfig)
+            policyConfig: oldConfig
         });
         vm.prank(address(account));
-        bytes32 oldPolicyId = policyManager.install(oldBinding, oldConfig);
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
 
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
@@ -757,11 +653,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(oldPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
         });
 
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
@@ -782,7 +674,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: DEFAULT_NEW_SALT,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
@@ -791,8 +683,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: newConfig
+            newBinding: newBinding
         });
 
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
@@ -811,10 +702,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: DEFAULT_OLD_SALT,
-            policyConfigHash: keccak256(oldConfig)
+            policyConfig: oldConfig
         });
         vm.prank(address(account));
-        bytes32 oldPolicyId = policyManager.install(oldBinding, oldConfig);
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
 
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
@@ -822,11 +713,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(oldPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
         });
 
         vm.prank(address(account));
@@ -843,17 +730,14 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
 
-        _replaceViaAccount(
-            address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding, abi.encode(DEFAULT_NEW_CONFIG_SEED)
-        );
+        _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
         vm.warp(block.timestamp + 1);
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, bytes(""));
@@ -873,8 +757,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
@@ -907,8 +790,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         policyManager.replaceWithSignature(payload, userSig, 0, executionData);
@@ -946,8 +828,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectEmit(true, true, true, true, address(policyManager));
@@ -962,9 +843,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
 
-        _replaceViaAccount(
-            address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding, abi.encode(DEFAULT_NEW_CONFIG_SEED)
-        );
+        _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(receiver),
@@ -979,61 +858,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+            newBinding: newBinding
         });
 
         vm.expectRevert(PolicyManager.InvalidSignature.selector);
         policyManager.replaceWithSignature(payload, bytes("invalid"), 0, executionData);
-    }
-
-    /// @notice When end state is already reached and execution is requested, validates the new config hash before executing.
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param mismatchConfigSeed Seed used to build a config whose hash differs from the binding commitment.
-    function test_reverts_whenEndStateAlreadyReached_andExecutionRequested_andNewPolicyConfigHashMismatch(uint256 mismatchConfigSeed)
-        public
-    {
-        mismatchConfigSeed = bound(mismatchConfigSeed, 2, type(uint256).max);
-        bytes memory mismatchedNewPolicyConfig = abi.encode(mismatchConfigSeed);
-
-        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
-            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
-        PolicyManager.PolicyBinding memory newBinding =
-            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
-        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-
-        _replaceViaAccount(
-            address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding, abi.encode(DEFAULT_NEW_CONFIG_SEED)
-        );
-
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
-
-        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
-            target: address(receiver),
-            value: 0,
-            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
-            revertOnExecute: false,
-            postAction: CallForwardingPolicy.PostAction.None
-        });
-        bytes memory executionData = abi.encode(f);
-
-        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy),
-            oldPolicyId: oldPolicyId,
-            oldPolicyConfig: oldPolicyConfig,
-            newBinding: newBinding,
-            newPolicyConfig: mismatchedNewPolicyConfig
-        });
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector,
-                keccak256(mismatchedNewPolicyConfig),
-                newBinding.policyConfigHash
-            )
-        );
-        policyManager.replaceWithSignature(payload, userSig, 0, executionData);
     }
 }

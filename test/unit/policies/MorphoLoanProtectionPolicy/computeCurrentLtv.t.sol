@@ -38,7 +38,7 @@ contract ComputeCurrentLtvTest is Test {
         testAccount = makeAddr("testAccount");
         morpho = new MockMorphoBlue();
         oracle = new MockMorphoOracle();
-        harness = new MorphoLoanProtectionHarness(address(1), address(this));
+        harness = new MorphoLoanProtectionHarness(address(1), address(this), address(morpho));
 
         marketId = Id.wrap(bytes32(uint256(1)));
         marketParams = MarketParams({
@@ -67,7 +67,7 @@ contract ComputeCurrentLtvTest is Test {
 
     function _config() internal view returns (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory) {
         return MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-            morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+            marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
         });
     }
 
@@ -266,40 +266,35 @@ contract ComputeCurrentLtvTest is Test {
     }
 
     // =============================================================
-    // _enforceTriggerLtv
+    // LTV vs trigger threshold
     // =============================================================
 
-    /// @notice enforceTriggerLtv does not revert when LTV exactly equals the trigger.
+    /// @notice LTV exactly at the trigger threshold is considered unhealthy (passes enforcement).
     ///
-    /// @dev The guard is `currentLtv < config.triggerLtv`, so equality passes.
+    /// @dev The inlined guard is `currentLtv < config.triggerLtv`, so equality passes.
     ///      With 1:1 ratio and 1e36 price: LTV = borrowShares * WAD / collateral.
     ///      70 ether * WAD / 100 ether == 0.7e18 exactly.
-    function test_enforceTriggerLtv_doesNotRevert_whenLtvEqualsTrigger() public {
+    function test_ltvAtTrigger_isConsideredUnhealthy() public {
         morpho.setPosition(
             marketId,
             testAccount,
             Position({supplyShares: 0, borrowShares: uint128(70 ether), collateral: uint128(100 ether)})
         );
 
-        harness.exposed_enforceTriggerLtv(_config(), marketParams, testAccount);
+        uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
+        assertGe(ltv, _config().triggerLtv);
     }
 
-    /// @notice enforceTriggerLtv does not revert when LTV exceeds the trigger.
-    ///
-    /// @dev Fuzzed borrowShares with collateral bounded to produce LTV >= triggerLtv.
+    /// @notice LTV above the trigger threshold is considered unhealthy (passes enforcement).
     ///
     /// @param borrowShares Fuzzed borrow shares.
     /// @param collateral Fuzzed collateral bounded to produce LTV >= triggerLtv.
-    function test_enforceTriggerLtv_doesNotRevert_whenLtvExceedsTrigger(uint128 borrowShares, uint128 collateral)
-        public
-    {
+    function test_ltvAboveTrigger_isConsideredUnhealthy(uint128 borrowShares, uint128 collateral) public {
         uint256 triggerLtv = _config().triggerLtv;
 
-        // Bound borrowShares so maxCollateral fits in uint128.
         uint256 maxBorrowShares = (uint256(type(uint128).max) * triggerLtv) / WAD;
         borrowShares = uint128(bound(borrowShares, 1, maxBorrowShares));
 
-        // collateral <= borrowShares * WAD / triggerLtv → LTV >= triggerLtv
         uint256 maxCollateral = (uint256(borrowShares) * WAD) / triggerLtv;
         collateral = uint128(bound(collateral, 1, maxCollateral));
 
@@ -307,21 +302,20 @@ contract ComputeCurrentLtvTest is Test {
             marketId, testAccount, Position({supplyShares: 0, borrowShares: borrowShares, collateral: collateral})
         );
 
-        harness.exposed_enforceTriggerLtv(_config(), marketParams, testAccount);
+        uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
+        assertGe(ltv, triggerLtv);
     }
 
-    /// @notice enforceTriggerLtv reverts when LTV is below the trigger (healthy position).
+    /// @notice LTV below the trigger threshold is considered healthy (would fail enforcement).
     ///
     /// @param borrowShares Fuzzed borrow shares.
     /// @param collateral Fuzzed collateral bounded to produce LTV < triggerLtv.
-    function test_enforceTriggerLtv_reverts_whenPositionIsHealthy(uint128 borrowShares, uint128 collateral) public {
+    function test_ltvBelowTrigger_isConsideredHealthy(uint128 borrowShares, uint128 collateral) public {
         uint256 triggerLtv = _config().triggerLtv;
 
-        // Bound borrowShares so minHealthyCollateral fits in uint128.
         uint256 maxBorrowShares = (uint256(type(uint128).max) * triggerLtv) / WAD;
         borrowShares = uint128(bound(borrowShares, 1, maxBorrowShares));
 
-        // collateral > borrowShares * WAD / triggerLtv → LTV < triggerLtv
         uint256 minHealthyCollateral = (uint256(borrowShares) * WAD) / triggerLtv + 1;
         collateral = uint128(bound(collateral, minHealthyCollateral, type(uint128).max));
 
@@ -329,11 +323,7 @@ contract ComputeCurrentLtvTest is Test {
             marketId, testAccount, Position({supplyShares: 0, borrowShares: borrowShares, collateral: collateral})
         );
 
-        uint256 expectedLtv = Math.mulDiv(uint256(borrowShares), WAD, uint256(collateral));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(MorphoLoanProtectionPolicy.HealthyPosition.selector, expectedLtv, triggerLtv)
-        );
-        harness.exposed_enforceTriggerLtv(_config(), marketParams, testAccount);
+        uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
+        assertLt(ltv, triggerLtv);
     }
 }

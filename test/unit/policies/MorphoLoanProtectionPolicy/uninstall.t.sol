@@ -49,20 +49,20 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         uint256 newSalt = 42;
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
             validAfter: 0,
             validUntil: 0,
             salt: newSalt,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes memory userSig = _signInstall(newBinding);
-        policyManager.installWithSignature(newBinding, newConfig, userSig, bytes(""));
+        policyManager.installWithSignature(newBinding, userSig, bytes(""));
 
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         assertTrue(newPolicyId != policyId);
@@ -97,20 +97,20 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         uint256 newSalt = 42;
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
             validAfter: 0,
             validUntil: 0,
             salt: newSalt,
-            policyConfigHash: keccak256(newConfig)
+            policyConfig: newConfig
         });
         bytes memory userSig = _signInstall(newBinding);
-        policyManager.installWithSignature(newBinding, newConfig, userSig, bytes(""));
+        policyManager.installWithSignature(newBinding, userSig, bytes(""));
     }
 
     // =============================================================
@@ -142,7 +142,7 @@ contract ClearInstallStateTest is Test {
     MorphoLoanProtectionHarness internal harness;
 
     function setUp() public {
-        harness = new MorphoLoanProtectionHarness(address(1), address(this));
+        harness = new MorphoLoanProtectionHarness(address(1), address(this), makeAddr("morpho"));
     }
 
     /// @notice No-op when the market key has already been cleared (or was never set).

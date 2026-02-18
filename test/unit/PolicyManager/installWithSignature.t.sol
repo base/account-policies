@@ -54,7 +54,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
         vm.expectRevert(PolicyManager.InvalidSignature.selector);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Reverts when the policyId has been uninstalled (permanently disabled).
@@ -66,16 +66,11 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.prank(address(account));
-        bytes32 policyId = policyManager.install(binding, policyConfig);
+        bytes32 policyId = policyManager.install(binding);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(installPolicy),
             policyId: policyId,
@@ -86,37 +81,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
-    }
-
-    /// @notice Reverts when `policyConfig` hash does not match `binding.policyConfigHash`.
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param committedConfigSeed Seed used to build the committed config bytes.
-    /// @param mismatchedConfigSeed Seed used to build the mismatched config bytes.
-    /// @param salt Salt used to derive the policyId.
-    function test_reverts_whenPolicyConfigHashMismatch(
-        bytes32 committedConfigSeed,
-        bytes32 mismatchedConfigSeed,
-        uint256 salt
-    ) public {
-        bytes32 committed = _safeConfigSeed(committedConfigSeed);
-        bytes32 mismatched = _safeConfigSeed(mismatchedConfigSeed);
-        if (mismatched == committed) mismatched = committed ^ bytes32(uint256(1));
-
-        bytes memory committedConfig = abi.encode(committed);
-        bytes memory policyConfig = abi.encode(mismatched);
-
-        PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), committedConfig, salt);
-        bytes memory userSig = _signInstall(binding);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(policyConfig), binding.policyConfigHash
-            )
-        );
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Reverts when current timestamp is before `binding.validAfter`.
@@ -149,7 +114,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, beforeTs, validAfter));
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.
@@ -182,7 +147,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, atOrAfter, validUntil));
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Bubbles a revert when the policy's `onInstall` hook reverts.
@@ -192,37 +157,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.expectRevert(InstallTestPolicy.OnInstallReverted.selector);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
-    }
-
-    /// @notice Reverts when `executionData` is provided but the supplied config does not match the binding.
-    ///
-    /// @dev This can occur even when the policyId is already installed, because install is idempotent and skips config
-    ///      checks, but execution must still authenticate config.
-    function test_reverts_whenExecutionDataProvided_andPolicyConfigHashMismatch() public {
-        bytes memory policyConfig = abi.encode(bytes32(0));
-        PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, 0);
-        bytes memory userSig = _signInstall(binding);
-
-        vm.prank(address(account));
-        policyManager.install(binding, policyConfig);
-
-        bytes memory mismatchedConfig = abi.encode(uint256(2));
-        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
-            target: address(receiver),
-            value: 0,
-            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
-            revertOnExecute: false,
-            postAction: CallForwardingPolicy.PostAction.None
-        });
-        bytes memory executionData = abi.encode(f);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(mismatchedConfig), binding.policyConfigHash
-            )
-        );
-        policyManager.installWithSignature(binding, mismatchedConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Bubbles a revert when the policy's `onExecute` hook reverts (when `executionData` is provided).
@@ -241,7 +176,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory executionData = abi.encode(f);
 
         vm.expectRevert(CallForwardingPolicy.OnExecuteReverted.selector);
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
     }
 
     /// @notice Bubbles a revert when the account call fails (when `executionData` is provided).
@@ -262,7 +197,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory executionData = abi.encode(f);
 
         vm.expectRevert(RevertingReceiver.ReceiverReverted.selector);
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
     }
 
     /// @notice Bubbles a revert when the post-call fails (when `executionData` is provided).
@@ -282,7 +217,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory executionData = abi.encode(f);
 
         vm.expectRevert(abi.encodeWithSelector(CallForwardingPolicy.PostCallReverted.selector, policyId));
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
     }
 
     // =============================================================
@@ -301,7 +236,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
 
         vm.expectEmit(true, true, true, true, address(policyManager));
         emit PolicyManager.PolicyInstalled(policyId, address(account), address(installPolicy));
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Installs a policy instance and writes a lifecycle record.
@@ -315,7 +250,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
         bytes memory userSig = _signInstall(binding);
 
-        bytes32 policyId = policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        bytes32 policyId = policyManager.installWithSignature(binding, userSig, bytes(""));
 
         (bool installed, bool uninstalled, address recordAccount, uint40 validAfter, uint40 validUntil) =
             policyManager.policies(address(installPolicy), policyId);
@@ -337,7 +272,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.prank(relayer);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
 
         assertEq(installPolicy.lastEffectiveCaller(), relayer);
         assertEq(installPolicy.lastAccount(), address(account));
@@ -362,7 +297,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory executionData = abi.encode(f);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
 
         assertEq(receiver.calls(), 1);
         assertEq(receiver.lastTag(), tag);
@@ -390,7 +325,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
 
         vm.expectEmit(true, true, true, true, address(policyManager));
         emit PolicyManager.PolicyExecuted(policyId, address(account), address(callPolicy), keccak256(executionData));
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
     }
 
     /// @notice Calls the policy execute hook with the immediate manager caller when `executionData` is provided.
@@ -410,7 +345,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory executionData = abi.encode(f);
 
         vm.prank(relayer);
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
 
         assertEq(callPolicy.lastManagerCaller(), relayer);
     }
@@ -431,7 +366,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory executionData = abi.encode(f);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
 
         assertEq(callPolicy.postCalls(), 1);
         assertEq(callPolicy.lastExecutedPolicyId(), policyId);
@@ -452,10 +387,10 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
         bytes memory userSig = _signInstall(binding);
 
-        bytes32 policyId = policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        bytes32 policyId = policyManager.installWithSignature(binding, userSig, bytes(""));
 
         vm.recordLogs();
-        bytes32 policyId2 = policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        bytes32 policyId2 = policyManager.installWithSignature(binding, userSig, bytes(""));
         assertEq(policyId2, policyId);
         assertEq(vm.getRecordedLogs().length, 0);
     }
@@ -467,7 +402,8 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
     /// @param saltA Seed for first salt.
     /// @param saltB Seed for second salt.
     function test_allowsMultipleInstalls_withDifferentSalts(uint256 saltA, uint256 saltB) public {
-        uint256 saltBAdjusted = saltA == saltB ? saltA + 1 : saltB;
+        vm.assume(saltA != saltB);
+        uint256 saltBAdjusted = saltB;
 
         bytes memory policyConfig = abi.encode(bytes32(0));
         PolicyManager.PolicyBinding memory bindingA = _binding(address(installPolicy), policyConfig, saltA);
@@ -476,8 +412,8 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSigA = _signInstall(bindingA);
         bytes memory userSigB = _signInstall(bindingB);
 
-        bytes32 policyIdA = policyManager.installWithSignature(bindingA, policyConfig, userSigA, bytes(""));
-        bytes32 policyIdB = policyManager.installWithSignature(bindingB, policyConfig, userSigB, bytes(""));
+        bytes32 policyIdA = policyManager.installWithSignature(bindingA, userSigA, bytes(""));
+        bytes32 policyIdB = policyManager.installWithSignature(bindingB, userSigB, bytes(""));
 
         assertTrue(policyIdA != policyIdB);
         (bool installedA,,,,) = policyManager.policies(address(installPolicy), policyIdA);
@@ -518,7 +454,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         }
 
         bytes memory userSig = _signInstall(binding);
-        bytes32 policyId = policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        bytes32 policyId = policyManager.installWithSignature(binding, userSig, bytes(""));
 
         (,,, uint40 recordValidAfter, uint40 recordValidUntil) =
             policyManager.policies(address(installPolicy), policyId);
@@ -535,16 +471,11 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.prank(address(account));
-        bytes32 policyId = policyManager.install(binding, policyConfig);
+        bytes32 policyId = policyManager.install(binding);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(installPolicy),
             policyId: policyId,
@@ -555,7 +486,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Empty `policyConfig` is allowed when the binding commits to its hash.
@@ -564,7 +495,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, 0);
         bytes memory userSig = _signInstall(binding);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice Behavior when `binding.policy` is the zero address.
@@ -576,7 +507,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.expectRevert();
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     /// @notice When already-installed, providing `executionData` triggers execution without reinstalling.
@@ -585,7 +516,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, 0);
         bytes memory userSig = _signInstall(binding);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
         assertEq(receiver.calls(), 0);
 
         bytes32 tag = bytes32(uint256(0x123));
@@ -598,7 +529,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory executionData = abi.encode(f);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, executionData);
+        policyManager.installWithSignature(binding, userSig, executionData);
 
         assertEq(receiver.calls(), 1);
         assertEq(receiver.lastTag(), tag);
@@ -610,7 +541,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, 0);
         bytes memory userSig = _signInstall(binding);
 
-        bytes32 policyId = policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        bytes32 policyId = policyManager.installWithSignature(binding, userSig, bytes(""));
 
         (bool installed,,,,) = policyManager.policies(address(installPolicy), policyId);
         assertTrue(installed);
@@ -623,7 +554,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(callPolicy), policyConfig, 0);
         bytes memory userSig = _signInstall(binding);
 
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
 
         assertEq(receiver.calls(), 0);
     }

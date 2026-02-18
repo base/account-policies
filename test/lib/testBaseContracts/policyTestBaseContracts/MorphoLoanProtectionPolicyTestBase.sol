@@ -56,16 +56,17 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
-        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner);
+
+        morpho = new MockMorphoBlue();
+        oracle = new MockMorphoOracle();
+
+        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho));
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
         loanToken = new MintableToken("Loan", "LOAN");
         collateralToken = new MintableToken("Collateral", "COLL");
-
-        morpho = new MockMorphoBlue();
-        oracle = new MockMorphoOracle();
         oracle.setPrice(1e36);
 
         marketId = Id.wrap(bytes32(uint256(123)));
@@ -100,11 +101,10 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        policyConfig =
-            abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), policySpecificConfig);
+        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -112,11 +112,11 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
             validAfter: 0,
             validUntil: 0,
             salt: 0,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)

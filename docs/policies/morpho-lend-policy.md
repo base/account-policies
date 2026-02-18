@@ -34,7 +34,7 @@ Because the vault pulls exactly `depositAssets` via `transferFrom`, the ERC-20 a
 
 ```
 abi.encode(
-  AOAConfig({ account, executor }),
+  AOAConfig({ executor }),
   abi.encode(LendPolicyConfig({ vault, depositLimit }))
 )
 ```
@@ -51,7 +51,7 @@ At execution time it enforces:
 - **Executor authorization**: requires a valid executor signature over a typed execution digest binding:
   - `policyId`
   - `account`
-  - the installed config hash (`policyConfigHash`)
+  - the installed config hash (`policyConfigHash` (stored at install time))
   - `keccak256(actionData)` where `actionData` encodes `{depositAssets}`
   - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
 - **Replay protection**: per-`policyId` nonce tracking at the AOA layer; each nonce can be used once.
@@ -86,7 +86,7 @@ The executor signs an EIP-712 digest computed by the policy over:
 
 - `policyId`
 - `account`
-- the committed `policyConfigHash` (hash of the installed config preimage)
+- the committed `policyConfigHash` (stored at install time) (hash of the installed config preimage)
 - a hash of the action payload
 
 This binds the signature to:

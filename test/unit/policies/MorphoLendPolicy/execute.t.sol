@@ -143,7 +143,7 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
     /// @notice Deposits succeed when the policy binding has a non-zero validUntil.
     ///
     /// @dev Covers the `validUntil != 0` path in `_getValidityWindowAsLimitBounds`, where
-    ///      `end = uint48(validUntil)` instead of `type(uint48).max`.
+    ///      `end = validUntil` instead of `type(uint40).max`.
     ///
     /// @param depositAssets Amount of underlying assets to deposit.
     /// @param nonce Executor-chosen nonce.
@@ -165,10 +165,10 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
             validAfter: 0,
             validUntil: validUntil,
             salt: salt,
-            policyConfigHash: keccak256(policyConfig)
+            policyConfig: policyConfig
         });
         bytes memory userSig = _signInstall(altBinding);
-        policyManager.installWithSignature(altBinding, policyConfig, userSig, bytes(""));
+        policyManager.installWithSignature(altBinding, userSig, bytes(""));
 
         MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: depositAssets});
         bytes32 altPolicyId = policyManager.getPolicyId(altBinding);

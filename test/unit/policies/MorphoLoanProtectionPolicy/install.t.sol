@@ -22,38 +22,21 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the Morpho Blue address is zero.
-    ///
-    /// @param salt Salt for deriving a unique policyId.
-    function test_reverts_whenMorphoIsZeroAddress(uint256 salt) public {
-        bytes memory psc = abi.encode(
-            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(0), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
-            })
-        );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
-        PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
-        bytes memory userSig = _signInstall(b);
-
-        vm.expectRevert(MorphoLoanProtectionPolicy.ZeroMorpho.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
-    }
-
     /// @notice Reverts when the marketId is zero.
     ///
     /// @param salt Salt for deriving a unique policyId.
     function test_reverts_whenMarketIdIsZero(uint256 salt) public {
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: Id.wrap(bytes32(0)), triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: Id.wrap(bytes32(0)), triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroMarketId.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when maxTopUpAssets is zero.
@@ -62,15 +45,15 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     function test_reverts_whenMaxTopUpIsZero(uint256 salt) public {
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 0
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 0
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroAmount.selector);
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when the Morpho market for the given marketId is not found or not initialized.
@@ -84,15 +67,15 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
 
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: badMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: badMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, badMarketId));
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     /// @notice Reverts when a policy is already installed for the same (account, marketId) pair.
@@ -103,10 +86,10 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
 
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -115,7 +98,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 MorphoLoanProtectionPolicy.PolicyAlreadyInstalledForMarket.selector, address(account), marketId
             )
         );
-        policyManager.installWithSignature(b, config, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, bytes(""));
     }
 
     // =============================================================
@@ -153,7 +136,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
             validAfter: 0,
             validUntil: 0,
             salt: salt,
-            policyConfigHash: keccak256(config)
+            policyConfig: config
         });
     }
 }

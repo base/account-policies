@@ -23,17 +23,13 @@ contract InstallTest is PolicyManagerTestBase {
         vm.label(address(installPolicy), "InstallTestPolicy");
     }
 
-    /// @notice Installs a policy using the given binding and config.
+    /// @notice Installs a policy using the given binding.
     ///
-    /// @param binding Policy binding parameters.
-    /// @param policyConfig Config bytes whose hash must match `binding.policyConfigHash`.
+    /// @param binding Policy binding parameters (includes policyConfig).
     /// @return policyId The installed policy identifier.
-    function _install(PolicyManager.PolicyBinding memory binding, bytes memory policyConfig)
-        internal
-        returns (bytes32 policyId)
-    {
+    function _install(PolicyManager.PolicyBinding memory binding) internal returns (bytes32 policyId) {
         vm.prank(binding.account);
-        return policyManager.install(binding, policyConfig);
+        return policyManager.install(binding);
     }
 
     /// @notice Returns a config seed that does not trigger InstallTestPolicy's revert sentinel.
@@ -64,7 +60,7 @@ contract InstallTest is PolicyManagerTestBase {
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidSender.selector, caller, address(account)));
         vm.prank(caller);
-        policyManager.install(binding, policyConfig);
+        policyManager.install(binding);
     }
 
     /// @notice Reverts when the policyId has been uninstalled (prevents future installs).
@@ -76,16 +72,11 @@ contract InstallTest is PolicyManagerTestBase {
     function test_reverts_whenPolicyIsDisabled(bytes32 configSeed, uint256 salt) public {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
-        bytes32 policyId = _install(binding, policyConfig);
+        bytes32 policyId = _install(binding);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(installPolicy),
             policyId: policyId,
@@ -96,36 +87,7 @@ contract InstallTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
-        _install(binding, policyConfig);
-    }
-
-    /// @notice Reverts when `policyConfig` hash does not match `binding.policyConfigHash`.
-    ///
-    /// @dev Expects `PolicyManager.PolicyConfigHashMismatch`.
-    ///
-    /// @param committedConfigSeed Seed used to build the committed config bytes.
-    /// @param mismatchedConfigSeed Seed used to build the mismatched config bytes.
-    /// @param salt Salt used to derive the policyId.
-    function test_reverts_whenPolicyConfigHashMismatch(
-        bytes32 committedConfigSeed,
-        bytes32 mismatchedConfigSeed,
-        uint256 salt
-    ) public {
-        bytes32 committed = _safeConfigSeed(committedConfigSeed);
-        bytes32 mismatched = _safeConfigSeed(mismatchedConfigSeed);
-        if (mismatched == committed) mismatched = committed ^ bytes32(uint256(1));
-
-        bytes memory committedConfig = abi.encode(committed);
-        bytes memory policyConfig = abi.encode(mismatched);
-
-        PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), committedConfig, salt);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PolicyManager.PolicyConfigHashMismatch.selector, keccak256(policyConfig), binding.policyConfigHash
-            )
-        );
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Reverts when current timestamp is before `binding.validAfter`.
@@ -156,7 +118,7 @@ contract InstallTest is PolicyManagerTestBase {
         vm.warp(uint256(beforeTs));
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, beforeTs, validAfter));
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.
@@ -187,7 +149,7 @@ contract InstallTest is PolicyManagerTestBase {
         vm.warp(uint256(atOrAfter));
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, atOrAfter, validUntil));
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Bubbles a revert when the policy's `onInstall` hook reverts.
@@ -200,7 +162,7 @@ contract InstallTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
         vm.expectRevert(InstallTestPolicy.OnInstallReverted.selector);
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     // =============================================================
@@ -218,7 +180,7 @@ contract InstallTest is PolicyManagerTestBase {
 
         vm.expectEmit(true, true, true, true, address(policyManager));
         emit PolicyManager.PolicyInstalled(policyId, address(account), address(installPolicy));
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Installs a policy instance and writes a lifecycle record.
@@ -231,7 +193,7 @@ contract InstallTest is PolicyManagerTestBase {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
-        bytes32 policyId = _install(binding, policyConfig);
+        bytes32 policyId = _install(binding);
 
         (bool installed, bool uninstalled, address recordAccount, uint40 validAfter, uint40 validUntil) =
             policyManager.policies(address(installPolicy), policyId);
@@ -253,7 +215,7 @@ contract InstallTest is PolicyManagerTestBase {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
-        _install(binding, policyConfig);
+        _install(binding);
 
         assertEq(installPolicy.lastEffectiveCaller(), address(account));
         assertEq(installPolicy.lastAccount(), address(account));
@@ -263,14 +225,15 @@ contract InstallTest is PolicyManagerTestBase {
     ///
     /// @dev Same (account, policy, configHash) but different salts => different policyIds => both installable.
     function test_allowsMultipleInstalls_withDifferentSalts(uint256 saltA, uint256 saltB) public {
-        uint256 saltBAdjusted = saltA == saltB ? saltA + 1 : saltB;
+        vm.assume(saltA != saltB);
+        uint256 saltBAdjusted = saltB;
 
         bytes memory policyConfig = abi.encode(bytes32(0));
         PolicyManager.PolicyBinding memory bindingA = _binding(address(installPolicy), policyConfig, saltA);
         PolicyManager.PolicyBinding memory bindingB = _binding(address(installPolicy), policyConfig, saltBAdjusted);
 
-        bytes32 policyIdA = _install(bindingA, policyConfig);
-        bytes32 policyIdB = _install(bindingB, policyConfig);
+        bytes32 policyIdA = _install(bindingA);
+        bytes32 policyIdB = _install(bindingB);
 
         assertTrue(policyIdA != policyIdB);
         (bool installedA,,,,) = policyManager.policies(address(installPolicy), policyIdA);
@@ -313,7 +276,7 @@ contract InstallTest is PolicyManagerTestBase {
             vm.warp(uint256(installTs));
         }
 
-        bytes32 policyId = _install(binding, policyConfig);
+        bytes32 policyId = _install(binding);
         (,,, uint40 recordValidAfter, uint40 recordValidUntil) =
             policyManager.policies(address(installPolicy), policyId);
         assertEq(recordValidAfter, validAfter);
@@ -334,10 +297,10 @@ contract InstallTest is PolicyManagerTestBase {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
-        bytes32 policyId = _install(binding, policyConfig);
+        bytes32 policyId = _install(binding);
 
         vm.recordLogs();
-        bytes32 policyId2 = _install(binding, policyConfig);
+        bytes32 policyId2 = _install(binding);
         assertEq(policyId2, policyId);
         assertEq(vm.getRecordedLogs().length, 0);
     }
@@ -351,16 +314,11 @@ contract InstallTest is PolicyManagerTestBase {
     function test_reinstall_afterUninstall_stillBlocked(bytes32 configSeed, uint256 salt) public {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
-        bytes32 policyId = _install(binding, policyConfig);
+        bytes32 policyId = _install(binding);
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
-                account: address(0),
-                policy: address(0),
-                validAfter: 0,
-                validUntil: 0,
-                salt: 0,
-                policyConfigHash: bytes32(0)
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
             }),
             policy: address(installPolicy),
             policyId: policyId,
@@ -371,7 +329,7 @@ contract InstallTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, policyId));
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Empty `policyConfig` is allowed when the binding commits to its hash.
@@ -380,7 +338,7 @@ contract InstallTest is PolicyManagerTestBase {
     function test_allowsEmptyPolicyConfig_whenHashMatches(uint256 salt) public {
         bytes memory policyConfig = "";
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
-        _install(binding, policyConfig);
+        _install(binding);
     }
 
     /// @notice Behavior when `binding.policy` is the zero address.
@@ -395,7 +353,7 @@ contract InstallTest is PolicyManagerTestBase {
 
         vm.prank(address(account));
         vm.expectRevert();
-        policyManager.install(binding, policyConfig);
+        policyManager.install(binding);
     }
 }
 
