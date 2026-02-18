@@ -1,103 +1,70 @@
 # `MorphoLoanProtectionPolicy`
 
-`MorphoLoanProtectionPolicy` is an AOA liquidation-protection policy for Morpho Blue. It authorizes **executor-signed, one-shot collateral top-ups** into a pinned Morpho market when an account's LTV is high.
+An AOA policy for **one-shot collateral top-ups** on Morpho Blue when an account's position is at risk of liquidation.
 
-For the AOA family background (envelopes, actors, intent model), see `aoa-policies.md`.
+For shared AOA concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `aoa-policies.md`.
 
-## What it does
+## Summary
 
-The Morpho Blue singleton address is set at deployment (immutable constructor parameter). Each deployment targets exactly one Morpho instance; if a new Morpho deployment appears, deploy a new policy contract.
+The Morpho Blue address is set at deployment (immutable). Each policy deployment targets exactly one Morpho instance.
 
-The installed config pins:
+The account commits to a specific market, a trigger LTV, and a max top-up amount. If the account's position exceeds the trigger LTV, the executor can supply collateral on the account's behalf — once.
 
-- a specific market (`marketId`)
-- a trigger LTV threshold
-- a max top-up amount per execution (`maxTopUpAssets`)
+## Config (`LoanProtectionPolicyConfig`)
 
-Executions top up collateral by a requested amount `topUpAssets`, but only when:
+| Field | Description |
+|---|---|
+| `marketId` | Morpho Blue market identifier (must be nonzero, market must exist onchain) |
+| `triggerLtv` | Minimum LTV (wad, 1e18 = 100%) required to allow execution |
+| `maxTopUpAssets` | Maximum collateral top-up per execution (must be nonzero) |
 
-- the current position is unhealthy (above trigger)
-- the executor provides a valid signed intent
-- the policy instance has not been used already (one-shot)
-- `topUpAssets != 0`
-- `topUpAssets <= maxTopUpAssets`
+The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LoanProtectionPolicyConfig({ marketId, triggerLtv, maxTopUpAssets })))`.
 
-## Actors
+### Install-time validation
 
-- **Account**: installs with `{executor, marketId, triggerLtv, maxTopUpAssets}`, can always uninstall.
-- **Executor**: signs top-up intents (EIP-712). Uninstallation is authorized via an executor signature (`uninstallData`).
-- **Relayer**: submits `execute(...)` transactions using executor-signed intents.
+- Market must exist: fetches `morpho.idToMarketParams(marketId)` and requires all params (loan token, collateral token, oracle, irm, lltv) to be nonzero.
+- **One active policy per market**: at most one active policy per `(account, marketId)`. Enforced via a mapping; cleaned up on uninstall.
 
-## Installation config (committed)
+## Execution (`TopUpData`)
 
-`policyConfig` shape:
+| Field | Description |
+|---|---|
+| `topUpAssets` | Collateral amount to supply (must be > 0, must be ≤ `maxTopUpAssets`) |
+
+## What happens on execute
+
+The policy enforces:
+
+1. `topUpAssets > 0` and `topUpAssets <= maxTopUpAssets`
+2. Current LTV ≥ `triggerLtv` (computed from onchain position data and oracle price)
+3. Policy instance not already used (one-shot)
+4. Standard AOA checks (executor signature, nonce, deadline, config preimage)
+
+Then returns a wallet call plan:
+
+1. `approve(collateralToken, morpho, topUpAssets)`
+2. `morpho.supplyCollateral(marketParams, topUpAssets, account, "")` where `marketParams = morpho.idToMarketParams(marketId)`
+
+The approval typically returns to zero after the supply.
+
+## LTV computation
+
+Current LTV is derived onchain:
 
 ```
-abi.encode(
-  AOAConfig({ executor }),
-  abi.encode(LoanProtectionPolicyConfig({
-    marketId,
-    triggerLtv,
-    maxTopUpAssets
-  }))
-)
+currentLtv = (borrowAssets * 1e18) / collateralValue
 ```
 
-Install-time invariants:
+Where:
+- `borrowAssets = (position.borrowShares * market.totalBorrowAssets) / market.totalBorrowShares` (rounded up)
+- `collateralValue = (position.collateral * oracle.price()) / 1e36`
 
-- `marketId != 0`
-- `maxTopUpAssets != 0`
-- **Market existence**: fetches `morpho.idToMarketParams(marketId)` and requires nonzero params (loan/collateral token, oracle, irm, and `lltv`) so the market must exist on that Morpho instance
-- **Uniqueness**: at most one active policy per `(account, marketId)` (enforced via an `(account, marketId) -> policyId` mapping and a `policyId -> marketId` mapping for cleanup)
+Reverts if collateral value rounds to zero (prevents division by zero and nonsensical LTV).
 
-## How it enforces correctness
+## Additional storage
 
-At execution time it enforces:
+Beyond standard AOA state (config hash, used nonces):
 
-- **Executor authorization**: validates an executor signature over a typed intent binding:
-  - `policyId`
-  - `account`
-  - the committed config hash (`policyConfigHash`; AOA stores `keccak256(policyConfig)` at install time)
-  - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
-- **Replay protection**: per-`policyId` nonce tracking at the AOA layer.
-- **Signature expiry**: optional `deadline` in the AOA execution envelope (`AOAExecutionData.deadline`).
-- **Trigger bound**:
-  - computes current LTV from onchain Morpho position and oracle price
-  - requires `currentLtv >= triggerLtv`
-- **One-shot semantics**: reverts if the policyId was already used, and marks the policyId as used after the first successful execution.
-- **Pinned action**: the wallet call plan is pinned to:
-  - `approve(collateralToken, morpho, topUpAssets)`
-  - `morpho.supplyCollateral(marketParams, topUpAssets, account, "")` where `marketParams` is looked up from Morpho by `marketId`
-
-## Execution flow (high level)
-
-1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, executionData)`.
-2. Policy checks the config preimage matches what was installed.
-3. Policy verifies an **executor signature** over the top-up intent (EIP-712), including expiry.
-4. Policy enforces:
-   - `nonce` unused (replay protection)
-   - `deadline` (intent expiry, optional)
-   - LTV trigger
-   - one-shot semantics
-5. Policy returns a wallet call plan that:
-   - approves Morpho to spend `collateralTopUpAssets` of the collateral token
-   - calls `morpho.supplyCollateral(marketParams, collateralTopUpAssets, account, "")` (using `marketParams = morpho.idToMarketParams(marketId)`)
-
-As with standard ERC-20 `transferFrom` flows, approving exactly `collateralTopUpAssets` typically results in the allowance returning to `0` after the call.
-
-## Execution payloads
-
-### Action data (`TopUpData`)
-
-- `topUpAssets`: collateral top-up amount (collateral token smallest units)
-
-Replay protection and optional expiry are provided by the AOA execution envelope (`AOAExecutionData{nonce, deadline, signature}`).
-
-## Calldata vs storage
-
-This policy is calldata-heavy for config via `AOAPolicy` (config preimage required each execution), but more storage-heavy for invariants:
-
-- stores `configHash` per `policyId` (AOA)
-- stores per-`policyId` used nonces (AOA)
-- stores per-`policyId` one-shot used flag
-- stores cross-instance mappings to enforce one active policy per market and to support uninstall cleanup
+- Per-`policyId` one-shot used flag
+- `(account, marketId) → policyId` mapping (uniqueness constraint)
+- `policyId → marketKey` mapping (for uninstall cleanup)

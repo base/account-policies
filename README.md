@@ -96,7 +96,7 @@ A policy authorizes the execution and returns:
 * optional calldata to call back into the policy (post-call verification/steps)
 
 This pattern enables strong postconditions (balance deltas, state checks, approval resets) without requiring the manager to understand policy-specific semantics.
-For example: a swap policy can snapshot balances before the wallet call, then verify `tokenOutDelta >= minOut` and reset approvals in the post-call.
+For example: a swap policy can snapshot balances before the wallet call, then verify `tokenOutDelta >= minOut` in the post-call.
 
 ### Uninstall
 

@@ -1,118 +1,53 @@
 # `MorphoLendPolicy`
 
-`MorphoLendPolicy` is an AOA policy that authorizes **recurring, executor-signed deposits** into a pinned Morpho vault on behalf of an account, subject to a recurring allowance (budget).
+An AOA policy for **recurring, budgeted deposits** into a pinned Morpho vault.
 
-It is designed for “automation with bounded maximums”: the account opts into a fixed vault + limit, and the executor can only deposit within those constraints.
+For shared AOA concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `aoa-policies.md`.
 
-For the AOA family background (envelopes, actors, intent model), see `aoa-policies.md`.
+## Summary
 
-## What it does
+The account commits to a vault and a recurring deposit budget at install time. The executor can trigger deposits within those constraints. Each execution deposits a specified amount of the vault's underlying asset on behalf of the account.
 
-MorphoLendPolicy authorizes deposits into a pinned Morpho Vault:
+## Config (`LendPolicyConfig`)
 
-- the **vault address** is fixed by the installed config
-- the **receiver** is fixed to the `account`
-- each execution supplies an amount (`depositAssets`) and an executor-signed intent envelope with a replay-protection nonce
-- deposits are bounded by a recurring allowance (`depositLimit`)
+| Field | Description |
+|---|---|
+| `vault` | Morpho vault to deposit into (must be nonzero) |
+| `depositLimit.allowance` | Maximum deposit amount per recurring period |
+| `depositLimit.period` | Period length in seconds |
 
-It constructs a wallet call plan that:
+The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LendPolicyConfig({ vault, depositLimit })))`.
 
-1. approves the vault to pull the vault’s `asset()` token for `depositAssets`
-2. calls `vault.deposit(depositAssets, account)`
+## Execution (`LendData`)
 
-Because the vault pulls exactly `depositAssets` via `transferFrom`, the ERC-20 allowance typically returns to `0` after the deposit.
+| Field | Description |
+|---|---|
+| `depositAssets` | Amount to deposit (vault asset token units, must be > 0) |
 
-## Actors
+## What happens on execute
 
-- **Account**: installs with `{executor, vault, depositLimit}`, can always uninstall.
-- **Executor**: signs execution intents (EIP-712). Uninstallation is authorized via an executor signature (`uninstallData`).
-- **Relayer**: submits `execute(...)` transactions using executor-signed intents.
+The policy enforces:
 
-## Installation config (committed)
+1. `depositAssets > 0`
+2. Recurring budget not exceeded
+3. Standard AOA checks (executor signature, nonce, deadline, config preimage)
 
-`policyConfig` shape:
+Then returns a wallet call plan:
 
-```
-abi.encode(
-  AOAConfig({ executor }),
-  abi.encode(LendPolicyConfig({ vault, depositLimit }))
-)
-```
+1. `approve(vault.asset(), vault, depositAssets)`
+2. `vault.deposit(depositAssets, account)`
 
-Notable install-time invariants:
+The vault pulls tokens via `transferFrom`, so the approval typically returns to zero after the deposit.
 
-- `vault != address(0)`
+## Budgeting
 
-## How it enforces correctness
-
-At execution time it enforces:
-
-- **Pinned destination**: `vault` comes from config and must be nonzero.
-- **Executor authorization**: requires a valid executor signature over a typed execution digest binding:
-  - `policyId`
-  - `account`
-  - the installed config hash (`policyConfigHash`; AOA stores `keccak256(policyConfig)` at install time)
-  - `keccak256(actionData)` where `actionData` encodes `{depositAssets}`
-  - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
-- **Replay protection**: per-`policyId` nonce tracking at the AOA layer; each nonce can be used once.
-- **Budgeting**: consumes `depositAssets` from a per-`policyId` recurring allowance.
-
-## Execution flow (high level)
-
-1. Caller submits `PolicyManager.execute(policy, policyId, policyConfig, executionData)`.
-2. Policy checks the config preimage matches what was installed.
-3. Policy verifies an **executor signature** over the execution intent.
-4. Policy enforces:
-   - `depositAssets > 0`
-   - nonce unused (replay protection)
-   - recurring deposit budget
-5. Policy returns a wallet call plan that:
-   - approves the vault to spend `depositAssets` of the vault’s asset token
-   - calls `vault.deposit(depositAssets, account)`
-
-## Execution payloads
-
-### Action data (`LendData`)
-
-The action data encodes:
-
-- `depositAssets`: amount to deposit, in the vault asset token’s smallest units
- 
-Replay protection and optional expiry are provided by the AOA execution envelope (`AOAExecutionData{nonce, deadline, signature}`).
-
-### Signature binding
-
-The executor signs an EIP-712 digest computed by the policy over:
-
-- `policyId`
-- `account`
-- the committed `policyConfigHash` (AOA stores `keccak256(policyConfig)` at install time)
-- a hash of the action payload
-
-This binds the signature to:
-
-- a single policy instance (`policyId`)
-- a single account
-- a single committed config
-- a single action intent
-
-## Calldata vs storage
-
-This policy is primarily calldata-heavy for config:
-
-- stores only `configHash` at install (via `AOAPolicy`)
-- requires the config preimage each execution (to decode `vault` + `depositLimit`)
-
-It is stateful for enforcement:
-
-- recurring allowance usage is stored onchain
-- used nonces are stored onchain
-
-## Budgeting / allowance
-
-The policy uses a `RecurringAllowance` limit (in vault asset units).
-
-The allowance window is always derived from the policy validity window (`validAfter`/`validUntil`) recorded by the manager:
+Deposits are bounded by a `RecurringAllowance` (in vault asset units). The allowance window is derived from the policy's validity window:
 
 - `start = validAfter`
 - `end = validUntil == 0 ? type(uint40).max : validUntil`
+
+## Additional storage
+
+Beyond standard AOA state (config hash, used nonces):
+
+- Recurring allowance usage per `policyId`
