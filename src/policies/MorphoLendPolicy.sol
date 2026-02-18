@@ -30,6 +30,7 @@ contract MorphoLendPolicy is AOAPolicy {
         /// @dev Maximum deposits per recurring period window.
         uint160 allowance;
         /// @dev RecurringAllowance.Limit.period length in seconds.
+        /// @review prefer to align with uint40 for parity with PolicyManager validAfter/validUntil
         uint48 period;
     }
 
@@ -138,11 +139,14 @@ contract MorphoLendPolicy is AOAPolicy {
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
+        /// @review this was checked on install so do we really need?
         if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
 
         LendData memory lendData = abi.decode(actionData, (LendData));
+        /// @review feels a bit weird to have a struct just for one arg, but I agree I like seeing schemas up top for orientation
         if (lendData.depositAssets == 0) revert ZeroAmount();
 
+        /// @review more comments pls for each code section just for easier skimming
         RecurringAllowance.useLimit(
             _depositLimitState,
             policyId,
@@ -150,6 +154,7 @@ contract MorphoLendPolicy is AOAPolicy {
             lendData.depositAssets
         );
 
+        /// @review Not sure I like having a separate internal here. Would rather opt to in-line to not have to jump around
         (address target, uint256 value, bytes memory callData, address approvalToken, address approvalSpender) =
             _buildVaultDepositCall(lendPolicyConfig, aoaConfig.account, lendData.depositAssets);
 
@@ -173,6 +178,7 @@ contract MorphoLendPolicy is AOAPolicy {
     ///
     /// @return start Lower bound (inclusive) of the allowance window.
     /// @return end   Upper bound (inclusive) of the allowance window.
+    /// @review feels like this function can just be in-lined into the _addTimeBoundsToDepositLimit internal if only used once
     function _getValidityWindowAsLimitBounds(bytes32 policyId) internal view returns (uint48 start, uint48 end) {
         (,,, uint40 validAfter, uint40 validUntil) = POLICY_MANAGER.policies(address(this), policyId);
         start = uint48(validAfter);

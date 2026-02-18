@@ -28,6 +28,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Policy-specific config for Morpho Blue loan protection.
     struct LoanProtectionPolicyConfig {
         /// @dev Morpho Blue contract address.
+        /// @review is this some singleton or a specific vault? if singleton, then seems like we don't need one per config
         address morpho;
         /// @dev Morpho Blue market identifier.
         Id marketId;
@@ -42,6 +43,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Policy-specific execution payload for collateral top-ups.
     struct TopUpData {
         /// @dev Collateral top-up amount (collateral token smallest units).
+        /// @review usually opt to have some "amount" or "value" in the name if the field is a number
         uint256 topUpAssets;
     }
 
@@ -56,6 +58,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     mapping(bytes32 policyId => bytes32 marketKey) internal _marketKeyByPolicyId;
 
     /// @notice Tracks whether a policy instance has been executed already (one-shot).
+    /// @review would appreciate @dev comment on why this is needed for my initial orientation
     mapping(bytes32 policyId => bool used) internal _usedPolicyId;
 
     ////////////////////////////////////////////////////////////////
@@ -108,6 +111,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param policyId Policy identifier to check.
     ///
     /// @return True if the policy has already executed its one-shot top-up.
+    /// @review Can save us a function if just make the storage public
     function isPolicyUsed(bytes32 policyId) external view returns (bool) {
         return _usedPolicyId[policyId];
     }
@@ -170,9 +174,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         if (_usedPolicyId[policyId]) revert PolicyAlreadyUsed(policyId);
+        /// @review put in else block? Not sure if using gas unnecessarily if we usually try to set to an already set value?
         _usedPolicyId[policyId] = true;
 
+        /// @review give more comments to skim pls
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
+        /// @review Are there any cases where something would change between install and execute that requires re-running these checks?
         MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
         TopUpData memory topUp = abi.decode(actionData, (TopUpData));
         uint256 topUpAssets = topUp.topUpAssets;
@@ -207,6 +214,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param config       Policy config containing the trigger LTV and Morpho address.
     /// @param marketParams On-chain market parameters for the pinned market.
     /// @param account      Account whose position LTV is evaluated.
+    /// @review feels like we don't need this if we just inline it's only usage. I'm happy with _computeCurrentLtv as separate function because it's doing a lot more lifting
     function _enforceTriggerLtv(
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,

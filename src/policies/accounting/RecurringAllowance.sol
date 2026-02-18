@@ -15,6 +15,7 @@ library RecurringAllowance {
     struct Limit {
         /// @dev Maximum spend per period window.
         uint160 allowance;
+        /// @review match uint40?
         /// @dev Period length in seconds.
         uint48 period;
         /// @dev Start timestamp (seconds) inclusive.
@@ -25,6 +26,7 @@ library RecurringAllowance {
 
     /// @notice Stored usage snapshot for a particular active period.
     struct PeriodUsage {
+        /// @review match uint40?
         /// @dev Period start timestamp (seconds).
         uint48 start;
         /// @dev Period end timestamp (seconds).
@@ -43,6 +45,7 @@ library RecurringAllowance {
     ///                         Errors                           ///
     ////////////////////////////////////////////////////////////////
 
+    /// @review natspec?
     error ZeroPeriod();
     error ZeroAllowance();
     error InvalidStartEnd(uint48 start, uint48 end);

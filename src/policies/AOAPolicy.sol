@@ -25,6 +25,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @notice Shared config prefix for AOA policies.
     struct AOAConfig {
         /// @dev Account that installs the policy and is the target of policy executions.
+        /// @review Don't think we need this because all hooks get it as an explicit parameter.
         address account;
         /// @dev Executor authorized to execute and uninstall (directly or via signature).
         address executor;
@@ -49,6 +50,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
 
     /// @notice Tracks used nonces per policyId to prevent replay of executor-signed executions.
+    /// @review consider 2d nonce for better median gas efficiency
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
     /// @notice EIP-712 typehash for executor-signed execution intents.
@@ -441,6 +443,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         address caller
     ) internal {
         _requireUnusedNonce(policyId, aoaExecutionData.nonce);
+        /// @review feels weird to not have requiring nonce unused when marking nonce as used? Not sure if we really want two separate internals vs one
         _markNonceUsed(policyId, aoaExecutionData.nonce);
 
         if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
