@@ -25,6 +25,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @notice Shared config prefix for AOA policies.
     struct AOAConfig {
         /// @dev Account that installs the policy and is the target of policy executions.
+        /// @review Don't think we need this because all hooks get it as an explicit parameter.
         address account;
         /// @dev Executor authorized to execute and uninstall (directly or via signature).
         address executor;

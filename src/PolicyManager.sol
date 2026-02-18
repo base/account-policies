@@ -32,6 +32,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         /// @dev Policy contract implementing the hook interface.
         address policy;
         /// @dev Hash of the policy’s config preimage (opaque bytes interpreted by the policy).
+        /// @review Why not bytes policyConfig? We have to do some extra work to add a new bytes policyConfig field in lots of functions anyways and compare against the hash manually?
         bytes32 policyConfigHash;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means “no lower bound”.
         uint40 validAfter;
@@ -97,6 +98,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
+    /// @review immutables aftrer constants
     PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
 
     /// @notice EIP-712 hash of PolicyBinding type.
@@ -144,6 +146,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 executionDataHash
     );
 
+    /// @review Policy management ordering ahead of execution?
     /// @notice Emitted when one policy instance is replaced atomically by another.
     ///
     /// @param oldPolicyId Old policyId that was uninstalled.
@@ -239,6 +242,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
+
+    /// @review put fancy-install after vanilla install?
     /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
     ///
     /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided is forwarded to
@@ -256,6 +261,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata userSig,
         bytes calldata executionData
     ) external nonReentrant returns (bytes32 policyId) {
+        /// @review this is the only use of install so feels like we can just in-line? Would make it easier to skim and see the difference vs normal install
         return _installWithSignature(binding, policyConfig, userSig, executionData);
     }
 
@@ -289,10 +295,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         external
         nonReentrant
     {
+        /// @review feels like we have publics for this logical check?
         PolicyRecord storage policyRecord = policies[policy][policyId];
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
+        /// @review All invocations of execute also have _checkValidityWindow immediately before, so makes me feel like _execute should absorb this check?
+        /// @review simplest could seem to be adding isPolicyActiveNow within _execute?
         _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
         _execute(policy, policyId, policyRecord.account, policyConfig, executionData, msg.sender);
     }
@@ -343,6 +352,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             return newPolicyId;
         }
 
+        /// @review only used once, so just inline?
         _requireNotExpired(deadline);
         bytes32 digest = _hashTypedData(
             keccak256(
@@ -364,6 +374,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         if (executionData.length == 0) return newPolicyId;
 
+        /// @review I feel like I only want to see _execute() called after the early return. If we can't do that, I feel like we could massage our internal abstractions a bit to make it so.
+
         bytes32 actualConfigHash = keccak256(payload.newPolicyConfig);
         if (actualConfigHash != payload.newBinding.policyConfigHash) {
             revert PolicyConfigHashMismatch(actualConfigHash, payload.newBinding.policyConfigHash);
@@ -384,6 +396,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return newPolicyId;
     }
 
+    /// @review Feels like it should be up earlier given simplicity?
     /// @notice Uninstall a policyId (installed lifecycle) or permanently disable a policyId before installation.
     ///
     /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
@@ -509,17 +522,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @return policyId Deterministic policy identifier derived as the hash of the EIP-712-encoded binding struct.
     function getPolicyId(PolicyBinding calldata binding) public pure returns (bytes32 policyId) {
         // Must match POLICY_BINDING_TYPEHASH field order (EIP-712 struct hashing).
-        return keccak256(
-            abi.encode(
-                POLICY_BINDING_TYPEHASH,
-                binding.account,
-                binding.policy,
-                binding.policyConfigHash,
-                binding.validAfter,
-                binding.validUntil,
-                binding.salt
-            )
-        );
+        /// @review if you don't change PolicyBinding to use full `bytes policyConfig` then you can just use abi.encode(struct)
+        return keccak256(abi.encode(POLICY_BINDING_TYPEHASH, binding));
     }
 
     ////////////////////////////////////////////////////////////////
@@ -537,21 +541,33 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     function _install(PolicyBinding calldata binding, bytes calldata policyConfig) internal returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
+
+        // Check policy is not uninstalled
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
-        // Idempotent behavior: installing an already-installed policy instance is a no-op.
+        // Early return if already installed (idempotent)
         if (policyRecord.installed) return policyId;
 
+        // Check config hash matches
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != binding.policyConfigHash) {
             revert PolicyConfigHashMismatch(actualConfigHash, binding.policyConfigHash);
         }
+
+        // Check validity window
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
-        policyRecord.installed = true;
-        policyRecord.account = binding.account;
-        policyRecord.validAfter = binding.validAfter;
-        policyRecord.validUntil = binding.validUntil;
+        /// @review I think setting individual fields triggers a bunch of warm SSTOREs vs just one if we do struct?
+        // Set policy record
+        policies[binding.policy][policyId] = PolicyRecord({
+            installed: true,
+            uninstalled: false,
+            account: binding.account,
+            validAfter: binding.validAfter,
+            validUntil: binding.validUntil
+        });
+
+        // Call onInstall hook
         Policy(binding.policy).onInstall(policyId, binding.account, policyConfig, msg.sender);
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
