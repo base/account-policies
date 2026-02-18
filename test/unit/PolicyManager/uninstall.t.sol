@@ -80,6 +80,59 @@ contract UninstallTest is PolicyManagerTestBase {
     // Reverts
     // =============================================================
 
+    /// @notice Reverts in binding-mode when the policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`.
+    ///
+    /// @param policy Fuzzed address with no code.
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_bindingMode_whenPolicyNotContract(address policy, uint256 salt) public {
+        vm.assume(policy != address(0));
+        vm.assume(policy.code.length == 0);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: policy,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: "", uninstallData: ""
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        policyManager.uninstall(payload);
+    }
+
+    /// @notice Reverts in policyId-mode when the policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`.
+    ///
+    /// @param policy Fuzzed address with no code.
+    /// @param policyIdSeed Seed for a non-zero policyId.
+    function test_reverts_policyIdMode_whenPolicyNotContract(address policy, uint256 policyIdSeed) public {
+        vm.assume(policy != address(0));
+        vm.assume(policy.code.length == 0);
+        vm.assume(policyIdSeed != 0);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
+            }),
+            policy: policy,
+            policyId: bytes32(policyIdSeed),
+            policyConfig: "",
+            uninstallData: ""
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        policyManager.uninstall(payload);
+    }
+
     /// @notice Reverts in policyId-mode when `policy` is zero (even if `policyId` is non-zero).
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.

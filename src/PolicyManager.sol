@@ -37,7 +37,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint40 validAfter;
         /// @dev Latest timestamp (seconds) after which execution is disallowed. Zero means "no upper bound".
         uint40 validUntil;
-        /// @dev User-supplied salt to allow multiple distinct bindings for the same (account, policy, config).
+        /// @dev Salt used to allow multiple distinct bindings for the same (account, policy, config).
         uint256 salt;
     }
 
@@ -204,6 +204,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param sender Actual sender.
     /// @param expected Expected sender.
     error InvalidSender(address sender, address expected);
+
+    /// @notice Thrown when a policy address has no deployed code.
+    ///
+    /// @param policy The address that was expected to be a contract.
+    error PolicyNotContract(address policy);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
@@ -519,6 +524,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding) internal returns (bytes32 policyId) {
+        if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
+
         policyId = getPolicyId(binding);
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
 
@@ -626,6 +633,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata executionData,
         address caller
     ) internal {
+        if (policy.code.length == 0) revert PolicyNotContract(policy);
+
         PolicyRecord storage policyRecord = policies[policy][policyId];
         _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
 
@@ -666,6 +675,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Binding-mode: supports pre-install uninstallation and (optionally) uninstalling installed instances.
         if (payload.binding.policy != address(0)) {
             PolicyBinding calldata binding = payload.binding;
+            if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
             policyId = getPolicyId(binding);
             PolicyRecord storage policyRecordByBinding = policies[binding.policy][policyId];
 
@@ -712,6 +722,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         // PolicyId-mode: uninstall by (policy, policyId).
         if (payload.policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
+        if (payload.policy.code.length == 0) revert PolicyNotContract(payload.policy);
         policyId = payload.policyId;
         PolicyRecord storage policyRecordById = policies[payload.policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
@@ -752,6 +763,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId,
         address effectiveCaller
     ) internal {
+        if (policy.code.length == 0) revert PolicyNotContract(policy);
+
         PolicyRecord storage policyRecord = policies[policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecord.uninstalled) return;
@@ -793,6 +806,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address otherPolicy,
         bytes32 otherPolicyId
     ) internal returns (bytes32 policyId) {
+        if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
+
         policyId = getPolicyId(binding);
         address account = binding.account;
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];

@@ -45,6 +45,30 @@ contract InstallTest is PolicyManagerTestBase {
     // Reverts
     // =============================================================
 
+    /// @notice Reverts when the policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`.
+    ///
+    /// @param policy Fuzzed address with no code.
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_whenPolicyNotContract(address policy, uint256 salt) public {
+        vm.assume(policy.code.length == 0);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: policy,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        vm.prank(address(account));
+        policyManager.install(binding);
+    }
+
     /// @notice Reverts when caller is not `binding.account`.
     ///
     /// @dev Expects `PolicyManager.InvalidSender`.

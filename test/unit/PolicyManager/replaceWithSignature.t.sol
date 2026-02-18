@@ -114,6 +114,72 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     // Reverts
     // =============================================================
 
+    /// @notice Reverts when the old policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`. Installs a policy, then clears its code via
+    ///      `vm.etch` so that `_uninstallForReplace` sees a non-contract and reverts.
+    function test_reverts_whenOldPolicyNotContract() public {
+        RecordingReplacePolicy oldPolicy = new RecordingReplacePolicy(address(policyManager));
+        bytes memory oldConfig = abi.encode(bytes32("old"));
+        PolicyManager.PolicyBinding memory oldBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(oldPolicy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_OLD_SALT,
+            policyConfig: oldConfig
+        });
+        vm.prank(address(account));
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
+
+        vm.etch(address(oldPolicy), "");
+
+        PolicyManager.PolicyBinding memory newBinding =
+            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, address(oldPolicy)));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when the new policy address has no deployed code.
+    ///
+    /// @dev Expects `PolicyManager.PolicyNotContract`.
+    ///
+    /// @param newPolicy Fuzzed non-contract address for the new policy.
+    function test_reverts_whenNewPolicyNotContract(address newPolicy) public {
+        vm.assume(newPolicy != address(0));
+        vm.assume(newPolicy.code.length == 0);
+
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: newPolicy,
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_NEW_SALT,
+            policyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+        });
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+    }
+
     /// @notice Reverts when the replace payload is invalid (e.g., zero policy addresses, invalid ids).
     ///
     /// @dev Expects `PolicyManager.InvalidPayload`.
