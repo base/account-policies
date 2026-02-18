@@ -271,15 +271,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         policyId = getPolicyId(binding);
 
         bytes32 digest = _hashTypedData(policyId);
-        _requireValidAccountSig(binding.account, digest, userSig); // TODO should we combine the digest calculation inside this function?
+        _requireValidAccountSig(binding.account, digest, userSig);
 
         _install(binding);
 
         if (executionData.length == 0) return policyId;
 
-        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
-        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender); // TODO should we combine the policyRecord check inside this function?
+        _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender);
         return policyId;
     }
 
@@ -314,7 +312,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     {
         PolicyRecord storage policyRecord = policies[policy][policyId];
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
-        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
         _execute(policy, policyId, policyConfig, executionData, msg.sender);
     }
@@ -382,9 +379,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         if (executionData.length == 0) return newPolicyId;
 
-        PolicyRecord storage policyRecord = policies[payload.newBinding.policy][newPolicyId];
-        if (policyRecord.uninstalled) revert PolicyIsDisabled(newPolicyId);
-        _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender); // TODO again we should combine the above checks into execute
+        _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
 
         return newPolicyId;
     }
@@ -622,12 +617,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Executes an action for a policy instance.
     ///
-    /// @dev Enforces the validity window, then calls the policy hook to obtain account calldata and optional
-    ///      post-call calldata:
-    ///      1) checks validity window
-    ///      2) calls the policy `onExecute` hook
-    ///      3) calls the account with the policy-prepared calldata
-    ///      4) calls the policy post-call (if any)
+    /// @dev Validates the policy is active, enforces the validity window, then calls the policy hook to obtain
+    ///      account calldata and optional post-call calldata:
+    ///      1) requires the policy address to be a contract
+    ///      2) requires the policy is not disabled (uninstalled)
+    ///      3) checks validity window
+    ///      4) calls the policy `onExecute` hook
+    ///      5) calls the account with the policy-prepared calldata
+    ///      6) calls the policy post-call (if any)
     ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier for the binding.
@@ -641,16 +638,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata executionData,
         address caller
     ) internal {
-        // Ensure the policy is a contract
         if (policy.code.length == 0) revert PolicyNotContract(policy);
 
-        // Check if the policy is within the validity window
         PolicyRecord storage policyRecord = policies[policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
         _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
 
         address account = policyRecord.account;
-
-        // Call the policy hook
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
         _externalCall(account, accountCallData);
@@ -886,7 +880,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         Address.functionCall(target, data);
     }
 
-    /// @dev Reverts if `deadline` is non-zero and already expired. // TODO is this true?
     /// @dev Requires `account` to have signed `digest` (ERC-6492 supported, side effects allowed).
     function _requireValidAccountSig(address account, bytes32 digest, bytes calldata signature) internal {
         if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(account, digest, signature)) {
