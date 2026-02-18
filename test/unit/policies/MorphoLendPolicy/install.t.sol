@@ -26,7 +26,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param allowance Fuzzed allowance (irrelevant — revert fires before use).
     /// @param period Fuzzed period (irrelevant — revert fires before use).
-    function test_reverts_whenVaultIsZeroAddress(uint256 salt, uint160 allowance, uint48 period) public {
+    function test_reverts_whenVaultIsZeroAddress(uint256 salt, uint160 allowance, uint40 period) public {
         bytes memory policySpecificConfig = abi.encode(
             MorphoLendPolicy.LendPolicyConfig({
                 vault: address(0),
@@ -59,9 +59,9 @@ contract InstallTest is MorphoLendPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param allowance Fuzzed deposit allowance.
     /// @param period Fuzzed period length (bounded >= 1 to avoid division by zero in view helpers).
-    function test_storesConfigHash(uint256 salt, uint160 allowance, uint48 period) public {
+    function test_storesConfigHash(uint256 salt, uint160 allowance, uint40 period) public {
         allowance = uint160(bound(allowance, 1, type(uint160).max));
-        period = uint48(bound(period, 1, type(uint48).max));
+        period = uint40(bound(period, 1, type(uint40).max));
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLendPolicy.LendPolicyConfig({

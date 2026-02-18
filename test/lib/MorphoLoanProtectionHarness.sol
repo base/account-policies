@@ -18,14 +18,6 @@ contract MorphoLoanProtectionHarness is MorphoLoanProtectionPolicy {
         return _computeCurrentLtv(config, marketParams, account);
     }
 
-    function exposed_enforceTriggerLtv(
-        LoanProtectionPolicyConfig memory config,
-        MarketParams memory marketParams,
-        address account
-    ) external view {
-        _enforceTriggerLtv(config, marketParams, account);
-    }
-
     function exposed_clearInstallState(bytes32 policyId, address account) external {
         _clearInstallState(policyId, account);
     }
