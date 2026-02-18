@@ -442,6 +442,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         address caller
     ) internal {
         _requireUnusedNonce(policyId, aoaExecutionData.nonce);
+        /// @review feels weird to not have requiring nonce unused when marking nonce as used? Not sure if we really want two separate internals vs one
         _markNonceUsed(policyId, aoaExecutionData.nonce);
 
         if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
