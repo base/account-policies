@@ -253,7 +253,7 @@ contract GettersTest is PolicyManagerTestBase {
 
     /// @notice Changing `salt` changes the policyId.
     function test_getPolicyId_changesWithSalt(uint256 saltA, uint256 saltB) public {
-        if (saltB == saltA) saltB = saltA + 1;
+        vm.assume(saltA != saltB);
 
         bytes memory policyConfig = abi.encode(bytes32(0));
         PolicyManager.PolicyBinding memory bindingA = _binding(address(callPolicy), policyConfig, saltA);

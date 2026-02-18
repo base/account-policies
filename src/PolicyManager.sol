@@ -94,10 +94,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
-    /// @review immutables aftrer constants
-    PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
-
     /// @notice EIP-712 hash of PolicyBinding type.
     bytes32 public constant POLICY_BINDING_TYPEHASH = keccak256(
         "PolicyBinding(address account,address policy,bytes policyConfig,uint40 validAfter,uint40 validUntil,uint256 salt)"
@@ -109,6 +105,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
         "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
     );
+
+    /// @notice Separated contract for validating signatures and executing ERC-6492 side effects.
+    PublicERC6492Validator public immutable PUBLIC_ERC6492_VALIDATOR;
 
     /// @notice Lifecycle records keyed by policy contract and binding-derived policyId.
     ///
@@ -133,17 +132,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address.
     event PolicyUninstalled(bytes32 indexed policyId, address indexed account, address indexed policy);
 
-    /// @notice Emitted after a policy execution has been performed.
-    ///
-    /// @param policyId EIP-712 struct hash of the binding.
-    /// @param account Account that was called by the policy's prepared calldata.
-    /// @param policy Policy contract address.
-    /// @param executionDataHash Hash of the `executionData` forwarded to the policy.
-    event PolicyExecuted(
-        bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 executionDataHash
-    );
-
-    /// @review Policy management ordering ahead of execution?
     /// @notice Emitted when one policy instance is replaced atomically by another.
     ///
     /// @param oldPolicyId Old policyId that was uninstalled.
@@ -157,6 +145,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address indexed account,
         address oldPolicy,
         address newPolicy
+    );
+
+    /// @notice Emitted after a policy execution has been performed.
+    ///
+    /// @param policyId EIP-712 struct hash of the binding.
+    /// @param account Account that was called by the policy's prepared calldata.
+    /// @param policy Policy contract address.
+    /// @param executionDataHash Hash of the `executionData` forwarded to the policy.
+    event PolicyExecuted(
+        bytes32 indexed policyId, address indexed account, address indexed policy, bytes32 executionDataHash
     );
 
     ////////////////////////////////////////////////////////////////
@@ -234,26 +232,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
 
-    /// @review put fancy-install after vanilla install?
-    /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
-    ///
-    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided is forwarded to
-    ///      the policy's execute hook, which MUST enforce its own execution authorization semantics.
-    ///
-    /// @param binding Policy binding parameters authorized by the account (includes `policyConfig`).
-    /// @param userSig Account signature authorizing the binding.
-    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
-    function installWithSignature(PolicyBinding calldata binding, bytes calldata userSig, bytes calldata executionData)
-        external
-        nonReentrant
-        returns (bytes32 policyId)
-    {
-        /// @review this is the only use of install so feels like we can just in-line? Would make it easier to skim and see the difference vs normal install
-        return _installWithSignature(binding, userSig, executionData);
-    }
-
     /// @notice Installs a policy via a direct call from the account.
     ///
     /// @dev Installation is idempotent: if the policyId is already installed, this is a no-op.
@@ -270,6 +248,36 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _install(binding);
     }
 
+    /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
+    ///
+    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided is forwarded to
+    ///      the policy's execute hook, which MUST enforce its own execution authorization semantics.
+    ///
+    /// @param binding Policy binding parameters authorized by the account (includes `policyConfig`).
+    /// @param userSig Account signature authorizing the binding.
+    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
+    ///
+    /// @return policyId Deterministic policy identifier derived from the binding.
+    function installWithSignature(PolicyBinding calldata binding, bytes calldata userSig, bytes calldata executionData)
+        external
+        nonReentrant
+        returns (bytes32 policyId)
+    {
+        policyId = getPolicyId(binding);
+
+        bytes32 digest = _hashTypedData(policyId);
+        _requireValidAccountSig(binding.account, digest, userSig);
+
+        _install(binding);
+
+        if (executionData.length == 0) return policyId;
+
+        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
+        _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender);
+        return policyId;
+    }
+
     /// @notice Execute an action for an installed policy instance.
     ///
     /// @dev `policyConfig` is an opaque policy-defined config blob (often the full config preimage bytes; may be empty).
@@ -283,15 +291,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         external
         nonReentrant
     {
-        /// @review feels like we have publics for this logical check?
         PolicyRecord storage policyRecord = policies[policy][policyId];
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
-        /// @review All invocations of execute also have _checkValidityWindow immediately before, so makes me feel like _execute should absorb this check?
-        /// @review simplest could seem to be adding isPolicyActiveNow within _execute?
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
-        _execute(policy, policyId, policyRecord.account, policyConfig, executionData, msg.sender);
+        _execute(policy, policyId, policyConfig, executionData, msg.sender);
     }
 
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by direct account call).
@@ -358,24 +362,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         if (executionData.length == 0) return newPolicyId;
 
-        /// @review I feel like I only want to see _execute() called after the early return. If we can't do that, I feel like we could massage our internal abstractions a bit to make it so.
-
         PolicyRecord storage policyRecord = policies[payload.newBinding.policy][newPolicyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(newPolicyId);
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
-        _execute(
-            payload.newBinding.policy,
-            newPolicyId,
-            policyRecord.account,
-            payload.newBinding.policyConfig,
-            executionData,
-            msg.sender
-        );
+        _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
 
         return newPolicyId;
     }
 
-    /// @review Feels like it should be up earlier given simplicity?
+    // @review Feels like it should be up earlier given simplicity?
     /// @notice Uninstall a policyId (installed lifecycle) or permanently disable a policyId before installation.
     ///
     /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
@@ -550,28 +544,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return policyId;
     }
 
-    function _installWithSignature(PolicyBinding calldata binding, bytes calldata userSig, bytes calldata executionData)
-        internal
-        returns (bytes32 policyId)
-    {
-        policyId = getPolicyId(binding);
-
-        bytes32 digest = _hashTypedData(policyId);
-        _requireValidAccountSig(binding.account, digest, userSig);
-
-        _install(binding);
-
-        if (executionData.length == 0) return policyId;
-
-        /// @review I feel like I only want to see _execute() called after the early return. If we can't do that, I feel like we could massage our internal abstractions a bit to make it so.
-
-        PolicyRecord storage policyRecord = policies[binding.policy][policyId];
-        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
-        _execute(binding.policy, policyId, policyRecord.account, binding.policyConfig, executionData, msg.sender);
-        return policyId;
-    }
-
     /// @notice Atomically uninstall an existing policy instance and install a new one.
     ///
     /// @dev Shared implementation for `replace` and `replaceWithSignature`.
@@ -638,25 +610,29 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Executes an action for a policy instance.
     ///
-    /// @dev Calls the policy hook to obtain account calldata and optional post-call calldata, then:
-    ///      1) calls the account
-    ///      2) calls the policy (post-call)
-    ///      This design allows policies to clean up approvals or internal state after the account call.
+    /// @dev Enforces the validity window, then calls the policy hook to obtain account calldata and optional
+    ///      post-call calldata:
+    ///      1) checks validity window
+    ///      2) calls the policy `onExecute` hook
+    ///      3) calls the account with the policy-prepared calldata
+    ///      4) calls the policy post-call (if any)
     ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier for the binding.
-    /// @param account Account associated with the binding.
     /// @param policyConfig Policy-defined config bytes (often the config preimage).
     /// @param executionData Policy-defined per-execution payload.
     /// @param caller Immediate external caller that invoked the manager.
     function _execute(
         address policy,
         bytes32 policyId,
-        address account,
         bytes calldata policyConfig,
         bytes calldata executionData,
         address caller
     ) internal {
+        PolicyRecord storage policyRecord = policies[policy][policyId];
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
+
+        address account = policyRecord.account;
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
         _externalCall(account, accountCallData);
@@ -665,8 +641,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
 
-    /// @review Natspec
-    /// @review Gut says this function is too big, can we slim down even if less gas efficient somehow?
+    // @review Natspec
+    // @review Gut says this function is too big, can we slim down even if less gas efficient somehow?
     function _uninstall(UninstallPayload calldata payload, address effectiveCaller)
         internal
         returns (bytes32 policyId)
