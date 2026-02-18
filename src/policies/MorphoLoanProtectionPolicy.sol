@@ -30,9 +30,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     struct LoanProtectionPolicyConfig {
         /// @dev Morpho Blue market identifier.
         Id marketId;
-
-        // LTV constraints in WAD (1e18 = 100%).
-        /// @dev Position must be at or above this LTV (wad) to trigger protection.
+        /// @dev Position must be at or above this LTV (wad 1e18 = 100%) to trigger protection.
         uint256 triggerLtv;
         /// @dev Maximum collateral top-up amount allowed per execution (collateral token smallest units).
         uint256 maxTopUpAssets;

@@ -27,7 +27,7 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @dev The allowance window bounds (`start`/`end`) are derived from the policy validity window
     ///      (`PolicyManager.policies(policy, policyId).validAfter/validUntil`) to avoid duplicating timestamps in config.
     struct DepositLimitConfig {
-        /// @dev Maximum deposits per recurring period window.
+        /// @dev Maximum deposits per recurring period window, in the vault asset token's smallest unit (ERC20 decimals).
         uint160 allowance;
         /// @dev RecurringAllowance.Limit.period length in seconds.
         uint40 period;
@@ -168,6 +168,7 @@ contract MorphoLendPolicy is AOAPolicy {
         });
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
 
+        // No post-call data.
         postCallData = "";
     }
 

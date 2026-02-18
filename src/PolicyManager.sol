@@ -519,22 +519,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding) internal returns (bytes32 policyId) {
-        // Ensure the policy is a contract
         if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
 
-        // Derive the policyId from the binding
         policyId = getPolicyId(binding);
 
-        // Check if the policy is already installed or uninstalled
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
 
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
         if (policyRecord.installed) return policyId;
 
-        // Check if the binding is within the install window
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
-        // Store the policy record
         policies[binding.policy][policyId] = PolicyRecord({
             installed: true,
             uninstalled: false,
@@ -543,7 +538,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             validUntil: binding.validUntil
         });
 
-        // Call the policy hook
         Policy(binding.policy).onInstall(policyId, binding.account, binding.policyConfig, msg.sender);
 
         emit PolicyInstalled(policyId, binding.account, binding.policy);
@@ -573,7 +567,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes calldata oldPolicyConfig,
         PolicyBinding calldata newBinding
     ) internal returns (bytes32 newPolicyId) {
-        // Ensure the old and new policies are contracts
         if (oldPolicy == address(0) || newBinding.policy == address(0)) {
             revert InvalidPayload();
         }
@@ -594,12 +587,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             return newPolicyId;
         }
 
-        // Ensure the old policy is installed for this account.
         if (!oldRecord.installed) revert PolicyNotInstalled(oldPolicyId);
         if (oldRecord.uninstalled) revert PolicyIsDisabled(oldPolicyId);
         if (oldRecord.account != newBinding.account) revert InvalidPayload();
 
-        // Ensure the new policy instance is not already installed.
         if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
 
         // Uninstall old as if called by the account.
@@ -681,9 +672,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Binding-mode: supports pre-install uninstallation and (optionally) uninstalling installed instances.
         if (payload.binding.policy != address(0)) {
             PolicyBinding calldata binding = payload.binding;
-            // Ensure the policy is a contract
             if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
-            // Derive the policyId from the binding
             policyId = getPolicyId(binding);
             // Get the policy record associated with the binding
             PolicyRecord storage policyRecordByBinding = policies[binding.policy][policyId];
@@ -733,17 +722,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         // PolicyId-mode: uninstall by (policy, policyId).
         if (payload.policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
-        // Ensure the policy is a contract
         if (payload.policy.code.length == 0) revert PolicyNotContract(payload.policy);
-        // Derive the policyId from the payload
         policyId = payload.policyId;
         // Get the policy record associated with the policyId
         PolicyRecord storage policyRecordById = policies[payload.policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecordById.uninstalled) return policyId;
-        // Ensure the policy is installed
         if (!policyRecordById.installed) revert PolicyNotInstalled(policyId);
-        // Mark the policy as uninstalled
         policyRecordById.uninstalled = true;
         try Policy(payload.policy)
             .onUninstall(
@@ -779,16 +764,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId,
         address effectiveCaller
     ) internal {
-        // Ensure the policy is a contract
         if (policy.code.length == 0) revert PolicyNotContract(policy);
         PolicyRecord storage policyRecord = policies[policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecord.uninstalled) return;
-        // Ensure the policy is installed
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
-        // Mark the policy as uninstalled
         policyRecord.uninstalled = true;
-        // Call the policy hook
         try Policy(policy)
             .onReplace(
                 policyId,
@@ -825,27 +806,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address otherPolicy,
         bytes32 otherPolicyId
     ) internal returns (bytes32 policyId) {
-        // Ensure the policy is a contract
         if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
-        // Derive the policyId from the binding
         policyId = getPolicyId(binding);
         address account = binding.account;
         // Get the policy record associated with the policyId
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
-        // Ensure the policy is not already uninstalled
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        // Ensure the policy is not already installed, return early if so
         if (policyRecord.installed) return policyId;
-        // Check if the binding is within the install window
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
-        // Mark the policy as installed and store the PolicyRecord
         policyRecord.installed = true;
         policyRecord.account = account;
         policyRecord.validAfter = binding.validAfter;
         policyRecord.validUntil = binding.validUntil;
 
-        // Call the policy hook
         Policy(binding.policy)
             .onReplace(
                 policyId,
