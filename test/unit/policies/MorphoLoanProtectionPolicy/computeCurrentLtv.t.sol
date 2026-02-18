@@ -38,7 +38,7 @@ contract ComputeCurrentLtvTest is Test {
         testAccount = makeAddr("testAccount");
         morpho = new MockMorphoBlue();
         oracle = new MockMorphoOracle();
-        harness = new MorphoLoanProtectionHarness(address(1), address(this));
+        harness = new MorphoLoanProtectionHarness(address(1), address(this), address(morpho));
 
         marketId = Id.wrap(bytes32(uint256(1)));
         marketParams = MarketParams({
@@ -67,7 +67,7 @@ contract ComputeCurrentLtvTest is Test {
 
     function _config() internal view returns (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory) {
         return MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-            morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+            marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
         });
     }
 

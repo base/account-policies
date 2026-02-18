@@ -49,7 +49,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         uint256 newSalt = 42;
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
         bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
@@ -97,7 +97,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         uint256 newSalt = 42;
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
-                morpho: address(morpho), marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
         bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({account: address(account), executor: executor}), psc);
@@ -142,7 +142,7 @@ contract ClearInstallStateTest is Test {
     MorphoLoanProtectionHarness internal harness;
 
     function setUp() public {
-        harness = new MorphoLoanProtectionHarness(address(1), address(this));
+        harness = new MorphoLoanProtectionHarness(address(1), address(this), makeAddr("morpho"));
     }
 
     /// @notice No-op when the market key has already been cleared (or was never set).

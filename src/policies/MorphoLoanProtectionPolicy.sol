@@ -16,7 +16,8 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 /// @notice AOA policy that can supply collateral to Morpho Blue if an account's LTV exceeds a trigger threshold.
 ///
 /// @dev Properties:
-///      - pinned Morpho Blue contract + pinned `marketId` (market params are looked up onchain and required to exist)
+///      - immutable Morpho Blue singleton address (set at deployment)
+///      - pinned `marketId` per config (market params are looked up onchain and required to exist)
 ///      - trigger LTV threshold
 ///      - one-shot execution (top-up amount chosen per execution, bounded by a max committed at install time)
 ///      - one active policy per (account, marketId)
@@ -27,9 +28,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
     /// @notice Policy-specific config for Morpho Blue loan protection.
     struct LoanProtectionPolicyConfig {
-        /// @dev Morpho Blue contract address.
-        /// @review is this some singleton or a specific vault? if singleton, then seems like we don't need one per config
-        address morpho;
         /// @dev Morpho Blue market identifier.
         Id marketId;
 
@@ -50,6 +48,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
+
+    /// @notice Morpho Blue singleton contract address. 
+    address public immutable morpho;
 
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
@@ -100,7 +101,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
-    constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
+    /// @param morpho_ Morpho Blue singleton contract address.
+    constructor(address policyManager, address admin, address morpho_) AOAPolicy(policyManager, admin) {
+        if (morpho_ == address(0)) revert ZeroMorpho();
+        morpho = morpho_;
+    }
 
     ////////////////////////////////////////////////////////////////
     ///                 External View Functions                  ///
@@ -128,12 +133,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         override
     {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
-        if (config.morpho == address(0)) revert ZeroMorpho();
         if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
         if (config.maxTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
-        _requireMarketParams(config.morpho, config.marketId);
+        _requireMarketParams(config.marketId);
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(config.marketId);
@@ -180,7 +184,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         /// @review give more comments to skim pls
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         /// @review Are there any cases where something would change between install and execute that requires re-running these checks?
-        MarketParams memory marketParams = _requireMarketParams(config.morpho, config.marketId);
+        MarketParams memory marketParams = _requireMarketParams(config.marketId);
         TopUpData memory topUp = abi.decode(actionData, (TopUpData));
         uint256 topUpAssets = topUp.topUpAssets;
         if (topUpAssets == 0) revert ZeroAmount();
@@ -194,10 +198,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, config.morpho, topUpAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, morpho, topUpAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
-            target: config.morpho,
+            target: morpho,
             value: 0,
             data: abi.encodeWithSelector(
                 IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, aoaConfig.account, bytes("")
@@ -211,7 +215,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @dev Computes the account's current LTV for the configured market and reverts with `HealthyPosition`
     ///      if it is strictly below the `triggerLtv` threshold (i.e., the position does not need protection).
     ///
-    /// @param config       Policy config containing the trigger LTV and Morpho address.
+    /// @param config       Policy config containing the trigger LTV.
     /// @param marketParams On-chain market parameters for the pinned market.
     /// @param account      Account whose position LTV is evaluated.
     /// @review feels like we don't need this if we just inline it's only usage. I'm happy with _computeCurrentLtv as separate function because it's doing a lot more lifting
@@ -226,21 +230,16 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
     /// @notice Looks up market params from `marketId` and reverts if the market is not initialized.
     ///
-    /// @param morphoAddress Morpho Blue contract address.
-    /// @param marketId Market identifier.
+    /// @param marketId_ Market identifier.
     ///
     /// @return marketParams Market parameters for the given marketId.
-    function _requireMarketParams(address morphoAddress, Id marketId)
-        internal
-        view
-        returns (MarketParams memory marketParams)
-    {
-        marketParams = IMorphoBlue(morphoAddress).idToMarketParams(marketId);
+    function _requireMarketParams(Id marketId_) internal view returns (MarketParams memory marketParams) {
+        marketParams = IMorphoBlue(morpho).idToMarketParams(marketId_);
         // Treat zeroed params as "market does not exist / not initialized on this Morpho instance".
         if (
             marketParams.loanToken == address(0) || marketParams.collateralToken == address(0)
                 || marketParams.oracle == address(0) || marketParams.irm == address(0) || marketParams.lltv == 0
-        ) revert MarketNotFound(marketId);
+        ) revert MarketNotFound(marketId_);
     }
 
     /// @dev Computes the account's current LTV as a WAD-scaled value (1e18 = 100%) using the Morpho Blue
@@ -248,7 +247,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///      position has zero value after oracle pricing (which would cause a division-by-zero in the LTV
     ///      calculation).
     ///
-    /// @param config       Policy config containing the Morpho address and market identifier.
+    /// @param config       Policy config containing the market identifier.
     /// @param marketParams On-chain market parameters (used to locate the oracle and collateral token).
     /// @param account      Account whose position is evaluated.
     ///
@@ -258,7 +257,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         MarketParams memory marketParams,
         address account
     ) internal view returns (uint256 currentLtvWad) {
-        IMorphoBlue morphoBlue = IMorphoBlue(config.morpho);
+        IMorphoBlue morphoBlue = IMorphoBlue(morpho);
         Position memory position = morphoBlue.position(config.marketId, account);
         Market memory market = morphoBlue.market(config.marketId);
 

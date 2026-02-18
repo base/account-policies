@@ -166,7 +166,14 @@ abstract contract Policy {
         ReplaceRole role,
         address effectiveCaller
     ) external onlyPolicyManager {
-        _onReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, role, effectiveCaller);
+        if (role == ReplaceRole.OldPolicy) {
+            _onUninstallForReplace(
+                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
+            );
+            return;
+        }
+
+        _onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -196,8 +203,7 @@ abstract contract Policy {
 
     /// @notice Policy-specific replacement uninstall hook.
     ///
-    /// @dev Override to implement replacement-aware uninstallation logic. Prefer overriding this function over `_onReplace`
-    ///      so the meaning of parameters is unambiguous.
+    /// @dev Override to implement replacement-aware uninstallation logic.
     ///
     /// Default behavior: delegates to `_onUninstall(..., uninstallData=replaceData, caller=effectiveCaller)`.
     ///
@@ -224,8 +230,7 @@ abstract contract Policy {
 
     /// @notice Policy-specific replacement install hook.
     ///
-    /// @dev Override to implement replacement-aware installation logic. Prefer overriding this function over `_onReplace`
-    ///      so the meaning of parameters is unambiguous.
+    /// @dev Override to implement replacement-aware installation logic.
     ///
     /// Default behavior: delegates to `_onInstall(..., caller=effectiveCaller)`.
     ///
@@ -249,28 +254,6 @@ abstract contract Policy {
         otherPolicy;
         otherPolicyId;
         _onInstall(policyId, account, policyConfig, effectiveCaller);
-    }
-
-    /// @dev Replacement router. Prefer overriding `_onUninstallForReplace` and/or `_onInstallForReplace` instead.
-    /// @review if this isn't virtual, then add to onReplace external?
-    function _onReplace(
-        bytes32 policyId,
-        address account,
-        bytes calldata policyConfig,
-        bytes calldata replaceData,
-        address otherPolicy,
-        bytes32 otherPolicyId,
-        ReplaceRole role,
-        address effectiveCaller
-    ) internal {
-        if (role == ReplaceRole.OldPolicy) {
-            _onUninstallForReplace(
-                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
-            );
-            return;
-        }
-
-        _onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller);
     }
 
     ////////////////////////////////////////////////////////////////

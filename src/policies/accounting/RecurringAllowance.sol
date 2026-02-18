@@ -15,8 +15,8 @@ library RecurringAllowance {
     struct Limit {
         /// @dev Maximum spend per period window.
         uint160 allowance;
-        /// @review match uint40?
-        /// @dev Period length in seconds.
+        /// @dev Period length in seconds. uint48 (not uint40) so that `PeriodUsage` packs into exactly
+        ///      one storage slot: uint48 + uint48 + uint160 = 256 bits.
         uint48 period;
         /// @dev Start timestamp (seconds) inclusive.
         uint48 start;
@@ -26,8 +26,7 @@ library RecurringAllowance {
 
     /// @notice Stored usage snapshot for a particular active period.
     struct PeriodUsage {
-        /// @review match uint40?
-        /// @dev Period start timestamp (seconds).
+        /// @dev Period start timestamp (seconds). uint48 so this struct packs into one slot (uint48 + uint48 + uint160 = 256 bits).
         uint48 start;
         /// @dev Period end timestamp (seconds).
         uint48 end;
@@ -45,14 +44,28 @@ library RecurringAllowance {
     ///                         Errors                           ///
     ////////////////////////////////////////////////////////////////
 
-    /// @review natspec?
+    /// @notice Thrown when the period length is zero.
     error ZeroPeriod();
+
+    /// @notice Thrown when the allowance is zero.
     error ZeroAllowance();
+
+    /// @notice Thrown when `start >= end` in the limit bounds.
     error InvalidStartEnd(uint48 start, uint48 end);
+
+    /// @notice Thrown when the current timestamp is before the allowance window.
     error BeforeStart(uint48 currentTimestamp, uint48 start);
+
+    /// @notice Thrown when the current timestamp is at or past the allowance window end.
     error AfterEnd(uint48 currentTimestamp, uint48 end);
+
+    /// @notice Thrown when the spend value is zero.
     error ZeroValue();
+
+    /// @notice Thrown when cumulative spend exceeds `type(uint160).max`.
     error SpendValueOverflow(uint256 value);
+
+    /// @notice Thrown when cumulative spend exceeds the period allowance.
     error ExceededAllowance(uint256 value, uint256 allowance);
 
     ////////////////////////////////////////////////////////////////
