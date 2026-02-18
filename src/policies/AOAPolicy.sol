@@ -47,7 +47,6 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     mapping(bytes32 policyId => bytes32 configHash) internal _configHashByPolicyId;
 
     /// @notice Tracks used nonces per policyId to prevent replay of executor-signed executions.
-    /// @review consider 2d nonce for better median gas efficiency
     mapping(bytes32 policyId => mapping(uint256 nonce => bool used)) internal _usedNonces;
 
     /// @notice EIP-712 typehash for executor-signed execution intents.
@@ -187,13 +186,9 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
             POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
-    /// @dev Reverts if `nonce` is already used for `policyId`.
-    function _requireUnusedNonce(bytes32 policyId, uint256 nonce) internal view {
+    /// @dev Reverts if `nonce` is already used for `policyId`, then marks it as used.
+    function _consumeNonce(bytes32 policyId, uint256 nonce) internal {
         if (_usedNonces[policyId][nonce]) revert ExecutionNonceAlreadyUsed(policyId, nonce);
-    }
-
-    /// @dev Marks `nonce` as used for `policyId`.
-    function _markNonceUsed(bytes32 policyId, uint256 nonce) internal {
         _usedNonces[policyId][nonce] = true;
     }
 
@@ -433,9 +428,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes memory actionData,
         address caller
     ) internal {
-        _requireUnusedNonce(policyId, aoaExecutionData.nonce);
-        /// @review feels weird to not have requiring nonce unused when marking nonce as used? Not sure if we really want two separate internals vs one
-        _markNonceUsed(policyId, aoaExecutionData.nonce);
+        _consumeNonce(policyId, aoaExecutionData.nonce);
 
         if (aoaExecutionData.deadline != 0 && block.timestamp > aoaExecutionData.deadline) {
             revert SignatureExpired(block.timestamp, aoaExecutionData.deadline);
