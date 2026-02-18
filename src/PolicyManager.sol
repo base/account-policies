@@ -278,6 +278,22 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return policyId;
     }
 
+    /// @notice Uninstall a policyId (installed lifecycle) or permanently disable a policyId before installation.
+    ///
+    /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
+    /// - `policyConfig` MAY be empty. If the effective caller is the account, the manager will still succeed even if the
+    ///   policy hook reverts due to missing config (account escape hatch).
+    ///
+    /// Pre-install uninstallation (binding-mode): address by the full `binding` (which carries `policyConfig`)
+    /// so the manager can compute `policyId`.
+    ///
+    /// @param payload Uninstall payload selecting binding-mode or policyId-mode.
+    ///
+    /// @return policyId Policy identifier that was uninstalled.
+    function uninstall(UninstallPayload calldata payload) external nonReentrant returns (bytes32 policyId) {
+        return _uninstall(payload, msg.sender);
+    }
+
     /// @notice Execute an action for an installed policy instance.
     ///
     /// @dev `policyConfig` is an opaque policy-defined config blob (often the full config preimage bytes; may be empty).
@@ -342,8 +358,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             return newPolicyId;
         }
 
-        /// @review only used once, so just inline?
-        _requireNotExpired(deadline);
+        if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
         bytes32 digest = _hashTypedData(
             keccak256(
                 abi.encode(
@@ -367,23 +382,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
 
         return newPolicyId;
-    }
-
-    // @review Feels like it should be up earlier given simplicity?
-    /// @notice Uninstall a policyId (installed lifecycle) or permanently disable a policyId before installation.
-    ///
-    /// @dev Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
-    /// - `policyConfig` MAY be empty. If the effective caller is the account, the manager will still succeed even if the
-    ///   policy hook reverts due to missing config (account escape hatch).
-    ///
-    /// Pre-install uninstallation (binding-mode): address by the full `binding` (which carries `policyConfig`)
-    /// so the manager can compute `policyId`.
-    ///
-    /// @param payload Uninstall payload selecting binding-mode or policyId-mode.
-    ///
-    /// @return policyId Policy identifier that was uninstalled.
-    function uninstall(UninstallPayload calldata payload) external nonReentrant returns (bytes32 policyId) {
-        return _uninstall(payload, msg.sender);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -529,7 +527,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
-        /// @review I think setting individual fields triggers a bunch of warm SSTOREs vs just one if we do struct?
         policies[binding.policy][policyId] = PolicyRecord({
             installed: true,
             uninstalled: false,
@@ -641,8 +638,27 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
 
-    // @review Natspec
-    // @review Gut says this function is too big, can we slim down even if less gas efficient somehow?
+    /// @notice Shared implementation for uninstalling or pre-disabling a policy instance.
+    ///
+    /// @dev Supports two addressing modes selected by the caller's payload:
+    ///
+    ///      **Binding-mode** (`payload.binding.policy != address(0)`):
+    ///      Derives `policyId` from the full binding. Handles both:
+    ///      - Installed lifecycle uninstallation (policy already installed for the account).
+    ///      - Pre-install disabling (permanently marks a not-yet-installed policyId as disabled;
+    ///        requires non-empty `policyConfig` in the binding).
+    ///
+    ///      **PolicyId-mode** (`payload.policy != address(0)`):
+    ///      Uninstalls by explicit `(policy, policyId)`. Requires the policy to already be installed.
+    ///
+    ///      In both modes, `Policy.onUninstall` is called via try/catch. If the hook reverts and the
+    ///      effective caller is the bound account, the revert is swallowed (account escape hatch).
+    ///      Idempotent: uninstalling an already-uninstalled policyId is a no-op.
+    ///
+    /// @param payload Uninstall payload selecting binding-mode or policyId-mode.
+    /// @param effectiveCaller The address treated as the caller for authorization (msg.sender or account).
+    ///
+    /// @return policyId Policy identifier that was uninstalled or disabled.
     function _uninstall(UninstallPayload calldata payload, address effectiveCaller)
         internal
         returns (bytes32 policyId)
@@ -826,10 +842,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @dev Reverts if `deadline` is non-zero and already expired.
-    function _requireNotExpired(uint256 deadline) internal view {
-        if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
-    }
-
     /// @dev Requires `account` to have signed `digest` (ERC-6492 supported, side effects allowed).
     function _requireValidAccountSig(address account, bytes32 digest, bytes calldata signature) internal {
         if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(account, digest, signature)) {
