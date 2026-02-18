@@ -57,7 +57,7 @@ At execution time it enforces:
 - **Executor authorization**: validates an executor signature over a typed intent binding:
   - `policyId`
   - `account`
-  - the committed config hash (`policyConfigHash` (stored at install time))
+  - the committed config hash (`policyConfigHash`; AOA stores `keccak256(policyConfig)` at install time)
   - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
 - **Replay protection**: per-`policyId` nonce tracking at the AOA layer.
 - **Signature expiry**: optional `deadline` in the AOA execution envelope (`AOAExecutionData.deadline`).
@@ -89,6 +89,8 @@ As with standard ERC-20 `transferFrom` flows, approving exactly `collateralTopUp
 
 ### Action data (`TopUpData`)
 
+- `topUpAssets`: collateral top-up amount (collateral token smallest units)
+
 Replay protection and optional expiry are provided by the AOA execution envelope (`AOAExecutionData{nonce, deadline, signature}`).
 
 ## Calldata vs storage
@@ -96,5 +98,6 @@ Replay protection and optional expiry are provided by the AOA execution envelope
 This policy is calldata-heavy for config via `AOAPolicy` (config preimage required each execution), but more storage-heavy for invariants:
 
 - stores `configHash` per `policyId` (AOA)
-- stores per-`policyId` used nonces
+- stores per-`policyId` used nonces (AOA)
+- stores per-`policyId` one-shot used flag
 - stores cross-instance mappings to enforce one active policy per market and to support uninstall cleanup

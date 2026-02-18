@@ -51,7 +51,7 @@ At execution time it enforces:
 - **Executor authorization**: requires a valid executor signature over a typed execution digest binding:
   - `policyId`
   - `account`
-  - the installed config hash (`policyConfigHash` (stored at install time))
+  - the installed config hash (`policyConfigHash`; AOA stores `keccak256(policyConfig)` at install time)
   - `keccak256(actionData)` where `actionData` encodes `{depositAssets}`
   - an `executionDataHash` derived from `{nonce, deadline, actionDataHash}` (AOA envelope)
 - **Replay protection**: per-`policyId` nonce tracking at the AOA layer; each nonce can be used once.
@@ -86,7 +86,7 @@ The executor signs an EIP-712 digest computed by the policy over:
 
 - `policyId`
 - `account`
-- the committed `policyConfigHash` (stored at install time) (hash of the installed config preimage)
+- the committed `policyConfigHash` (AOA stores `keccak256(policyConfig)` at install time)
 - a hash of the action payload
 
 This binds the signature to:
@@ -115,4 +115,4 @@ The policy uses a `RecurringAllowance` limit (in vault asset units).
 The allowance window is always derived from the policy validity window (`validAfter`/`validUntil`) recorded by the manager:
 
 - `start = validAfter`
-- `end = validUntil == 0 ? type(uint48).max : validUntil`
+- `end = validUntil == 0 ? type(uint40).max : validUntil`

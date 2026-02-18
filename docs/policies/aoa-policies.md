@@ -67,7 +67,7 @@ Common binding properties (policy-defined, but usually includes):
 
 - `policyId` (binds to a specific installed instance)
 - `account` (binds to a specific account)
-- `policyConfigHash` (binds to the committed config, stored at install time)
+- `policyConfigHash` (binds to the committed config; AOA stores `keccak256(policyConfig)` at install time)
 - a hash of the action payload (binds to the specific intent)
 
 Signature verification is done through the manager’s ERC-6492-capable validator, allowing:
@@ -77,11 +77,15 @@ Signature verification is done through the manager’s ERC-6492-capable validato
 
 Replay protection is policy-defined; AOA policies typically include a per-`policyId` nonce in the signed intent and mark nonces as used.
 
-## Operational controls: pause, cancel, uninstall
+## Operational controls: pause, cancel nonces, uninstall
 
 ### Pause / unpause
 
 AOA policies include an admin-controlled pause/unpause (policy-level kill switch) that blocks execution.
+
+### Cancel nonces
+
+The configured executor can cancel one or more nonces for a policy instance via `cancelNonces(policyId, nonces, policyConfig)`. Cancelled nonces are permanently marked as used, preventing any future execution intent that references them. This is useful for revoking pending execution intents without uninstalling the policy. Cancellation is not gated by pause — it is a safety mechanism that should always be available.
 
 ### Uninstall with `uninstallData`
 

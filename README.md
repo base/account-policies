@@ -100,12 +100,12 @@ For example: a swap policy can snapshot balances before the wallet call, then ve
 
 ### Uninstall
 
-Uninstall revokes an **installed** policy instance and permanently disables that `policyId`.
+Uninstall revokes a policy instance and permanently disables that `policyId`.
 
-Importantly, uninstall is addressed by **instance identifier**, not by a full binding:
+`UninstallPayload` supports two addressing modes:
 
-- `uninstall(UninstallPayload{policy, policyId, ...})` supports a policyId-mode that addresses the instance by `(policy, policyId)` where `policyId = hash(binding)`.
-- It does *not* take the full `PolicyBinding` fields; those fields may not be available to relayers/indexers once an instance is installed.
+- **policyId-mode**: addresses the instance by `(policy, policyId)` where `policyId = hash(binding)`. This is the typical mode for installed instances — it does not require the full binding fields, which may not be available to relayers/indexers after installation.
+- **binding-mode**: addresses the instance by the full `PolicyBinding` (which carries `policyConfig`). This mode supports both installed-instance uninstallation and pre-install permanent disabling.
 
 The manager provides one global guarantee: **The account can always uninstall its own installed policy instances.**
 
@@ -114,9 +114,7 @@ In other words: policies can set the terms of third-party uninstalls, but they c
 
 ### Pre-install uninstallation
 
-Uninstallation can also be used to revoke (permanently disable) an installation intent **before** the policy is installed.
-
-In binding-mode (when the instance is not installed yet), the manager:
+Uninstallation can also be used to revoke (permanently disable) an installation intent **before** the policy is installed. This uses binding-mode, where the manager:
 
 * computes `policyId = hash(binding)`  
 * calls `policy.onUninstall(...)` for policy-defined authorization  
@@ -151,10 +149,11 @@ The manager is the generic, minimal enforcement layer:
 
 * computes deterministic `policyId` from the binding  
 * validates account signatures (or calls) for installs/replacements (ERC-6492 capable)  
-* enforces config hash matching at install and pre-install uninstallation  
+* passes `policyConfig` from the binding to the policy on install (policies are responsible for authenticating config on execution)  
 * enforces `validAfter` / `validUntil` at install and execute  
 * maintains policy instance liveness state (installed / uninstalled)  
 * enforces sticky disables (uninstallation permanently kills a `policyId`)  
+* requires policy addresses to be deployed contracts (code-length check on all lifecycle transitions)  
 * mediates all policy hooks and provides a consistent execution environment  
 * guarantees “account can always uninstall installed instances”
 
@@ -227,11 +226,12 @@ This is safe only if the policy independently authorizes each execution (as AOA 
 
 ## Notes on policy implementation
 
-Policies implement the minimal `Policy` hooks:
+Policies implement the `Policy` hooks:
 
 * `onInstall`: validate installation and optionally initialize policy state  
 * `onUninstall`: authorize uninstall (including pre-install permanent disable) and optionally clean up policy state  
-* `onExecute`: authorize execution and return a call plan
+* `onExecute`: authorize execution and return a call plan  
+* `onReplace`: handle atomic replacement transitions (called with a role indicating whether this policy is the old or new side of the replacement)
 
 Policies are only callable by the manager, which keeps the trust boundary clean and prevents integrators from bypassing lifecycle logic.
 
