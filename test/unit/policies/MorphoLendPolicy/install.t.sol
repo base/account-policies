@@ -21,7 +21,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the vault address in the policy config is zero.
+    /// @notice Reverts when the vault address in the policy config has no deployed code.
     ///
     /// @param salt Salt for deriving a unique policyId.
     /// @param allowance Fuzzed allowance (irrelevant — revert fires before use).
@@ -45,7 +45,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
         });
         bytes memory userSig = _signInstall(b);
 
-        vm.expectRevert(MorphoLendPolicy.ZeroVault.selector);
+        vm.expectRevert(abi.encodeWithSelector(MorphoLendPolicy.VaultNotContract.selector, address(0)));
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 

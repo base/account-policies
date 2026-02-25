@@ -29,9 +29,6 @@ abstract contract Policy {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Native token sentinel used by this protocol (ERC-7528 convention).
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
     /// @notice The `PolicyManager` instance authorized to call hooks.
     PolicyManager public immutable POLICY_MANAGER;
 
