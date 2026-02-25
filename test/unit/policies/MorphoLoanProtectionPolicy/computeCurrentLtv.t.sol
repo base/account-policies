@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {Test} from "forge-std/Test.sol";
+import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
@@ -25,6 +26,11 @@ import {MockMorphoBlue, MockMorphoOracle} from "../../../lib/mocks/MockMorphoBlu
 contract ComputeCurrentLtvTest is Test {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant ORACLE_PRICE_SCALE = 1e36;
+
+    /// @dev Max fuzz bound for borrow totals. SharesMathLib.toAssetsUp uses MathLib.mulDivUp which
+    ///      can overflow when borrowShares * (totalBorrowAssets + VIRTUAL_ASSETS) > type(uint256).max.
+    ///      Capping at type(uint128).max - 1 prevents this.
+    uint128 internal constant MAX_BORROW_FUZZ = type(uint128).max - 1;
 
     MorphoLoanProtectionHarness internal harness;
     MockMorphoBlue internal morpho;
@@ -57,7 +63,7 @@ contract ComputeCurrentLtvTest is Test {
                 totalSupplyShares: 0,
                 totalBorrowAssets: uint128(1e18),
                 totalBorrowShares: uint128(1e18),
-                lastUpdate: 0,
+                lastUpdate: uint128(block.timestamp),
                 fee: 0
             })
         );
@@ -128,13 +134,14 @@ contract ComputeCurrentLtvTest is Test {
     // Zero borrow shares branch
     // =============================================================
 
-    /// @notice Returns zero LTV when the market has no outstanding borrows (totalBorrowShares == 0).
+    /// @notice Returns zero LTV when the account has no borrow shares.
     ///
-    /// @dev Covers the `totalBorrowShares == 0` branch in `_computeCurrentLtv`.
+    /// @dev With virtual shares, division by zero is no longer possible. The consistent state when
+    ///      totalBorrowShares == 0 is borrowShares == 0, which yields debtAssets == 0 and LTV == 0.
     ///
     /// @param collateral Fuzzed non-zero collateral.
     /// @param price Fuzzed non-zero oracle price, ensuring collateralValue > 0.
-    function test_returnsZero_whenTotalBorrowSharesIsZero(uint128 collateral, uint128 price) public {
+    function test_returnsZero_whenBorrowSharesIsZero(uint128 collateral, uint128 price) public {
         collateral = uint128(bound(collateral, 1, type(uint128).max));
         price = uint128(bound(price, 1, type(uint128).max));
         vm.assume(Math.mulDiv(uint256(collateral), uint256(price), ORACLE_PRICE_SCALE) > 0);
@@ -147,14 +154,12 @@ contract ComputeCurrentLtvTest is Test {
                 totalSupplyShares: 0,
                 totalBorrowAssets: 0,
                 totalBorrowShares: 0,
-                lastUpdate: 0,
+                lastUpdate: uint128(block.timestamp),
                 fee: 0
             })
         );
 
-        morpho.setPosition(
-            marketId, testAccount, Position({supplyShares: 0, borrowShares: uint128(50e18), collateral: collateral})
-        );
+        morpho.setPosition(marketId, testAccount, Position({supplyShares: 0, borrowShares: 0, collateral: collateral}));
         oracle.setPrice(uint256(price));
 
         uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
@@ -165,9 +170,9 @@ contract ComputeCurrentLtvTest is Test {
     // Computation accuracy: 1:1 borrow ratio
     // =============================================================
 
-    /// @notice Computes correct LTV when the borrow ratio is 1:1 (debtAssets == borrowShares).
+    /// @notice Computes correct LTV when the borrow ratio is 1:1.
     ///
-    /// @dev With 1:1 ratio: debtAssets == borrowShares.
+    /// @dev With virtual shares: debtAssets = SharesMathLib.toAssetsUp(borrowShares, totalBorrow, totalBorrow).
     ///      LTV = mulDiv(debtAssets, WAD, collateralValue).
     ///
     /// @param borrowShares Fuzzed borrow shares.
@@ -180,7 +185,7 @@ contract ComputeCurrentLtvTest is Test {
         uint128 collateral,
         uint128 price
     ) public {
-        totalBorrow = uint128(bound(totalBorrow, 1, type(uint128).max));
+        totalBorrow = uint128(bound(totalBorrow, 1, MAX_BORROW_FUZZ));
         borrowShares = uint128(bound(borrowShares, 0, totalBorrow));
         collateral = uint128(bound(collateral, 1, type(uint128).max));
         price = uint128(bound(price, 1, type(uint128).max));
@@ -196,7 +201,7 @@ contract ComputeCurrentLtvTest is Test {
                 totalSupplyShares: 0,
                 totalBorrowAssets: totalBorrow,
                 totalBorrowShares: totalBorrow,
-                lastUpdate: 0,
+                lastUpdate: uint128(block.timestamp),
                 fee: 0
             })
         );
@@ -207,7 +212,8 @@ contract ComputeCurrentLtvTest is Test {
 
         uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
 
-        uint256 expectedLtv = Math.mulDiv(uint256(borrowShares), WAD, collateralValue);
+        uint256 debtAssets = SharesMathLib.toAssetsUp(uint256(borrowShares), uint256(totalBorrow), uint256(totalBorrow));
+        uint256 expectedLtv = Math.mulDiv(debtAssets, WAD, collateralValue);
         assertEq(ltv, expectedLtv);
     }
 
@@ -217,7 +223,7 @@ contract ComputeCurrentLtvTest is Test {
 
     /// @notice Computes correct LTV when borrow ratio diverges from 1:1 (e.g., interest accrual).
     ///
-    /// @dev debtAssets = mulDiv(borrowShares, totalBorrowAssets, totalBorrowShares).
+    /// @dev debtAssets = SharesMathLib.toAssetsUp(borrowShares, totalBorrowAssets, totalBorrowShares).
     ///      LTV = mulDiv(debtAssets, WAD, collateralValue).
     ///
     /// @param borrowShares Fuzzed borrow shares.
@@ -232,8 +238,8 @@ contract ComputeCurrentLtvTest is Test {
         uint128 collateral,
         uint128 price
     ) public {
-        totalBorrowShares = uint128(bound(totalBorrowShares, 1, type(uint128).max));
-        totalBorrowAssets = uint128(bound(totalBorrowAssets, 1, type(uint128).max));
+        totalBorrowShares = uint128(bound(totalBorrowShares, 1, MAX_BORROW_FUZZ));
+        totalBorrowAssets = uint128(bound(totalBorrowAssets, 1, MAX_BORROW_FUZZ));
         borrowShares = uint128(bound(borrowShares, 0, totalBorrowShares));
         collateral = uint128(bound(collateral, 1, type(uint128).max));
         price = uint128(bound(price, 1, type(uint128).max));
@@ -249,7 +255,7 @@ contract ComputeCurrentLtvTest is Test {
                 totalSupplyShares: 0,
                 totalBorrowAssets: totalBorrowAssets,
                 totalBorrowShares: totalBorrowShares,
-                lastUpdate: 0,
+                lastUpdate: uint128(block.timestamp),
                 fee: 0
             })
         );
@@ -260,7 +266,8 @@ contract ComputeCurrentLtvTest is Test {
 
         uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
 
-        uint256 debtAssets = Math.mulDiv(uint256(borrowShares), uint256(totalBorrowAssets), uint256(totalBorrowShares));
+        uint256 debtAssets =
+            SharesMathLib.toAssetsUp(uint256(borrowShares), uint256(totalBorrowAssets), uint256(totalBorrowShares));
         uint256 expectedLtv = Math.mulDiv(debtAssets, WAD, collateralValue);
         assertEq(ltv, expectedLtv);
     }
@@ -269,16 +276,16 @@ contract ComputeCurrentLtvTest is Test {
     // LTV vs trigger threshold
     // =============================================================
 
-    /// @notice LTV exactly at the trigger threshold is considered unhealthy (passes enforcement).
+    /// @notice LTV above the trigger threshold is considered unhealthy (passes enforcement).
     ///
-    /// @dev The inlined guard is `currentLtv < config.triggerLtv`, so equality passes.
-    ///      With 1:1 ratio and 1e36 price: LTV = borrowShares * WAD / collateral.
-    ///      70 ether * WAD / 100 ether == 0.7e18 exactly.
-    function test_ltvAtTrigger_isConsideredUnhealthy() public {
+    /// @dev Uses the setUp market's 1:1 ratio and 1e36 oracle price. With virtual shares,
+    ///      debtAssets = mulDiv(borrowShares, totalBorrow + 1, totalBorrow + 1e6, Ceil).
+    ///      71 ether borrow / 100 ether collateral produces LTV > 0.7e18 trigger.
+    function test_ltvAboveTrigger_isConsideredUnhealthy_concrete() public {
         morpho.setPosition(
             marketId,
             testAccount,
-            Position({supplyShares: 0, borrowShares: uint128(70 ether), collateral: uint128(100 ether)})
+            Position({supplyShares: 0, borrowShares: uint128(71 ether), collateral: uint128(100 ether)})
         );
 
         uint256 ltv = harness.exposed_computeCurrentLtv(_config(), marketParams, testAccount);
@@ -287,15 +294,22 @@ contract ComputeCurrentLtvTest is Test {
 
     /// @notice LTV above the trigger threshold is considered unhealthy (passes enforcement).
     ///
+    /// @dev Derives fuzz bounds that guarantee debtAssets (with virtual shares, rounded up) produces
+    ///      LTV >= triggerLtv. Uses the setUp market (totalBorrowAssets = totalBorrowShares = 1e18).
+    ///
     /// @param borrowShares Fuzzed borrow shares.
     /// @param collateral Fuzzed collateral bounded to produce LTV >= triggerLtv.
     function test_ltvAboveTrigger_isConsideredUnhealthy(uint128 borrowShares, uint128 collateral) public {
         uint256 triggerLtv = _config().triggerLtv;
+        uint256 totalBorrow = 1e18;
 
         uint256 maxBorrowShares = (uint256(type(uint128).max) * triggerLtv) / WAD;
         borrowShares = uint128(bound(borrowShares, 1, maxBorrowShares));
 
-        uint256 maxCollateral = (uint256(borrowShares) * WAD) / triggerLtv;
+        uint256 debtAssets = SharesMathLib.toAssetsUp(uint256(borrowShares), totalBorrow, totalBorrow);
+        vm.assume(debtAssets > 0);
+        uint256 maxCollateral = (debtAssets * WAD) / triggerLtv;
+        vm.assume(maxCollateral > 0);
         collateral = uint128(bound(collateral, 1, maxCollateral));
 
         morpho.setPosition(
@@ -308,15 +322,20 @@ contract ComputeCurrentLtvTest is Test {
 
     /// @notice LTV below the trigger threshold is considered healthy (would fail enforcement).
     ///
+    /// @dev Derives fuzz bounds that guarantee debtAssets (with virtual shares, rounded up) produces
+    ///      LTV < triggerLtv. Uses the setUp market (totalBorrowAssets = totalBorrowShares = 1e18).
+    ///
     /// @param borrowShares Fuzzed borrow shares.
     /// @param collateral Fuzzed collateral bounded to produce LTV < triggerLtv.
     function test_ltvBelowTrigger_isConsideredHealthy(uint128 borrowShares, uint128 collateral) public {
         uint256 triggerLtv = _config().triggerLtv;
+        uint256 totalBorrow = 1e18;
 
         uint256 maxBorrowShares = (uint256(type(uint128).max) * triggerLtv) / WAD;
         borrowShares = uint128(bound(borrowShares, 1, maxBorrowShares));
 
-        uint256 minHealthyCollateral = (uint256(borrowShares) * WAD) / triggerLtv + 1;
+        uint256 debtAssets = SharesMathLib.toAssetsUp(uint256(borrowShares), totalBorrow, totalBorrow);
+        uint256 minHealthyCollateral = (debtAssets * WAD) / triggerLtv + 1;
         collateral = uint128(bound(collateral, minHealthyCollateral, type(uint128).max));
 
         morpho.setPosition(

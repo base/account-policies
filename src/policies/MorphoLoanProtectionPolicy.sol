@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
@@ -18,9 +19,14 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 /// @dev Properties:
 ///      - immutable Morpho Blue singleton address (set at deployment)
 ///      - pinned `marketId` per config (market params are looked up onchain and required to exist)
-///      - trigger LTV threshold
+///      - trigger LTV threshold (must be strictly below the market's LLTV)
 ///      - one-shot execution (top-up amount chosen per execution, bounded by a max committed at install time)
 ///      - one active policy per (account, marketId)
+///
+///      This policy is NOT guaranteed to prevent liquidation. Market conditions, oracle price updates, and
+///      further interest accrual can change between blocks; executors may not submit transactions in time;
+///      and gas costs may prevent timely execution. Even after a successful top-up, the position may become
+///      unhealthy again in subsequent blocks. The policy provides a best-effort protection mechanism only.
 contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
@@ -88,6 +94,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Thrown when the oracle price results in a zero collateral value.
     error ZeroCollateralValue();
 
+    /// @notice Thrown when the configured triggerLtv is not below the market's LLTV.
+    error TriggerLtvAboveLltv(uint256 triggerLtv, uint256 lltv);
+
     /// @notice Thrown when an account attempts to install multiple active policies for the same marketId.
     error PolicyAlreadyInstalledForMarket(address account, Id marketId);
 
@@ -134,7 +143,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (config.maxTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
-        _requireMarketParams(config.marketId);
+        MarketParams memory marketParams = _requireMarketParams(config.marketId);
+
+        // Ensure the trigger LTV is below the market's liquidation LTV so the protection can
+        // fire before the position becomes liquidatable.
+        if (config.triggerLtv >= marketParams.lltv) revert TriggerLtvAboveLltv(config.triggerLtv, marketParams.lltv);
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(config.marketId);
@@ -226,12 +239,19 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
             marketParams.loanToken == address(0) || marketParams.collateralToken == address(0)
                 || marketParams.oracle == address(0) || marketParams.irm == address(0) || marketParams.lltv == 0
         ) revert MarketNotFound(marketId_);
+
+        // Morpho sets lastUpdate = block.timestamp on createMarket; a zero value means the market
+        // was never created via the canonical path.
+        Market memory mkt = IMorphoBlue(morpho).market(marketId_);
+        if (mkt.lastUpdate == 0) revert MarketNotFound(marketId_);
     }
 
     /// @dev Computes the account's current LTV as a WAD-scaled value (1e18 = 100%) using the Morpho Blue
-    ///      position, market totals, and oracle price. Reverts with `ZeroCollateralValue` if the collateral
-    ///      position has zero value after oracle pricing (which would cause a division-by-zero in the LTV
-    ///      calculation).
+    ///      position, market totals, and oracle price. Calls `accrueInterest` first to ensure
+    ///      `totalBorrowAssets` and `totalBorrowShares` reflect accrued interest. Converts borrow shares
+    ///      to debt assets using Morpho's virtual shares/assets offset and rounds up (worst-case debt).
+    ///      Reverts with `ZeroCollateralValue` if the collateral position has zero value after oracle
+    ///      pricing (which would cause a division-by-zero in the LTV calculation).
     ///
     /// @param config       Policy config containing the market identifier.
     /// @param marketParams On-chain market parameters (used to locate the oracle and collateral token).
@@ -242,22 +262,20 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
         address account
-    ) internal view returns (uint256 currentLtvWad) {
+    ) internal returns (uint256 currentLtvWad) {
         IMorphoBlue morphoBlue = IMorphoBlue(morpho);
+
+        // Accrue interest so totalBorrowAssets/totalBorrowShares are up to date.
+        morphoBlue.accrueInterest(marketParams);
+
         Position memory position = morphoBlue.position(config.marketId, account);
         Market memory market = morphoBlue.market(config.marketId);
 
         uint256 collateralBefore = uint256(position.collateral);
 
-        // Debt assets derived from borrow shares and market totals.
-        uint256 debtAssets;
-        uint256 totalBorrowShares = uint256(market.totalBorrowShares);
-        if (totalBorrowShares == 0) {
-            debtAssets = 0;
-        } else {
-            debtAssets =
-                Math.mulDiv(uint256(position.borrowShares), uint256(market.totalBorrowAssets), totalBorrowShares);
-        }
+        uint256 debtAssets = SharesMathLib.toAssetsUp(
+            uint256(position.borrowShares), uint256(market.totalBorrowAssets), uint256(market.totalBorrowShares)
+        );
 
         uint256 price = IOracle(marketParams.oracle).price(); // 1e36 scaled
 

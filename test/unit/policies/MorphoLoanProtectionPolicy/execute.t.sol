@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
@@ -93,14 +95,13 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
 
     /// @notice Reverts when the account's position LTV is below the trigger threshold (position is healthy).
     ///
-    /// @dev The setUp market has a 1:1 borrow share ratio (totalBorrowAssets == totalBorrowShares),
-    ///      so debtAssets == borrowShares. The oracle price is 1e36, so collateralValue == collateral.
-    ///      Therefore: LTV = borrowShares * WAD / collateral.
-    ///      Healthy when: collateral > borrowShares * WAD / triggerLtv.
+    /// @dev The setUp market has a 1:1 borrow share ratio (totalBorrowAssets == totalBorrowShares = 1e18).
+    ///      With virtual shares, debtAssets = mulDiv(borrowShares, totalBorrow + 1, totalBorrow + 1e6, Ceil).
+    ///      The oracle price is 1e36, so collateralValue == collateral.
     ///
     /// @param topUpAssets Valid top-up amount (revert fires before it matters).
     /// @param nonce Executor-chosen nonce.
-    /// @param borrowShares Fuzzed borrow shares (equals debt assets in the setUp's 1:1 market).
+    /// @param borrowShares Fuzzed borrow shares.
     /// @param collateral Fuzzed collateral, bounded above the minimum healthy threshold.
     function test_reverts_whenPositionIsHealthy(
         uint256 topUpAssets,
@@ -109,20 +110,20 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         uint128 collateral
     ) public {
         topUpAssets = bound(topUpAssets, 1, MAX_TOP_UP);
+        uint256 totalBorrow = 1e18;
 
-        // Bound borrowShares so the minimum healthy collateral fits in uint128.
         uint256 maxBorrowShares = (uint256(type(uint128).max) * TRIGGER_LTV) / WAD;
         borrowShares = uint128(bound(borrowShares, 1, maxBorrowShares));
 
-        // Derive the minimum collateral that makes LTV strictly below triggerLtv.
-        uint256 minHealthyCollateral = (uint256(borrowShares) * WAD) / TRIGGER_LTV + 1;
+        uint256 debtAssets = SharesMathLib.toAssetsUp(uint256(borrowShares), totalBorrow, totalBorrow);
+        uint256 minHealthyCollateral = (debtAssets * WAD) / TRIGGER_LTV + 1;
         collateral = uint128(bound(collateral, minHealthyCollateral, type(uint128).max));
 
         morpho.setPosition(
             marketId, address(account), Position({supplyShares: 0, borrowShares: borrowShares, collateral: collateral})
         );
 
-        uint256 expectedLtv = (uint256(borrowShares) * WAD) / uint256(collateral);
+        uint256 expectedLtv = Math.mulDiv(debtAssets, WAD, uint256(collateral));
 
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
