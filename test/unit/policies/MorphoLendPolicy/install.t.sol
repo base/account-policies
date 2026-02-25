@@ -46,7 +46,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLendPolicy.ZeroVault.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     // =============================================================
@@ -79,7 +79,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
             policyConfig: config
         });
         bytes memory userSig = _signInstall(b);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
 
         bytes32 policyId = policyManager.getPolicyId(b);
         // getDepositLimitPeriodUsage calls _requireConfigHash internally — success proves the hash was stored

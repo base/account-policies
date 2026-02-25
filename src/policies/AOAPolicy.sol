@@ -55,6 +55,10 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     bytes32 public constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
 
+    /// @notice EIP-712 typehash for the inner execution data struct hashed inside `EXECUTION_TYPEHASH`.
+    bytes32 public constant EXECUTION_DATA_TYPEHASH =
+        keccak256("ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)");
+
     /// @notice EIP-712 typehash for executor-signed uninstall intents.
     bytes32 public constant AOA_UNINSTALL_TYPEHASH =
         keccak256("AOAUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
@@ -408,7 +412,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encode(keccak256(actionData), nonce, deadline));
+        return keccak256(abi.encode(EXECUTION_DATA_TYPEHASH, keccak256(actionData), nonce, deadline));
     }
 
     /// @notice Validates and consumes an executor-signed execution intent.
