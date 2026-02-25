@@ -104,7 +104,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     ) internal returns (bytes32 newPolicyId) {
         PolicyManager.ReplacePayload memory payload =
             PolicyManager.ReplacePayload({
-                oldPolicy: oldPolicy, oldPolicyId: oldPolicyId, oldPolicyConfig: oldPolicyConfig, newBinding: newBinding
+                oldPolicy: oldPolicy,
+                oldPolicyId: oldPolicyId,
+                oldPolicyConfig: oldPolicyConfig,
+                replaceData: "",
+                newBinding: newBinding
             });
         vm.prank(newBinding.account);
         return policyManager.replace(payload);
@@ -140,7 +144,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
+            oldPolicy: address(oldPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldConfig,
+            replaceData: "",
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, address(oldPolicy)));
@@ -173,6 +181,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -191,7 +200,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(0), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(0), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
+            oldPolicy: address(0),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: "",
+            replaceData: "",
+            newBinding: newBinding
         });
 
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
@@ -220,6 +233,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(configSeed),
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -244,6 +258,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(configSeed),
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -280,7 +295,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: "",
+            replaceData: "",
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotInstalled.selector, oldPolicyId));
@@ -309,7 +328,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(callPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: "", newBinding: newBinding
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: "",
+            replaceData: "",
+            newBinding: newBinding
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyIsDisabled.selector, oldPolicyId));
@@ -348,6 +371,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(bytes32(0)),
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -374,6 +398,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -413,6 +438,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -439,6 +465,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -475,6 +502,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -519,6 +547,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -547,6 +576,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -586,6 +616,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -615,6 +646,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -641,6 +673,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -664,6 +697,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -687,6 +721,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -719,7 +754,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
+            oldPolicy: address(oldPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldConfig,
+            replaceData: "",
+            newBinding: newBinding
         });
 
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
@@ -749,6 +788,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -779,7 +819,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
-            oldPolicy: address(oldPolicy), oldPolicyId: oldPolicyId, oldPolicyConfig: oldConfig, newBinding: newBinding
+            oldPolicy: address(oldPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldConfig,
+            replaceData: "",
+            newBinding: newBinding
         });
 
         vm.prank(address(account));
@@ -803,6 +847,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -823,6 +868,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -856,6 +902,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -894,6 +941,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
@@ -924,6 +972,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
+            replaceData: "",
             newBinding: newBinding
         });
 
