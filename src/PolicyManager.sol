@@ -49,6 +49,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 oldPolicyId;
         /// @dev Optional config preimage forwarded to the old policy's uninstall hook.
         bytes oldPolicyConfig;
+        /// @dev Optional policy-defined payload forwarded to both `onReplace` hooks.
+        bytes replaceData;
         /// @dev New binding to install (carries its own `policyConfig`).
         PolicyBinding newBinding;
     }
@@ -103,7 +105,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @dev Binds an uninstallation authorization to a specific new policy installation.
     bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
-        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
+        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 oldPolicyConfigHash,bytes32 newPolicyId,uint256 deadline)"
     );
 
     /// @notice Separate, unprivileged contract for validating signatures and executing ERC-6492 side effects.
@@ -327,7 +329,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         requireSender(payload.newBinding.account)
         returns (bytes32 newPolicyId)
     {
-        return _replace(payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.newBinding);
+        return _replace(
+            payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
+        );
     }
 
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by account signature).
@@ -336,7 +340,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param payload Replace payload containing the old policy instance to uninstall and the new binding to install.
     /// @param userSig ERC-6492-compatible signature by `payload.newBinding.account` over the replacement typed digest:
-    ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, newPolicyId, deadline)))`.
+    ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, keccak256(oldPolicyConfig), newPolicyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
     /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
@@ -349,16 +353,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) external nonReentrant returns (bytes32 newPolicyId) {
         newPolicyId = getPolicyId(payload.newBinding);
 
-        // Idempotent behavior: if the desired end state is already reached, return early.
+        // Idempotent behavior: if the desired end state is already reached, skip _replace.
         // This enables safe retries even after deadlines expire.
-        PolicyRecord storage oldRecord = policies[payload.oldPolicy][payload.oldPolicyId];
-        PolicyRecord storage newRecord = policies[payload.newBinding.policy][newPolicyId];
-        if (
-            oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
-                && newRecord.account == payload.newBinding.account && executionData.length == 0
-        ) {
-            return newPolicyId;
+        bool alreadyReplaced;
+        {
+            PolicyRecord storage oldRecord = policies[payload.oldPolicy][payload.oldPolicyId];
+            PolicyRecord storage newRecord = policies[payload.newBinding.policy][newPolicyId];
+            alreadyReplaced = oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
+                && oldRecord.account == payload.newBinding.account;
         }
+
+        if (alreadyReplaced && executionData.length == 0) return newPolicyId;
 
         if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
         bytes32 digest = _hashTypedData(
@@ -368,6 +373,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                     payload.newBinding.account,
                     payload.oldPolicy,
                     payload.oldPolicyId,
+                    keccak256(payload.oldPolicyConfig),
                     newPolicyId,
                     deadline
                 )
@@ -375,7 +381,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
         _requireValidAccountSig(payload.newBinding.account, digest, userSig);
 
-        _replace(payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.newBinding);
+        if (!alreadyReplaced) {
+            _replace(
+                payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
+            );
+        }
 
         if (executionData.length == 0) return newPolicyId;
 
@@ -553,11 +563,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///      - Emits `PolicyUninstalled` (old), `PolicyInstalled` (new), and `PolicyReplaced`.
     ///
     /// Idempotent behavior:
-    /// - If the old policy is already uninstalled and the new policy is already installed+active for the account, this is a no-op.
+    /// - If the old policy is already uninstalled and the new policy is already installed+active for the
+    ///   account, this is a clean no-op (no hooks called, no events emitted).
+    /// - Partial end states (e.g., old uninstalled but new not yet installed) are not treated as
+    ///   idempotent and will revert. This ensures replace is all-or-nothing.
     ///
     /// @param oldPolicy Old policy contract address to uninstall.
     /// @param oldPolicyId Policy identifier for the old binding.
     /// @param oldPolicyConfig Optional config preimage forwarded to the old policy hook.
+    /// @param replaceData Optional policy-defined payload forwarded to both `onReplace` hooks.
     /// @param newBinding New binding to install (carries its own `policyConfig`).
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
@@ -565,6 +579,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address oldPolicy,
         bytes32 oldPolicyId,
         bytes calldata oldPolicyConfig,
+        bytes calldata replaceData,
         PolicyBinding calldata newBinding
     ) internal returns (bytes32 newPolicyId) {
         if (oldPolicy == address(0) || newBinding.policy == address(0)) {
@@ -582,7 +597,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // This enables safe retries even after deadlines expire.
         if (
             oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
-                && newRecord.account == newBinding.account
+                && oldRecord.account == newBinding.account
         ) {
             return newPolicyId;
         }
@@ -593,13 +608,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
 
-        // Uninstall old as if called by the account.
         _uninstallForReplace(
-            oldPolicy, oldPolicyId, oldPolicyConfig, "", newBinding.policy, newPolicyId, newBinding.account
+            oldPolicy, oldPolicyId, oldPolicyConfig, replaceData, newBinding.policy, newPolicyId, msg.sender
         );
 
-        // Install new policy instance.
-        _installForReplace(newBinding, "", oldPolicy, oldPolicyId);
+        _installForReplace(newBinding, replaceData, oldPolicy, oldPolicyId);
 
         emit PolicyReplaced(oldPolicyId, newPolicyId, newBinding.account, oldPolicy, newBinding.policy);
 
@@ -751,7 +764,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param policy Policy contract address being uninstalled.
     /// @param policyId Policy identifier for the old binding.
     /// @param policyConfig Policy-defined config bytes (often the config preimage).
-    /// @param replaceData Optional policy-defined replacement payload forwarded to `onReplace`.
+    /// @param replaceData Policy-defined replacement payload forwarded to `onReplace`.
     /// @param otherPolicy New policy contract address being installed.
     /// @param otherPolicyId Policy identifier for the new binding.
     /// @param effectiveCaller Effective caller forwarded by the manager (used for authorization + escape hatch).
@@ -759,15 +772,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address policy,
         bytes32 policyId,
         bytes memory policyConfig,
-        bytes memory replaceData,
+        bytes calldata replaceData,
         address otherPolicy,
         bytes32 otherPolicyId,
         address effectiveCaller
     ) internal {
         if (policy.code.length == 0) revert PolicyNotContract(policy);
         PolicyRecord storage policyRecord = policies[policy][policyId];
-        // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
-        if (policyRecord.uninstalled) return;
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
         policyRecord.uninstalled = true;
         try Policy(policy)
@@ -795,24 +806,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///      consistent caller identity — the account that authorized the replacement.
     ///
     /// @param binding New binding to install (carries its own `policyConfig`).
-    /// @param replaceData Optional policy-defined replacement payload forwarded to `onReplace`.
+    /// @param replaceData Policy-defined replacement payload forwarded to `onReplace`.
     /// @param otherPolicy Old policy contract address being uninstalled.
     /// @param otherPolicyId Policy identifier for the old binding.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
     function _installForReplace(
         PolicyBinding calldata binding,
-        bytes memory replaceData,
+        bytes calldata replaceData,
         address otherPolicy,
         bytes32 otherPolicyId
-    ) internal returns (bytes32 policyId) {
+    ) internal {
         if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
-        policyId = getPolicyId(binding);
+        bytes32 policyId = getPolicyId(binding);
         address account = binding.account;
-        // Get the policy record associated with the policyId
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        if (policyRecord.installed) return policyId;
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
         policyRecord.installed = true;
@@ -832,8 +839,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 account
             );
         emit PolicyInstalled(policyId, account, binding.policy);
-
-        return policyId;
     }
 
     /// @notice Requires `msg.sender` to equal `sender`.
