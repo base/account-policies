@@ -35,6 +35,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     /// @param accountAddr Account address (signer) in the typed data.
     /// @param oldPolicy Old policy contract address in the typed data.
     /// @param oldPolicyId Old policy identifier in the typed data.
+    /// @param oldPolicyConfig Old policy config bytes (hashed into the signed digest).
     /// @param newPolicyId New policy identifier in the typed data.
     /// @param deadline Signature deadline (seconds) in the typed data.
     ///
@@ -43,12 +44,19 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         address accountAddr,
         address oldPolicy,
         bytes32 oldPolicyId,
+        bytes memory oldPolicyConfig,
         bytes32 newPolicyId,
         uint256 deadline
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(
             abi.encode(
-                policyManager.REPLACE_POLICY_TYPEHASH(), accountAddr, oldPolicy, oldPolicyId, newPolicyId, deadline
+                policyManager.REPLACE_POLICY_TYPEHASH(),
+                accountAddr,
+                oldPolicy,
+                oldPolicyId,
+                keccak256(oldPolicyConfig),
+                newPolicyId,
+                deadline
             )
         );
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
@@ -141,7 +149,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(oldPolicy), oldPolicyId, oldConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(oldPolicy),
@@ -175,7 +184,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             policyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -197,7 +207,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(0), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig = _signReplace(address(account), address(0), oldPolicyId, "", newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(0),
@@ -227,7 +237,9 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, deadline);
+        bytes memory userSig = _signReplace(
+            address(account), address(callPolicy), oldPolicyId, abi.encode(configSeed), newPolicyId, deadline
+        );
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -292,7 +304,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, "", newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -325,7 +337,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, "", newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -365,7 +377,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         newBinding.account = address(account);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, abi.encode(bytes32(0)), newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -392,7 +405,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         policyManager.install(newBinding);
 
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -432,7 +446,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -496,7 +511,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             })
         );
 
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -537,7 +553,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
@@ -570,7 +587,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -600,7 +618,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         RevertingReceiver revertingReceiver = new RevertingReceiver();
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
@@ -631,7 +650,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(receiver),
@@ -667,7 +687,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -691,7 +712,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -715,7 +737,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -751,7 +774,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(oldPolicy), oldPolicyId, oldConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(oldPolicy),
@@ -782,7 +806,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -816,7 +841,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(oldPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(oldPolicy), oldPolicyId, oldConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(oldPolicy),
@@ -862,7 +888,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
@@ -887,7 +914,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(receiver),
@@ -926,7 +954,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig = _signReplace(address(account), address(callPolicy), oldPolicyId, newPolicyId, 0);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
             target: address(receiver),

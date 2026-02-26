@@ -105,7 +105,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @dev Binds an uninstallation authorization to a specific new policy installation.
     bytes32 public constant REPLACE_POLICY_TYPEHASH = keccak256(
-        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 newPolicyId,uint256 deadline)"
+        "ReplacePolicy(address account,address oldPolicy,bytes32 oldPolicyId,bytes32 oldPolicyConfigHash,bytes32 newPolicyId,uint256 deadline)"
     );
 
     /// @notice Separate, unprivileged contract for validating signatures and executing ERC-6492 side effects.
@@ -340,7 +340,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param payload Replace payload containing the old policy instance to uninstall and the new binding to install.
     /// @param userSig ERC-6492-compatible signature by `payload.newBinding.account` over the replacement typed digest:
-    ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, newPolicyId, deadline)))`.
+    ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, keccak256(oldPolicyConfig), newPolicyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
     /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
@@ -373,6 +373,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                     payload.newBinding.account,
                     payload.oldPolicy,
                     payload.oldPolicyId,
+                    keccak256(payload.oldPolicyConfig),
                     newPolicyId,
                     deadline
                 )
@@ -382,11 +383,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         if (!alreadyReplaced) {
             _replace(
-                payload.oldPolicy,
-                payload.oldPolicyId,
-                payload.oldPolicyConfig,
-                payload.replaceData,
-                payload.newBinding
+                payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
             );
         }
 
@@ -830,9 +827,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         policyRecord.validAfter = binding.validAfter;
         policyRecord.validUntil = binding.validUntil;
 
-        Policy(binding.policy).onReplace(
-            policyId, account, binding.policyConfig, replaceData, otherPolicy, otherPolicyId, Policy.ReplaceRole.NewPolicy, account
-        );
+        Policy(binding.policy)
+            .onReplace(
+                policyId,
+                account,
+                binding.policyConfig,
+                replaceData,
+                otherPolicy,
+                otherPolicyId,
+                Policy.ReplaceRole.NewPolicy,
+                account
+            );
         emit PolicyInstalled(policyId, account, binding.policy);
     }
 

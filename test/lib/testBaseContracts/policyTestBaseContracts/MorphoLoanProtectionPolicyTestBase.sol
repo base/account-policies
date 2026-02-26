@@ -129,14 +129,22 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig));
     }
 
-    function _signReplace(address oldPolicy, bytes32 oldPolicyId, bytes32 newPolicyId, uint256 deadline)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _signReplace(
+        address oldPolicy,
+        bytes32 oldPolicyId,
+        bytes memory oldPolicyConfig,
+        bytes32 newPolicyId,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(
             abi.encode(
-                policyManager.REPLACE_POLICY_TYPEHASH(), address(account), oldPolicy, oldPolicyId, newPolicyId, deadline
+                policyManager.REPLACE_POLICY_TYPEHASH(),
+                address(account),
+                oldPolicy,
+                oldPolicyId,
+                keccak256(oldPolicyConfig),
+                newPolicyId,
+                deadline
             )
         );
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
