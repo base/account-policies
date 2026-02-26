@@ -29,8 +29,11 @@ abstract contract Policy {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice The `PolicyManager` instance authorized to call hooks.
-    PolicyManager public immutable POLICY_MANAGER;
+    /// @notice Native token sentinel used by this protocol (ERC-7528 convention).
+    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    /// @dev The `PolicyManager` instance authorized to call hooks.
+    PolicyManager internal _policyManager;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -42,18 +45,18 @@ abstract contract Policy {
     /// @param expected Expected sender.
     error InvalidCaller(address caller, address expected);
 
-    /// @notice Thrown when the `policyManager` constructor argument has no deployed code.
+    /// @notice Thrown when a provided PolicyManager address has no deployed code.
     ///
-    /// @param policyManager The address that was provided.
+    /// @param policyManager The address that was rejected.
     error PolicyManagerNotContract(address policyManager);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Restricts execution to the configured `POLICY_MANAGER`.
+    /// @notice Restricts execution to the configured PolicyManager.
     modifier onlyPolicyManager() {
-        _requireSender(address(POLICY_MANAGER));
+        _requireSender(address(_policyManager));
         _;
     }
 
@@ -61,17 +64,22 @@ abstract contract Policy {
     ///                       Constructor                        ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Constructs the policy and pins its manager.
+    /// @notice Constructs the policy and sets its manager.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call this policy's hooks.
     constructor(address policyManager) {
         if (policyManager.code.length == 0) revert PolicyManagerNotContract(policyManager);
-        POLICY_MANAGER = PolicyManager(policyManager);
+        _policyManager = PolicyManager(policyManager);
     }
 
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
+
+    /// @notice The `PolicyManager` instance authorized to call hooks.
+    function POLICY_MANAGER() public view virtual returns (PolicyManager) {
+        return _policyManager;
+    }
 
     /// @notice Policy hook invoked during installation.
     ///
@@ -91,20 +99,21 @@ abstract contract Policy {
         _onInstall(policyId, account, policyConfig, effectiveCaller);
     }
 
-    /// @notice Authorize the execution and build the account call and optional post-call (executed on the policy).
+    /// @notice Authorize the execution and build the account call and optional post-call.
     ///
-    /// @dev MUST revert on unauthorized execution.
-    ///
-    /// `caller` is the external caller of `PolicyManager.execute`.
+    /// @dev This hook is called on every `execute`, `installWithSignature`, and `replaceWithSignature` invocation —
+    ///      including when `executionData` is empty. Policies MUST handle empty `executionData` gracefully. To signal
+    ///      "no execution", return empty `accountCallData` and empty `postCallData`; the PolicyManager will skip the
+    ///      account call, post-execute hook, and `PolicyExecuted` event.
     ///
     /// @param policyId Policy identifier for the binding.
     /// @param account Account that authorized this policy instance.
     /// @param policyConfig Policy-defined config bytes (often the config preimage).
-    /// @param executionData Policy-defined per-execution payload.
+    /// @param executionData Policy-defined per-execution payload (may be empty).
     /// @param caller External caller that invoked the manager.
     ///
     /// @return accountCallData ABI-encoded calldata to execute on the account (or empty for no-op).
-    /// @return postCallData ABI-encoded calldata to execute on the policy after the account call (or empty for no-op).
+    /// @return postCallData Opaque bytes forwarded to `onPostExecute` after the account call (or empty to skip).
     function onExecute(
         bytes32 policyId,
         address account,
@@ -113,6 +122,19 @@ abstract contract Policy {
         address caller
     ) external onlyPolicyManager returns (bytes memory accountCallData, bytes memory postCallData) {
         return _onExecute(policyId, account, policyConfig, executionData, caller);
+    }
+
+    /// @notice Policy hook invoked by the PolicyManager after the account call in `_execute`.
+    ///
+    /// @dev Replaces the former open-selector `_externalCall(policy, postCallData)` pattern. Only called
+    ///      when `onExecute` returns non-empty `postCallData`. Default implementation is a no-op;
+    ///      policies that need post-execution logic MUST override `_onPostExecute`.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param account Account associated with the policyId.
+    /// @param postCallData Policy-defined post-call payload returned by `onExecute`.
+    function onPostExecute(bytes32 policyId, address account, bytes calldata postCallData) external onlyPolicyManager {
+        _onPostExecute(policyId, account, postCallData);
     }
 
     /// @notice Policy hook invoked during uninstallation.
@@ -186,7 +208,9 @@ abstract contract Policy {
     /// @dev Policy-specific install hook. Revert to refuse installation.
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
 
-    /// @dev Policy-specific execute hook. Revert to refuse execution.
+    /// @dev Policy-specific execute hook. Called on every execution path including `installWithSignature` and
+    ///      `replaceWithSignature`. Implementations MUST handle empty `executionData` (e.g., return all-empty to
+    ///      signal no-op). Revert to refuse execution.
     function _onExecute(
         bytes32 policyId,
         address account,
@@ -194,6 +218,14 @@ abstract contract Policy {
         bytes calldata executionData,
         address caller
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
+
+    /// @dev Policy-specific post-execute hook. Called after the account call completes.
+    ///      Default is a no-op; override to implement post-execution logic.
+    function _onPostExecute(bytes32 policyId, address account, bytes calldata postCallData) internal virtual {
+        policyId;
+        account;
+        postCallData;
+    }
 
     /// @dev Policy-specific uninstall hook. Revert to refuse non-account uninstallation.
     ///      `PolicyManager.uninstall` is callable by ANY address — the manager relies on this hook to enforce

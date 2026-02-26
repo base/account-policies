@@ -526,14 +526,17 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
-    /// @notice Reverts when executing after replace outside the new binding validity window.
+    /// @notice When end state is already reached and the validity window has expired, replaceWithSignature
+    ///         still returns early (idempotent) even when executionData is provided.
     ///
-    /// @dev Expects `PolicyManager.BeforeValidAfter` / `PolicyManager.AfterValidUntil`.
+    /// @dev After I-13 / G-01, the idempotency check no longer gates on executionData length. Once the
+    ///      desired end state is reached, the call always returns early without signature validation,
+    ///      deadline checks, or execution — regardless of executionData content.
     ///
     /// @param validUntilSeed Seed used to pick a validUntil strictly after current timestamp.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the old binding (hashed into `policyId`).
-    function test_reverts_whenExecutionAfterReplace_outsideValidityWindow(
+    function test_whenEndStateAlreadyReached_outsideValidityWindow_returnsEarly(
         uint40 validUntilSeed,
         bytes32 configSeed,
         uint256 salt
@@ -553,8 +556,6 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             policyConfig: newConfig
         });
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
-        bytes memory userSig =
-            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
@@ -576,8 +577,9 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             postAction: CallForwardingPolicy.PostAction.None
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, validUntil, validUntil));
-        policyManager.replaceWithSignature(payload, userSig, 0, abi.encode(f));
+        bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, abi.encode(f));
+        assertEq(ret, newPolicyId);
+        assertEq(receiver.calls(), 0);
     }
 
     /// @notice Bubbles a revert when the policy's `onExecute` hook reverts (when `executionData` is provided).
@@ -979,12 +981,16 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         policyManager.replaceWithSignature(payload, userSig, 0, executionData);
     }
 
-    /// @notice When end state is already reached but execution is requested, still requires a valid signature.
-    function test_whenEndStateAlreadyReached_andExecutionRequested_requiresValidSig() public {
+    /// @notice When end state is already reached and execution is requested, returns early (idempotent)
+    ///         without requiring a valid signature or performing execution.
+    ///
+    /// @dev After I-13 / G-01, the idempotency check no longer gates on executionData length.
+    function test_whenEndStateAlreadyReached_andExecutionRequested_returnsEarlyWithoutSigValidation() public {
         (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
             _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
 
         _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
@@ -1005,7 +1011,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(PolicyManager.InvalidSignature.selector);
-        policyManager.replaceWithSignature(payload, bytes("invalid"), 0, executionData);
+        bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, executionData);
+        assertEq(ret, newPolicyId);
+        assertEq(receiver.calls(), 0);
     }
 }

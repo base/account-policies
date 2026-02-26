@@ -36,8 +36,10 @@ contract ExecuteTest is AOAPolicyTestBase {
     ///
     /// @param configSuffix Arbitrary bytes appended to the wrong config (config hash check precedes execution data
     ///        decoding).
-    /// @param executionData Arbitrary execution data (not reached).
+    /// @param executionData Arbitrary non-empty execution data (not reached; empty executionData causes the policy
+    ///        to return early before the config hash check).
     function test_reverts_whenConfigHashMismatch(bytes calldata configSuffix, bytes calldata executionData) public {
+        vm.assume(executionData.length > 0);
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory wrongConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), configSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));

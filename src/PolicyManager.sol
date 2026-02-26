@@ -273,7 +273,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param userSig ERC-6492-compatible signature by `binding.account` over the install typed digest:
     ///      `_hashTypedData(keccak256(abi.encode(INSTALL_POLICY_TYPEHASH, policyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
-    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
+    /// @param executionData Policy-defined per-execution payload (may be empty; the policy decides how to handle it).
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function installWithSignature(
@@ -289,8 +289,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         _requireValidAccountSig(binding.account, digest, userSig);
 
         _install(binding);
-
-        if (executionData.length == 0) return policyId;
 
         _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender);
         return policyId;
@@ -364,7 +362,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param userSig ERC-6492-compatible signature by `payload.newBinding.account` over the replacement typed digest:
     ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, keccak256(oldPolicyConfig), newPolicyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
-    /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
+    /// @param executionData Policy-defined per-execution payload (may be empty; the policy decides how to handle it).
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
     function replaceWithSignature(
@@ -385,7 +383,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 && oldRecord.account == payload.newBinding.account;
         }
 
-        if (alreadyReplaced && executionData.length == 0) return newPolicyId;
+        if (alreadyReplaced) return newPolicyId;
 
         if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
         bytes32 digest = _hashTypedData(
@@ -408,8 +406,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
             );
         }
-
-        if (executionData.length == 0) return newPolicyId;
 
         _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
 
@@ -689,8 +685,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address account = policyRecord.account;
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
+
+        if (accountCallData.length == 0 && postCallData.length == 0) return;
+
         _externalCall(account, accountCallData);
-        _externalCall(policy, postCallData);
+        if (postCallData.length > 0) {
+            Policy(policy).onPostExecute(policyId, account, postCallData);
+        }
 
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
