@@ -25,18 +25,10 @@ contract MorphoLoanProtectionHarness is MorphoLoanProtectionPolicy {
     }
 
     function setActivePolicyByMarket(address account, bytes32 marketKey, bytes32 policyId) external {
-        _activePolicyByMarket[account][marketKey] = policyId;
+        activePolicyByMarket[account][marketKey] = policyId;
     }
 
     function setMarketKeyByPolicyId(bytes32 policyId, bytes32 marketKey) external {
-        _marketKeyByPolicyId[policyId] = marketKey;
-    }
-
-    function getActivePolicyByMarket(address account, bytes32 marketKey) external view returns (bytes32) {
-        return _activePolicyByMarket[account][marketKey];
-    }
-
-    function getMarketKeyByPolicyId(bytes32 policyId) external view returns (bytes32) {
-        return _marketKeyByPolicyId[policyId];
+        marketKeyByPolicyId[policyId] = marketKey;
     }
 }

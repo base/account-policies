@@ -133,66 +133,34 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
 
 /// @title ClearInstallStateTest
 ///
-/// @notice Harness-based edge case tests for `MorphoLoanProtectionPolicy._clearInstallState`.
+/// @notice Harness-based tests for `MorphoLoanProtectionPolicy._clearInstallState`.
 ///
-/// @dev Tests the compound condition `marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId`
-///      which has three distinct paths: (1) marketKey is zero (skip), (2) active policy doesn't match (skip delete),
-///      (3) both conditions true (delete both).
+/// @dev Two paths: (1) marketKey is zero → no-op, (2) marketKey is nonzero → delete both mappings.
 contract ClearInstallStateTest is Test {
     MorphoLoanProtectionHarness internal harness;
 
     function setUp() public {
-        harness = new MorphoLoanProtectionHarness(address(1), address(this), makeAddr("morpho"));
+        harness = new MorphoLoanProtectionHarness(address(this), address(this), address(this));
     }
 
     /// @notice No-op when the market key has already been cleared (or was never set).
     ///
-    /// @dev Covers the `marketKey == bytes32(0)` short-circuit in the compound condition.
-    ///
     /// @param policyId Fuzzed policy identifier.
     /// @param account Fuzzed account address.
     function test_noOp_whenMarketKeyIsZero(bytes32 policyId, address account) public {
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
 
         harness.exposed_clearInstallState(policyId, account);
 
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
     }
 
-    /// @notice Deletes the market key mapping but leaves the active policy mapping intact
-    ///         when a different policyId owns the market slot.
-    ///
-    /// @dev Covers the `_activePolicyByMarket[account][marketKey] != policyId` path where
-    ///      the first condition is true but the second is false.
-    ///
-    /// @param policyId Policy being cleared.
-    /// @param otherPolicyId Different policy that currently owns the market slot.
-    /// @param marketKey Market key linking the two mappings.
-    /// @param account Account address.
-    function test_deletesMarketKey_butNotActivePolicy_whenMismatch(
-        bytes32 policyId,
-        bytes32 otherPolicyId,
-        bytes32 marketKey,
-        address account
-    ) public {
-        vm.assume(marketKey != bytes32(0));
-        vm.assume(policyId != otherPolicyId);
-
-        harness.setMarketKeyByPolicyId(policyId, marketKey);
-        harness.setActivePolicyByMarket(account, marketKey, otherPolicyId);
-
-        harness.exposed_clearInstallState(policyId, account);
-
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
-        assertEq(harness.getActivePolicyByMarket(account, marketKey), otherPolicyId);
-    }
-
-    /// @notice Clears both mappings when the policy owns the market slot (normal uninstall path).
+    /// @notice Clears both mappings when marketKey is nonzero.
     ///
     /// @param policyId Policy being cleared.
     /// @param marketKey Market key linking the two mappings.
     /// @param account Account address.
-    function test_clearsBoth_whenNormalState(bytes32 policyId, bytes32 marketKey, address account) public {
+    function test_clearsBoth_whenMarketKeyIsNonzero(bytes32 policyId, bytes32 marketKey, address account) public {
         vm.assume(marketKey != bytes32(0));
 
         harness.setMarketKeyByPolicyId(policyId, marketKey);
@@ -200,7 +168,7 @@ contract ClearInstallStateTest is Test {
 
         harness.exposed_clearInstallState(policyId, account);
 
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
-        assertEq(harness.getActivePolicyByMarket(account, marketKey), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.activePolicyByMarket(account, marketKey), bytes32(0));
     }
 }

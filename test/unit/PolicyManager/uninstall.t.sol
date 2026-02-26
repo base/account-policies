@@ -104,7 +104,7 @@ contract UninstallTest is PolicyManagerTestBase {
             binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: "", uninstallData: ""
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        vm.expectRevert();
         policyManager.uninstall(payload);
     }
 
@@ -129,7 +129,7 @@ contract UninstallTest is PolicyManagerTestBase {
             uninstallData: ""
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        vm.expectRevert();
         policyManager.uninstall(payload);
     }
 

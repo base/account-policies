@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
 import {MorphoLendPolicy} from "../../../../src/policies/MorphoLendPolicy.sol";
+import {RecurringAllowance} from "../../../../src/policies/accounting/RecurringAllowance.sol";
 
 import {
     MorphoLendPolicyTestBase
@@ -21,7 +22,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the vault address in the policy config is zero.
+    /// @notice Reverts when the vault address in the policy config has no deployed code.
     ///
     /// @param salt Salt for deriving a unique policyId.
     /// @param allowance Fuzzed allowance (irrelevant — revert fires before use).
@@ -45,7 +46,62 @@ contract InstallTest is MorphoLendPolicyTestBase {
         });
         bytes memory userSig = _signInstall(b);
 
-        vm.expectRevert(MorphoLendPolicy.ZeroVault.selector);
+        vm.expectRevert(abi.encodeWithSelector(MorphoLendPolicy.VaultNotContract.selector, address(0)));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when the deposit limit period is zero.
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    /// @param allowance Fuzzed allowance (irrelevant — revert fires before use).
+    function test_reverts_whenPeriodIsZero(uint256 salt, uint160 allowance) public {
+        bytes memory policySpecificConfig = abi.encode(
+            MorphoLendPolicy.LendPolicyConfig({
+                vault: address(vault),
+                depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: 0})
+            })
+        );
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+
+        PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: config
+        });
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(RecurringAllowance.ZeroPeriod.selector);
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when the deposit limit allowance is zero.
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    /// @param period Fuzzed period (irrelevant — revert fires before use).
+    function test_reverts_whenAllowanceIsZero(uint256 salt, uint40 period) public {
+        period = uint40(bound(period, 1, type(uint40).max));
+
+        bytes memory policySpecificConfig = abi.encode(
+            MorphoLendPolicy.LendPolicyConfig({
+                vault: address(vault), depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: 0, period: period})
+            })
+        );
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+
+        PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: config
+        });
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(RecurringAllowance.ZeroAllowance.selector);
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 

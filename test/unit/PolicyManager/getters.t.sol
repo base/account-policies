@@ -446,5 +446,65 @@ contract GettersTest is PolicyManagerTestBase {
 
         assertTrue(policyManager.isPolicyActiveNow(address(callPolicy), policyId));
     }
+
+    // =============================================================
+    // isPolicyActiveAt
+    // =============================================================
+
+    /// @notice Returns false when the policyId has never been installed.
+    function test_isPolicyActiveAt_returnsFalse_whenNeverInstalled() public {
+        assertFalse(policyManager.isPolicyActiveAt(address(callPolicy), bytes32(uint256(1)), uint40(block.timestamp)));
+    }
+
+    /// @notice Returns false when the queried timestamp is before `validAfter`.
+    ///
+    /// @param validAfter Fuzzed validAfter bound.
+    function test_isPolicyActiveAt_returnsFalse_whenBeforeValidAfter(uint40 validAfter) public {
+        validAfter = uint40(bound(uint256(validAfter), 2, uint256(type(uint40).max)));
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        vm.warp(uint256(validAfter));
+        (bytes32 policyId,) = _installCallPolicy(policyConfig, 0, validAfter, 0);
+
+        assertFalse(policyManager.isPolicyActiveAt(address(callPolicy), policyId, validAfter - 1));
+    }
+
+    /// @notice Returns false when the queried timestamp is at/after `validUntil`.
+    ///
+    /// @param validUntil Fuzzed validUntil bound.
+    function test_isPolicyActiveAt_returnsFalse_whenAtOrAfterValidUntil(uint40 validUntil) public {
+        validUntil = uint40(bound(uint256(validUntil), 1, uint256(type(uint40).max)));
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        vm.warp(uint256(validUntil - 1));
+        (bytes32 policyId,) = _installCallPolicy(policyConfig, 0, 0, validUntil);
+
+        assertFalse(policyManager.isPolicyActiveAt(address(callPolicy), policyId, validUntil));
+    }
+
+    /// @notice Returns true when the queried timestamp is within the validity window.
+    function test_isPolicyActiveAt_returnsTrue_whenWithinWindow() public {
+        uint40 validAfter = WARP_BASE_TIMESTAMP + 1;
+        uint40 validUntil = WARP_BASE_TIMESTAMP + 10;
+        vm.warp(uint256(validAfter));
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        (bytes32 policyId,) = _installCallPolicy(policyConfig, 0, validAfter, validUntil);
+
+        assertTrue(policyManager.isPolicyActiveAt(address(callPolicy), policyId, WARP_BASE_TIMESTAMP + 5));
+    }
+
+    /// @notice Allows checking a future timestamp without warping.
+    function test_isPolicyActiveAt_canCheckFutureTimestamp() public {
+        uint40 validAfter = WARP_BASE_TIMESTAMP;
+        uint40 validUntil = WARP_BASE_TIMESTAMP + 100;
+        vm.warp(uint256(validAfter));
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        (bytes32 policyId,) = _installCallPolicy(policyConfig, 0, validAfter, validUntil);
+
+        assertTrue(policyManager.isPolicyActiveAt(address(callPolicy), policyId, WARP_BASE_TIMESTAMP + 50));
+        assertFalse(policyManager.isPolicyActiveAt(address(callPolicy), policyId, WARP_BASE_TIMESTAMP + 100));
+    }
 }
 

@@ -15,17 +15,18 @@ contract ConstructorTest is MorphoLoanProtectionPolicyTestBase {
         setUpMorphoLoanProtectionBase();
     }
 
-    /// @notice Reverts when the Morpho Blue address is zero.
-    function test_reverts_whenMorphoIsZero() public {
-        vm.expectRevert(MorphoLoanProtectionPolicy.ZeroMorpho.selector);
+    /// @notice Reverts when the Morpho Blue address has no deployed code.
+    function test_reverts_whenMorphoNotContract() public {
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MorphoNotContract.selector, address(0)));
         new MorphoLoanProtectionPolicy(address(policyManager), owner, address(0));
     }
 
     /// @notice Stores the Morpho Blue address as an immutable.
     ///
-    /// @param morphoAddr Non-zero address to pin as Morpho.
+    /// @param morphoAddr Fuzzed address to pin as Morpho (given code to pass constructor check).
     function test_storesMorphoImmutable(address morphoAddr) public {
-        vm.assume(morphoAddr != address(0));
+        vm.assume(uint160(morphoAddr) > 10);
+        vm.etch(morphoAddr, hex"00");
         MorphoLoanProtectionPolicy p = new MorphoLoanProtectionPolicy(address(policyManager), owner, morphoAddr);
         assertEq(p.morpho(), morphoAddr);
     }

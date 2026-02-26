@@ -64,7 +64,7 @@ contract InstallTest is PolicyManagerTestBase {
             policyConfig: policyConfig
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        vm.expectRevert();
         vm.prank(address(account));
         policyManager.install(binding);
     }

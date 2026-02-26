@@ -113,7 +113,7 @@ contract ReplaceTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, address(oldPolicy)));
+        vm.expectRevert();
         vm.prank(address(account));
         policyManager.replace(payload);
     }
@@ -145,7 +145,7 @@ contract ReplaceTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
+        vm.expectRevert();
         vm.prank(address(account));
         policyManager.replace(payload);
     }

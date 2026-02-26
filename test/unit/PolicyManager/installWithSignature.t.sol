@@ -61,7 +61,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory userSig = _signInstall(binding);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
+        vm.expectRevert();
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 

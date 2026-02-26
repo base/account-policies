@@ -61,8 +61,8 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @notice Thrown when attempting to deposit zero assets.
     error ZeroAmount();
 
-    /// @notice Thrown when the vault address is zero.
-    error ZeroVault();
+    /// @notice Thrown when the vault address has no deployed code.
+    error VaultNotContract(address vault);
 
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
@@ -125,7 +125,9 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @dev Validates Morpho vault config at install time.
     function _onAOAInstall(bytes32, address, AOAConfig memory, bytes memory policySpecificConfig) internal override {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
-        if (lendPolicyConfig.vault == address(0)) revert ZeroVault();
+        if (lendPolicyConfig.vault.code.length == 0) revert VaultNotContract(lendPolicyConfig.vault);
+        if (lendPolicyConfig.depositLimit.period == 0) revert RecurringAllowance.ZeroPeriod();
+        if (lendPolicyConfig.depositLimit.allowance == 0) revert RecurringAllowance.ZeroAllowance();
     }
 
     /// @inheritdoc AOAPolicy

@@ -160,7 +160,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, address(oldPolicy)));
+        vm.expectRevert();
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
@@ -195,7 +195,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
+        vm.expectRevert();
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 

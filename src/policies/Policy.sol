@@ -29,9 +29,6 @@ abstract contract Policy {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Native token sentinel used by this protocol (ERC-7528 convention).
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
     /// @notice The `PolicyManager` instance authorized to call hooks.
     PolicyManager public immutable POLICY_MANAGER;
 
@@ -44,6 +41,11 @@ abstract contract Policy {
     /// @param caller Actual caller.
     /// @param expected Expected sender.
     error InvalidCaller(address caller, address expected);
+
+    /// @notice Thrown when the `policyManager` constructor argument has no deployed code.
+    ///
+    /// @param policyManager The address that was provided.
+    error PolicyManagerNotContract(address policyManager);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
@@ -63,6 +65,7 @@ abstract contract Policy {
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call this policy's hooks.
     constructor(address policyManager) {
+        if (policyManager.code.length == 0) revert PolicyManagerNotContract(policyManager);
         POLICY_MANAGER = PolicyManager(policyManager);
     }
 
@@ -193,6 +196,10 @@ abstract contract Policy {
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     /// @dev Policy-specific uninstall hook. Revert to refuse non-account uninstallation.
+    ///      `PolicyManager.uninstall` is callable by ANY address — the manager relies on this hook to enforce
+    ///      authorization. If this hook reverts and the caller is the bound account, the manager swallows the
+    ///      revert (account escape hatch); otherwise the revert propagates. Implementations MUST validate
+    ///      `effectiveCaller` and revert for unauthorized callers.
     function _onUninstall(
         bytes32 policyId,
         address account,

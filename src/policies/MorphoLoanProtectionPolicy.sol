@@ -56,10 +56,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     address public immutable morpho;
 
     /// @notice Tracks one active policy per (account, marketId).
-    mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
+    mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
 
     /// @notice Stored market key per policy instance to validate uninstallation.
-    mapping(bytes32 policyId => bytes32 marketKey) internal _marketKeyByPolicyId;
+    mapping(bytes32 policyId => bytes32 marketKey) public marketKeyByPolicyId;
 
     /// @notice Tracks whether a policy instance has been executed already (one-shot).
     /// @dev Enforces one-shot semantics: once a top-up executes, the policyId is permanently marked
@@ -73,8 +73,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Thrown when the Morpho market params for the pinned `marketId` are not found/initialized.
     error MarketNotFound(Id marketId);
 
-    /// @notice Thrown when the Morpho Blue address is zero.
-    error ZeroMorpho();
+    /// @notice Thrown when the Morpho Blue constructor argument has no deployed code.
+    ///
+    /// @param morpho The address that was provided.
+    error MorphoNotContract(address morpho);
 
     /// @notice Thrown when the marketId is zero.
     error ZeroMarketId();
@@ -110,7 +112,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
     /// @param morpho_ Morpho Blue singleton contract address.
     constructor(address policyManager, address admin, address morpho_) AOAPolicy(policyManager, admin) {
-        if (morpho_ == address(0)) revert ZeroMorpho();
+        if (morpho_.code.length == 0) revert MorphoNotContract(morpho_);
         morpho = morpho_;
     }
 
@@ -139,7 +141,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         override
     {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
-        if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
+        bytes32 marketKey = Id.unwrap(config.marketId);
+        if (marketKey == bytes32(0)) revert ZeroMarketId();
         if (config.maxTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
@@ -150,12 +153,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (config.triggerLtv >= marketParams.lltv) revert TriggerLtvAboveLltv(config.triggerLtv, marketParams.lltv);
 
         // Ensure only one active policy per (account, market).
-        bytes32 marketKey = Id.unwrap(config.marketId);
-        if (_activePolicyByMarket[account][marketKey] != bytes32(0)) {
+        if (activePolicyByMarket[account][marketKey] != bytes32(0)) {
             revert PolicyAlreadyInstalledForMarket(account, config.marketId);
         }
-        _activePolicyByMarket[account][marketKey] = policyId;
-        _marketKeyByPolicyId[policyId] = marketKey;
+        activePolicyByMarket[account][marketKey] = policyId;
+        marketKeyByPolicyId[policyId] = marketKey;
     }
 
     /// @inheritdoc AOAPolicy
@@ -165,17 +167,17 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _clearInstallState(policyId, account);
     }
 
-    /// @dev Clears per-install state mappings (`_activePolicyByMarket`, `_marketKeyByPolicyId`) if they
-    ///      still reference `policyId`. Safe to call even if state was already cleared or never set.
+    /// @dev Clears per-install state mappings (`activePolicyByMarket`, `marketKeyByPolicyId`).
+    ///      Safe to call even if state was already cleared or never set.
     ///
     /// @param policyId Policy identifier whose state should be cleared.
     /// @param account  Account associated with the policy instance.
     function _clearInstallState(bytes32 policyId, address account) internal {
-        bytes32 marketKey = _marketKeyByPolicyId[policyId];
-        if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
-            delete _activePolicyByMarket[account][marketKey];
+        bytes32 marketKey = marketKeyByPolicyId[policyId];
+        if (marketKey != bytes32(0)) {
+            delete activePolicyByMarket[account][marketKey];
+            delete marketKeyByPolicyId[policyId];
         }
-        delete _marketKeyByPolicyId[policyId];
     }
 
     /// @inheritdoc AOAPolicy
