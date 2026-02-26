@@ -36,7 +36,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroMarketId.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when maxTopUpAssets is zero.
@@ -53,7 +53,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(MorphoLoanProtectionPolicy.ZeroAmount.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when the Morpho market for the given marketId is not found or not initialized.
@@ -75,7 +75,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, badMarketId));
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when triggerLtv is greater than or equal to the market's LLTV.
@@ -99,7 +99,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 MorphoLoanProtectionPolicy.TriggerLtvAboveLltv.selector, triggerLtv, marketParams.lltv
             )
         );
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when the Morpho market has lastUpdate == 0 (not created via createMarket).
@@ -137,7 +137,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, staleMarketId));
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when a policy is already installed for the same (account, marketId) pair.
@@ -160,7 +160,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 MorphoLoanProtectionPolicy.PolicyAlreadyInstalledForMarket.selector, address(account), marketId
             )
         );
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     // =============================================================

@@ -28,7 +28,7 @@ contract InstallTest is AOAPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(AOAPolicy.ZeroExecutor.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     // =============================================================
@@ -43,7 +43,7 @@ contract InstallTest is AOAPolicyTestBase {
         bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(config, salt);
         bytes memory userSig = _signInstall(b);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
 
         bytes32 policyId = policyManager.getPolicyId(b);
         assertEq(policy.getConfigHash(policyId), keccak256(config));

@@ -67,7 +67,16 @@ abstract contract PolicyManagerTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyId(binding);
+        return _signInstall(binding, 0);
+    }
+
+    function _signInstall(PolicyManager.PolicyBinding memory binding, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 policyId = policyManager.getPolicyId(binding);
+        bytes32 structHash = keccak256(abi.encode(policyManager.INSTALL_POLICY_TYPEHASH(), policyId, deadline));
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

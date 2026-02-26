@@ -116,7 +116,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)
@@ -178,7 +178,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
                     policyManager.getPolicyId(binding_),
                     address(account),
                     keccak256(policyConfig_),
-                    keccak256(abi.encode(keccak256(actionData), nonce, deadline))
+                    keccak256(abi.encode(policy.EXECUTION_DATA_TYPEHASH(), keccak256(actionData), nonce, deadline))
                 )
             )
         );
@@ -192,7 +192,16 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyId(binding_);
+        return _signInstall(binding_, 0);
+    }
+
+    function _signInstall(PolicyManager.PolicyBinding memory binding_, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 policyId = policyManager.getPolicyId(binding_);
+        bytes32 structHash = keccak256(abi.encode(policyManager.INSTALL_POLICY_TYPEHASH(), policyId, deadline));
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 

@@ -101,6 +101,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         "PolicyBinding(address account,address policy,bytes policyConfig,uint40 validAfter,uint40 validUntil,uint256 salt)"
     );
 
+    /// @notice EIP-712 hash of InstallPolicy type.
+    ///
+    /// @dev Used by `installWithSignature` to bind the account authorization to a specific policyId and optional
+    ///      deadline.
+    bytes32 public constant INSTALL_POLICY_TYPEHASH = keccak256("InstallPolicy(bytes32 policyId,uint256 deadline)");
+
     /// @notice EIP-712 hash of ReplacePolicy type.
     ///
     /// @dev Binds an uninstallation authorization to a specific new policy installation.
@@ -261,18 +267,22 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///      the policy's execute hook, which MUST enforce its own execution authorization semantics.
     ///
     /// @param binding Policy binding parameters authorized by the account (includes `policyConfig`).
-    /// @param userSig Account signature authorizing the binding.
+    /// @param userSig ERC-6492-compatible signature by `binding.account` over the install typed digest:
+    ///      `_hashTypedData(keccak256(abi.encode(INSTALL_POLICY_TYPEHASH, policyId, deadline)))`.
+    /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
     /// @param executionData Optional policy-defined per-execution payload. If empty, no execution is performed.
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
-    function installWithSignature(PolicyBinding calldata binding, bytes calldata userSig, bytes calldata executionData)
-        external
-        nonReentrant
-        returns (bytes32 policyId)
-    {
+    function installWithSignature(
+        PolicyBinding calldata binding,
+        bytes calldata userSig,
+        uint256 deadline,
+        bytes calldata executionData
+    ) external nonReentrant returns (bytes32 policyId) {
         policyId = getPolicyId(binding);
 
-        bytes32 digest = _hashTypedData(policyId);
+        if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
+        bytes32 digest = _hashTypedData(keccak256(abi.encode(INSTALL_POLICY_TYPEHASH, policyId, deadline)));
         _requireValidAccountSig(binding.account, digest, userSig);
 
         _install(binding);

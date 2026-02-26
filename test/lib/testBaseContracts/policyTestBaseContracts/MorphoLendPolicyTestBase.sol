@@ -29,6 +29,8 @@ abstract contract MorphoLendPolicyTestBase is Test {
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
     bytes32 internal constant EXECUTION_TYPEHASH =
         keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
+    bytes32 internal constant EXECUTION_DATA_TYPEHASH =
+        keccak256("ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)");
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
@@ -78,7 +80,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
         });
 
         bytes memory userSig = _signInstall(binding);
-        policyManager.installWithSignature(binding, userSig, bytes(""));
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 
     function _decodePolicyConfig(bytes memory policyConfig_)
@@ -133,7 +135,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
     ) internal view returns (bytes32) {
         bytes32 policyId = policyManager.getPolicyId(binding_);
         bytes32 actionDataHash = keccak256(actionData);
-        bytes32 executionDataHash = keccak256(abi.encode(actionDataHash, nonce, deadline));
+        bytes32 executionDataHash = keccak256(abi.encode(EXECUTION_DATA_TYPEHASH, actionDataHash, nonce, deadline));
         bytes32 structHash = keccak256(
             abi.encode(
                 EXECUTION_TYPEHASH, policyId, binding_.account, keccak256(binding_.policyConfig), executionDataHash
@@ -143,7 +145,16 @@ abstract contract MorphoLendPolicyTestBase is Test {
     }
 
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
-        bytes32 structHash = policyManager.getPolicyId(binding_);
+        return _signInstall(binding_, 0);
+    }
+
+    function _signInstall(PolicyManager.PolicyBinding memory binding_, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 policyId = policyManager.getPolicyId(binding_);
+        bytes32 structHash = keccak256(abi.encode(policyManager.INSTALL_POLICY_TYPEHASH(), policyId, deadline));
         bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
         bytes32 replaySafeDigest = account.replaySafeHash(digest);
 
