@@ -213,8 +213,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param expected Expected sender.
     error InvalidSender(address sender, address expected);
 
-    /// @notice Thrown when a policy address has no deployed code.
+    /// @notice Thrown when the `publicERC6492Validator` constructor argument has no deployed code.
     ///
+    /// @param validator The address that was provided.
+    error ValidatorNotContract(address validator);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
@@ -236,6 +238,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param publicERC6492Validator ERC-6492 validator used for account signatures (and counterfactual side effects).
     constructor(PublicERC6492Validator publicERC6492Validator) {
+        if (address(publicERC6492Validator).code.length == 0) {
+            revert ValidatorNotContract(address(publicERC6492Validator));
+        }
         PUBLIC_ERC6492_VALIDATOR = publicERC6492Validator;
     }
 

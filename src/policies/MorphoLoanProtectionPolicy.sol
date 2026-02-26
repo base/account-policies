@@ -73,8 +73,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Thrown when the Morpho market params for the pinned `marketId` are not found/initialized.
     error MarketNotFound(Id marketId);
 
-    /// @notice Thrown when the Morpho Blue address is zero.
-    error ZeroMorpho();
+    /// @notice Thrown when the Morpho Blue constructor argument has no deployed code.
+    ///
+    /// @param morpho The address that was provided.
+    error MorphoNotContract(address morpho);
 
     /// @notice Thrown when the marketId is zero.
     error ZeroMarketId();
@@ -110,7 +112,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
     /// @param morpho_ Morpho Blue singleton contract address.
     constructor(address policyManager, address admin, address morpho_) AOAPolicy(policyManager, admin) {
-        if (morpho_ == address(0)) revert ZeroMorpho();
+        if (morpho_.code.length == 0) revert MorphoNotContract(morpho_);
         morpho = morpho_;
     }
 

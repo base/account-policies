@@ -42,6 +42,11 @@ abstract contract Policy {
     /// @param expected Expected sender.
     error InvalidCaller(address caller, address expected);
 
+    /// @notice Thrown when the `policyManager` constructor argument has no deployed code.
+    ///
+    /// @param policyManager The address that was provided.
+    error PolicyManagerNotContract(address policyManager);
+
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
     ////////////////////////////////////////////////////////////////
@@ -60,6 +65,7 @@ abstract contract Policy {
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call this policy's hooks.
     constructor(address policyManager) {
+        if (policyManager.code.length == 0) revert PolicyManagerNotContract(policyManager);
         POLICY_MANAGER = PolicyManager(policyManager);
     }
 
