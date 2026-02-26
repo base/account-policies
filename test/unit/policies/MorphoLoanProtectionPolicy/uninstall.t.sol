@@ -152,11 +152,11 @@ contract ClearInstallStateTest is Test {
     /// @param policyId Fuzzed policy identifier.
     /// @param account Fuzzed account address.
     function test_noOp_whenMarketKeyIsZero(bytes32 policyId, address account) public {
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
 
         harness.exposed_clearInstallState(policyId, account);
 
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
     }
 
     /// @notice Deletes the market key mapping but leaves the active policy mapping intact
@@ -183,8 +183,8 @@ contract ClearInstallStateTest is Test {
 
         harness.exposed_clearInstallState(policyId, account);
 
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
-        assertEq(harness.getActivePolicyByMarket(account, marketKey), otherPolicyId);
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.activePolicyByMarket(account, marketKey), otherPolicyId);
     }
 
     /// @notice Clears both mappings when the policy owns the market slot (normal uninstall path).
@@ -200,7 +200,7 @@ contract ClearInstallStateTest is Test {
 
         harness.exposed_clearInstallState(policyId, account);
 
-        assertEq(harness.getMarketKeyByPolicyId(policyId), bytes32(0));
-        assertEq(harness.getActivePolicyByMarket(account, marketKey), bytes32(0));
+        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
+        assertEq(harness.activePolicyByMarket(account, marketKey), bytes32(0));
     }
 }

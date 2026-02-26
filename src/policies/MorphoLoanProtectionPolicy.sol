@@ -56,10 +56,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     address public immutable morpho;
 
     /// @notice Tracks one active policy per (account, marketId).
-    mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) internal _activePolicyByMarket;
+    mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
 
     /// @notice Stored market key per policy instance to validate uninstallation.
-    mapping(bytes32 policyId => bytes32 marketKey) internal _marketKeyByPolicyId;
+    mapping(bytes32 policyId => bytes32 marketKey) public marketKeyByPolicyId;
 
     /// @notice Tracks whether a policy instance has been executed already (one-shot).
     /// @dev Enforces one-shot semantics: once a top-up executes, the policyId is permanently marked
@@ -153,11 +153,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         // Ensure only one active policy per (account, market).
         bytes32 marketKey = Id.unwrap(config.marketId);
-        if (_activePolicyByMarket[account][marketKey] != bytes32(0)) {
+        if (activePolicyByMarket[account][marketKey] != bytes32(0)) {
             revert PolicyAlreadyInstalledForMarket(account, config.marketId);
         }
-        _activePolicyByMarket[account][marketKey] = policyId;
-        _marketKeyByPolicyId[policyId] = marketKey;
+        activePolicyByMarket[account][marketKey] = policyId;
+        marketKeyByPolicyId[policyId] = marketKey;
     }
 
     /// @inheritdoc AOAPolicy
@@ -167,17 +167,17 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _clearInstallState(policyId, account);
     }
 
-    /// @dev Clears per-install state mappings (`_activePolicyByMarket`, `_marketKeyByPolicyId`) if they
+    /// @dev Clears per-install state mappings (`activePolicyByMarket`, `marketKeyByPolicyId`) if they
     ///      still reference `policyId`. Safe to call even if state was already cleared or never set.
     ///
     /// @param policyId Policy identifier whose state should be cleared.
     /// @param account  Account associated with the policy instance.
     function _clearInstallState(bytes32 policyId, address account) internal {
-        bytes32 marketKey = _marketKeyByPolicyId[policyId];
-        if (marketKey != bytes32(0) && _activePolicyByMarket[account][marketKey] == policyId) {
-            delete _activePolicyByMarket[account][marketKey];
+        bytes32 marketKey = marketKeyByPolicyId[policyId];
+        if (marketKey != bytes32(0) && activePolicyByMarket[account][marketKey] == policyId) {
+            delete activePolicyByMarket[account][marketKey];
         }
-        delete _marketKeyByPolicyId[policyId];
+        delete marketKeyByPolicyId[policyId];
     }
 
     /// @inheritdoc AOAPolicy
