@@ -812,18 +812,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param replaceData Policy-defined replacement payload forwarded to `onReplace`.
     /// @param otherPolicy Old policy contract address being uninstalled.
     /// @param otherPolicyId Policy identifier for the old binding.
-    ///
-    /// @return policyId Deterministic policy identifier derived from the binding.
     function _installForReplace(
         PolicyBinding calldata binding,
         bytes calldata replaceData,
         address otherPolicy,
         bytes32 otherPolicyId
-    ) internal returns (bytes32 policyId) {
+    ) internal {
         if (binding.policy.code.length == 0) revert PolicyNotContract(binding.policy);
-        policyId = getPolicyId(binding);
+        bytes32 policyId = getPolicyId(binding);
         address account = binding.account;
-        // Get the policy record associated with the policyId
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
         _checkValidityWindow(binding.validAfter, binding.validUntil);
@@ -833,20 +830,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         policyRecord.validAfter = binding.validAfter;
         policyRecord.validUntil = binding.validUntil;
 
-        Policy(binding.policy)
-            .onReplace(
-                policyId,
-                account,
-                binding.policyConfig,
-                replaceData,
-                otherPolicy,
-                otherPolicyId,
-                Policy.ReplaceRole.NewPolicy,
-                account
-            );
+        Policy(binding.policy).onReplace(
+            policyId, account, binding.policyConfig, replaceData, otherPolicy, otherPolicyId, Policy.ReplaceRole.NewPolicy, account
+        );
         emit PolicyInstalled(policyId, account, binding.policy);
-
-        return policyId;
     }
 
     /// @notice Requires `msg.sender` to equal `sender`.
