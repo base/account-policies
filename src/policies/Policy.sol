@@ -196,6 +196,10 @@ abstract contract Policy {
     ) internal virtual returns (bytes memory accountCallData, bytes memory postCallData);
 
     /// @dev Policy-specific uninstall hook. Revert to refuse non-account uninstallation.
+    ///      `PolicyManager.uninstall` is callable by ANY address — the manager relies on this hook to enforce
+    ///      authorization. If this hook reverts and the caller is the bound account, the manager swallows the
+    ///      revert (account escape hatch); otherwise the revert propagates. Implementations MUST validate
+    ///      `effectiveCaller` and revert for unauthorized callers.
     function _onUninstall(
         bytes32 policyId,
         address account,

@@ -302,6 +302,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///      account, policy, config, and salt that produced the policyId is permanently retired. To install an
     ///      equivalent policy, the account must use a different salt.
     ///
+    /// **Authorization:** this function is callable by any address. The PolicyManager does not enforce caller
+    /// restrictions — it is the policy's responsibility to implement authorization in its `onUninstall` hook.
+    /// If the hook reverts and `msg.sender` is the bound account, the revert is swallowed (account escape hatch);
+    /// otherwise the revert propagates. Policy developers MUST guard `_onUninstall` against unauthorized callers.
+    ///
     /// Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
     /// - `policyConfig` MAY be empty. If the effective caller is the account, the manager will still succeed even if the
     ///   policy hook reverts due to missing config (account escape hatch).
