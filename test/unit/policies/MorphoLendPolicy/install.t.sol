@@ -74,7 +74,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(RecurringAllowance.ZeroPeriod.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when the deposit limit allowance is zero.
@@ -102,7 +102,7 @@ contract InstallTest is MorphoLendPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(RecurringAllowance.ZeroAllowance.selector);
-        policyManager.installWithSignature(b, userSig, bytes(""));
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
     // =============================================================
