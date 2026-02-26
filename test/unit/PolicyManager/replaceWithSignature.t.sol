@@ -534,9 +534,13 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     ///      deadline checks, or execution — regardless of executionData content.
     ///
     /// @param validUntilSeed Seed used to pick a validUntil strictly after current timestamp.
+    /// @notice Reverts when retrying a completed replace outside the validity window, because `_execute`
+    ///         checks the new policy's validity window even when the replace itself is idempotent.
+    ///
+    /// @param validUntilSeed Seed for the validity window upper bound.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the old binding (hashed into `policyId`).
-    function test_whenEndStateAlreadyReached_outsideValidityWindow_returnsEarly(
+    function test_reverts_whenEndStateAlreadyReached_butOutsideValidityWindow(
         uint40 validUntilSeed,
         bytes32 configSeed,
         uint256 salt
@@ -569,17 +573,11 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
-            target: address(receiver),
-            value: 0,
-            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
-            revertOnExecute: false,
-            postAction: CallForwardingPolicy.PostAction.None
-        });
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
-        bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, abi.encode(f));
-        assertEq(ret, newPolicyId);
-        assertEq(receiver.calls(), 0);
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, uint40(validUntil), validUntil));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
     /// @notice Bubbles a revert when the policy's `onExecute` hook reverts (when `executionData` is provided).
@@ -860,13 +858,16 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         assertTrue(policyManager.isPolicyActive(address(callPolicy), newPolicyId));
     }
 
-    /// @notice Returns early without requiring a valid signature when end state is already reached and no execution is requested.
-    function test_isIdempotent_whenEndStateAlreadyReached_andNoExecution_doesNotRequireValidSig() public {
+    /// @notice When the replace end state is already reached and no execution data is provided, the replace is
+    ///         skipped but `_execute` still runs (policy returns empty data → no-op). Sig is still required.
+    function test_isIdempotent_whenEndStateAlreadyReached_andNoExecution_skipsReplaceButStillExecutes() public {
         (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
             _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
@@ -879,8 +880,9 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, bytes(""));
+        bytes32 ret = policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
         assertEq(ret, newPolicyId);
+        assertEq(receiver.calls(), 0);
     }
 
     /// @notice When `executionData` is empty, replaceWithSignature does not execute or emit `PolicyExecuted`.
@@ -981,16 +983,16 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         policyManager.replaceWithSignature(payload, userSig, 0, executionData);
     }
 
-    /// @notice When end state is already reached and execution is requested, returns early (idempotent)
-    ///         without requiring a valid signature or performing execution.
-    ///
-    /// @dev After I-13 / G-01, the idempotency check no longer gates on executionData length.
-    function test_whenEndStateAlreadyReached_andExecutionRequested_returnsEarlyWithoutSigValidation() public {
+    /// @notice When end state is already reached and execution data IS provided, the replace is skipped
+    ///         but execution still proceeds. Signature is required.
+    function test_whenEndStateAlreadyReached_andExecutionRequested_skipsReplaceButStillExecutes() public {
         (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
             _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
         _replaceViaAccount(address(callPolicy), oldPolicyId, oldPolicyConfig, newBinding);
 
@@ -1011,8 +1013,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        bytes32 ret = policyManager.replaceWithSignature(payload, bytes("invalid"), 0, executionData);
+        bytes32 ret = policyManager.replaceWithSignature(payload, userSig, 0, executionData);
         assertEq(ret, newPolicyId);
-        assertEq(receiver.calls(), 0);
+        assertEq(receiver.calls(), 1);
     }
 }

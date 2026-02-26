@@ -314,6 +314,22 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
     /// @inheritdoc Policy
     ///
+    /// @dev During replacement the account has already authorized the operation (via `replace()` or
+    ///      `replaceWithSignature`), so executor authorization is redundant. Skip straight to cleanup.
+    function _onUninstallForReplace(
+        bytes32 policyId,
+        address account,
+        bytes calldata,
+        bytes calldata,
+        address,
+        bytes32,
+        address effectiveCaller
+    ) internal virtual override {
+        _onAOAUninstall(policyId, account, effectiveCaller);
+    }
+
+    /// @inheritdoc Policy
+    ///
     /// @dev AOA execute hook wrapper: requires installed config, validates executor signature + nonce replay
     ///      protection for all executions, decodes canonical payload shapes, and delegates to `_onAOAExecute`.
     function _onExecute(

@@ -156,6 +156,32 @@ abstract contract AOAPolicyTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _signReplace(
+        address oldPolicy,
+        bytes32 oldPolicyId,
+        bytes memory oldPolicyConfig,
+        bytes32 newPolicyId,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                policyManager.REPLACE_POLICY_TYPEHASH(),
+                address(account),
+                oldPolicy,
+                oldPolicyId,
+                keccak256(oldPolicyConfig),
+                newPolicyId,
+                deadline
+            )
+        );
+        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
+        bytes32 replaySafeDigest = account.replaySafeHash(digest);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        return account.wrapSignature(0, signature);
+    }
+
     function _signInstall(PolicyManager.PolicyBinding memory binding_) internal view returns (bytes memory) {
         return _signInstall(binding_, 0);
     }
