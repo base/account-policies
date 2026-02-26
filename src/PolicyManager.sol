@@ -560,13 +560,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///      - Installs via `Policy.onReplace(..., role=NewPolicy, ...)`.
     ///      - Emits `PolicyUninstalled` (old), `PolicyInstalled` (new), and `PolicyReplaced`.
     ///
-    /// Idempotent behavior (layered):
-    /// - Top level: if the old policy is already uninstalled and the new policy is already installed+active
-    ///   for the account, this is a no-op (no hooks called, no events emitted).
-    /// - `_uninstallForReplace`: independently idempotent — skips if the old policy is already uninstalled.
-    /// - `_installForReplace`: independently idempotent — skips if the new policy is already installed.
-    /// Depending on the individual states of the policies, the uninstall and/or install steps (and their
-    /// corresponding events) may or may not execute within a single `_replace` call.
+    /// Idempotent behavior:
+    /// - If the old policy is already uninstalled and the new policy is already installed+active for the
+    ///   account, this is a clean no-op (no hooks called, no events emitted).
+    /// - Partial end states (e.g., old uninstalled but new not yet installed) are not treated as
+    ///   idempotent and will revert. This ensures replace is all-or-nothing.
     ///
     /// @param oldPolicy Old policy contract address to uninstall.
     /// @param oldPolicyId Policy identifier for the old binding.
@@ -779,8 +777,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) internal {
         if (policy.code.length == 0) revert PolicyNotContract(policy);
         PolicyRecord storage policyRecord = policies[policy][policyId];
-        // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
-        if (policyRecord.uninstalled) return;
         if (!policyRecord.installed) revert PolicyNotInstalled(policyId);
         policyRecord.uninstalled = true;
         try Policy(policy)
@@ -825,7 +821,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Get the policy record associated with the policyId
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        if (policyRecord.installed) return policyId;
         _checkValidityWindow(binding.validAfter, binding.validUntil);
 
         policyRecord.installed = true;
