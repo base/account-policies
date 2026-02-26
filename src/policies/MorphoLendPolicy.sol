@@ -126,6 +126,8 @@ contract MorphoLendPolicy is AOAPolicy {
     function _onAOAInstall(bytes32, address, AOAConfig memory, bytes memory policySpecificConfig) internal override {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         if (lendPolicyConfig.vault.code.length == 0) revert VaultNotContract(lendPolicyConfig.vault);
+        if (lendPolicyConfig.depositLimit.period == 0) revert RecurringAllowance.ZeroPeriod();
+        if (lendPolicyConfig.depositLimit.allowance == 0) revert RecurringAllowance.ZeroAllowance();
     }
 
     /// @inheritdoc AOAPolicy
