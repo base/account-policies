@@ -353,18 +353,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) external nonReentrant returns (bytes32 newPolicyId) {
         newPolicyId = getPolicyId(payload.newBinding);
 
-        // Idempotent behavior: if the desired end state is already reached, return early.
+        // Idempotent behavior: if the desired end state is already reached, skip _replace.
         // This enables safe retries even after deadlines expire.
+        bool alreadyReplaced;
         {
             PolicyRecord storage oldRecord = policies[payload.oldPolicy][payload.oldPolicyId];
             PolicyRecord storage newRecord = policies[payload.newBinding.policy][newPolicyId];
-            if (
-                oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
-                    && oldRecord.account == payload.newBinding.account && executionData.length == 0
-            ) {
-                return newPolicyId;
-            }
+            alreadyReplaced = oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
+                && oldRecord.account == payload.newBinding.account;
         }
+
+        if (alreadyReplaced && executionData.length == 0) return newPolicyId;
 
         if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
         bytes32 digest = _hashTypedData(
@@ -381,9 +380,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
         _requireValidAccountSig(payload.newBinding.account, digest, userSig);
 
-        _replace(
-            payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
-        );
+        if (!alreadyReplaced) {
+            _replace(
+                payload.oldPolicy,
+                payload.oldPolicyId,
+                payload.oldPolicyConfig,
+                payload.replaceData,
+                payload.newBinding
+            );
+        }
 
         if (executionData.length == 0) return newPolicyId;
 
