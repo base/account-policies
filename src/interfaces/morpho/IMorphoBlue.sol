@@ -19,5 +19,8 @@ interface IMorphoBlue {
     /// @notice Supplies collateral for a position.
     function supplyCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, bytes memory data)
         external;
+
+    /// @notice Accrues interest for the given market `marketParams`.
+    function accrueInterest(MarketParams memory marketParams) external;
 }
 

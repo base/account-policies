@@ -16,7 +16,7 @@ contract MorphoLoanProtectionHarness is MorphoLoanProtectionPolicy {
         LoanProtectionPolicyConfig memory config,
         MarketParams memory marketParams,
         address account
-    ) external view returns (uint256) {
+    ) external returns (uint256) {
         return _computeCurrentLtv(config, marketParams, account);
     }
 

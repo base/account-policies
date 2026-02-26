@@ -86,7 +86,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
                 totalSupplyShares: 0,
                 totalBorrowAssets: uint128(1e18),
                 totalBorrowShares: uint128(1e18),
-                lastUpdate: 0,
+                lastUpdate: uint128(block.timestamp),
                 fee: 0
             })
         );

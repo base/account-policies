@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {Id} from "../../../../src/interfaces/morpho/BlueTypes.sol";
+import {Id, Market, MarketParams} from "../../../../src/interfaces/morpho/BlueTypes.sol";
 import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 
@@ -75,6 +75,68 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes memory userSig = _signInstall(b);
 
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, badMarketId));
+        policyManager.installWithSignature(b, userSig, bytes(""));
+    }
+
+    /// @notice Reverts when triggerLtv is greater than or equal to the market's LLTV.
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    /// @param triggerLtv Fuzzed trigger LTV at or above the market's LLTV (0.8e18).
+    function test_reverts_whenTriggerLtvAboveLltv(uint256 salt, uint256 triggerLtv) public {
+        triggerLtv = bound(triggerLtv, marketParams.lltv, type(uint256).max);
+
+        bytes memory psc = abi.encode(
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
+                marketId: marketId, triggerLtv: triggerLtv, maxTopUpAssets: 25 ether
+            })
+        );
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoLoanProtectionPolicy.TriggerLtvAboveLltv.selector, triggerLtv, marketParams.lltv
+            )
+        );
+        policyManager.installWithSignature(b, userSig, bytes(""));
+    }
+
+    /// @notice Reverts when the Morpho market has lastUpdate == 0 (not created via createMarket).
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    function test_reverts_whenMarketLastUpdateIsZero(uint256 salt) public {
+        Id staleMarketId = Id.wrap(bytes32(uint256(999)));
+        MarketParams memory staleParams = MarketParams({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(oracle),
+            irm: address(0xBEEF),
+            lltv: 0.8e18
+        });
+        morpho.setMarket(
+            staleMarketId,
+            staleParams,
+            Market({
+                totalSupplyAssets: 0,
+                totalSupplyShares: 0,
+                totalBorrowAssets: 0,
+                totalBorrowShares: 0,
+                lastUpdate: 0,
+                fee: 0
+            })
+        );
+
+        bytes memory psc = abi.encode(
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
+                marketId: staleMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+            })
+        );
+        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MarketNotFound.selector, staleMarketId));
         policyManager.installWithSignature(b, userSig, bytes(""));
     }
 

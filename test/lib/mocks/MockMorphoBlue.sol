@@ -58,6 +58,8 @@ contract MockMorphoBlue is IMorphoBlue {
         return _markets[Id.unwrap(id)];
     }
 
+    function accrueInterest(MarketParams memory) external {}
+
     function supplyCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, bytes memory data)
         external
     {
