@@ -61,9 +61,6 @@ library RecurringAllowance {
     /// @notice Thrown when the spend value is zero.
     error ZeroValue();
 
-    /// @notice Thrown when cumulative spend exceeds `type(uint160).max`.
-    error SpendValueOverflow(uint256 value);
-
     /// @notice Thrown when cumulative spend exceeds the period allowance.
     error ExceededAllowance(uint256 value, uint256 allowance);
 
@@ -90,7 +87,6 @@ library RecurringAllowance {
 
         current = getCurrentPeriod(state, policyId, limit);
         uint256 totalSpend = value + uint256(current.spend);
-        if (totalSpend > type(uint160).max) revert SpendValueOverflow(totalSpend);
         if (totalSpend > limit.allowance) revert ExceededAllowance(totalSpend, limit.allowance);
 
         // forge-lint: disable-next-line(unsafe-typecast)

@@ -141,7 +141,8 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         override
     {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
-        if (Id.unwrap(config.marketId) == bytes32(0)) revert ZeroMarketId();
+        bytes32 marketKey = Id.unwrap(config.marketId);
+        if (marketKey == bytes32(0)) revert ZeroMarketId();
         if (config.maxTopUpAssets == 0) revert ZeroAmount();
 
         // Ensure the pinned market exists on this Morpho instance.
@@ -152,7 +153,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         if (config.triggerLtv >= marketParams.lltv) revert TriggerLtvAboveLltv(config.triggerLtv, marketParams.lltv);
 
         // Ensure only one active policy per (account, market).
-        bytes32 marketKey = Id.unwrap(config.marketId);
         if (activePolicyByMarket[account][marketKey] != bytes32(0)) {
             revert PolicyAlreadyInstalledForMarket(account, config.marketId);
         }
@@ -167,17 +167,17 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         _clearInstallState(policyId, account);
     }
 
-    /// @dev Clears per-install state mappings (`activePolicyByMarket`, `marketKeyByPolicyId`) if they
-    ///      still reference `policyId`. Safe to call even if state was already cleared or never set.
+    /// @dev Clears per-install state mappings (`activePolicyByMarket`, `marketKeyByPolicyId`).
+    ///      Safe to call even if state was already cleared or never set.
     ///
     /// @param policyId Policy identifier whose state should be cleared.
     /// @param account  Account associated with the policy instance.
     function _clearInstallState(bytes32 policyId, address account) internal {
         bytes32 marketKey = marketKeyByPolicyId[policyId];
-        if (marketKey != bytes32(0) && activePolicyByMarket[account][marketKey] == policyId) {
+        if (marketKey != bytes32(0)) {
             delete activePolicyByMarket[account][marketKey];
+            delete marketKeyByPolicyId[policyId];
         }
-        delete marketKeyByPolicyId[policyId];
     }
 
     /// @inheritdoc AOAPolicy

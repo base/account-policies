@@ -766,15 +766,15 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         }
 
         // PolicyId-mode: uninstall by (policy, policyId).
-        if (payload.policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
+        address policy = payload.policy;
+        if (policy == address(0) || payload.policyId == bytes32(0)) revert InvalidPayload();
         policyId = payload.policyId;
-        // Get the policy record associated with the policyId
-        PolicyRecord storage policyRecordById = policies[payload.policy][policyId];
+        PolicyRecord storage policyRecordById = policies[policy][policyId];
         // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
         if (policyRecordById.uninstalled) return policyId;
         if (!policyRecordById.installed) revert PolicyNotInstalled(policyId);
         policyRecordById.uninstalled = true;
-        try Policy(payload.policy)
+        try Policy(policy)
             .onUninstall(
                 policyId, policyRecordById.account, payload.policyConfig, payload.uninstallData, effectiveCaller
             ) {}
@@ -783,7 +783,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 revert Unauthorized(effectiveCaller);
             }
         }
-        emit PolicyUninstalled(policyId, policyRecordById.account, payload.policy);
+        emit PolicyUninstalled(policyId, policyRecordById.account, policy);
         return policyId;
     }
 
