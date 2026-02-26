@@ -18,7 +18,7 @@ contract ConstructorTest is AOAPolicyTestBase {
 
     /// @notice Reverts when admin is the zero address.
     ///
-    /// @param policyManagerAddr Fuzzed address for the policy manager (given code so the revert fires on admin check).
+    /// @param policyManagerAddr Fuzzed address for the policy manager (must have code to pass the codesize check).
     function test_reverts_whenAdminIsZeroAddress(address policyManagerAddr) public {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");
@@ -26,9 +26,9 @@ contract ConstructorTest is AOAPolicyTestBase {
         new AOATestPolicy(policyManagerAddr, address(0));
     }
 
-    /// @notice Stores the PolicyManager as an immutable.
+    /// @notice Stores the PolicyManager address.
     ///
-    /// @param policyManagerAddr Fuzzed address to pin as PolicyManager (given code to pass constructor check).
+    /// @param policyManagerAddr Fuzzed address to set as PolicyManager (etched with code).
     function test_setsPolicyManager(address policyManagerAddr) public {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");

@@ -170,8 +170,11 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     /// @notice Stores the config hash on successful install.
     ///
     /// @param wrongConfig Arbitrary bytes whose hash differs from the installed config.
-    function test_storesConfigHash(bytes calldata wrongConfig) public {
+    /// @param executionData Arbitrary non-empty execution data (empty executionData causes the policy
+    ///        to return early before the config hash check).
+    function test_storesConfigHash(bytes calldata wrongConfig, bytes calldata executionData) public {
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
+        vm.assume(executionData.length > 0);
 
         bytes32 policyId = policyManager.getPolicyId(binding);
 
@@ -180,7 +183,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
-        policyManager.execute(address(policy), policyId, wrongConfig, bytes(""));
+        policyManager.execute(address(policy), policyId, wrongConfig, executionData);
     }
 
     // =============================================================

@@ -42,6 +42,8 @@ contract CallForwardingPolicy is Policy {
         override
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
+        if (executionData.length == 0) return (accountCallData, postCallData);
+
         ForwardCall memory f = abi.decode(executionData, (ForwardCall));
 
         if (f.revertOnExecute) revert OnExecuteReverted();
@@ -53,21 +55,19 @@ contract CallForwardingPolicy is Policy {
 
         accountCallData = abi.encodeWithSignature("execute(address,uint256,bytes)", f.target, f.value, f.data);
         if (f.postAction == PostAction.CallPost) {
-            postCallData = abi.encodeWithSelector(this.post.selector, policyId);
+            postCallData = abi.encode(PostAction.CallPost);
         } else if (f.postAction == PostAction.RevertPost) {
-            postCallData = abi.encodeWithSelector(this.postRevert.selector, policyId);
+            postCallData = abi.encode(PostAction.RevertPost);
         }
     }
 
-    function post(bytes32 policyId) external {
-        _requireSender(address(POLICY_MANAGER));
-        postCalls++;
-        lastExecutedPolicyId = policyId;
-    }
-
-    function postRevert(bytes32 policyId) external view {
-        _requireSender(address(POLICY_MANAGER));
-        revert PostCallReverted(policyId);
+    function _onPostExecute(bytes32 policyId, address, bytes calldata postCallData) internal override {
+        PostAction action = abi.decode(postCallData, (PostAction));
+        if (action == PostAction.CallPost) {
+            postCalls++;
+            lastExecutedPolicyId = policyId;
+        } else if (action == PostAction.RevertPost) {
+            revert PostCallReverted(policyId);
+        }
     }
 }
-

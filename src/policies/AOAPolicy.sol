@@ -5,6 +5,8 @@ import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessContr
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
+import {PolicyManager} from "../PolicyManager.sol";
+
 import {Policy} from "./Policy.sol";
 
 /// @title AOAPolicy
@@ -106,6 +108,12 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     ///                         Events                           ///
     ////////////////////////////////////////////////////////////////
 
+    /// @notice Emitted when the authorized PolicyManager is updated.
+    ///
+    /// @param oldManager The previous PolicyManager address.
+    /// @param newManager The new PolicyManager address.
+    event PolicyManagerUpdated(address oldManager, address newManager);
+
     /// @notice Emitted when a nonce is explicitly cancelled.
     ///
     /// @param policyId Policy identifier for the binding.
@@ -129,6 +137,18 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
+
+    /// @notice Updates the authorized PolicyManager address.
+    ///
+    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the new address has no deployed code.
+    ///
+    /// @param newPolicyManager Address of the new PolicyManager.
+    function setPolicyManager(address newPolicyManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newPolicyManager.code.length == 0) revert PolicyManagerNotContract(newPolicyManager);
+        address oldManager = address(_policyManager);
+        _policyManager = PolicyManager(newPolicyManager);
+        emit PolicyManagerUpdated(oldManager, newPolicyManager);
+    }
 
     /// @notice Pauses execution for this policy.
     ///
@@ -187,7 +207,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
     function _isValidExecutorSig(address executor, bytes32 digest, bytes memory signature) internal returns (bool) {
         return
-            POLICY_MANAGER.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
+            _policyManager.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
     /// @dev Reverts if `nonce` is already used for `policyId`, then marks it as used.
@@ -303,6 +323,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
         bytes calldata executionData,
         address caller
     ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
+        if (executionData.length == 0) return (accountCallData, postCallData);
+
         _requireConfigHash(policyId, policyConfig);
 
         (AOAConfig memory aoaConfig, bytes memory policySpecificConfig) = _decodeAOAConfig(policyConfig);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {Vm} from "forge-std/Vm.sol";
+
 import {PolicyManager} from "../../../src/PolicyManager.sol";
 
 import {PolicyManagerTestBase} from "../../lib/testBaseContracts/PolicyManagerTestBase.sol";
@@ -462,6 +464,8 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
     /// @notice Installing an already-installed policyId does not emit `PolicyInstalled` or call install hooks again.
     ///
     /// @dev Second install returns the same policyId; signature is still required.
+    ///      After I-13, `_execute` is always called (even with empty executionData), so a `PolicyExecuted`
+    ///      event is emitted on both calls. The key assertion is that no *second* `PolicyInstalled` event fires.
     ///
     /// @param configSeed Seed used to build the committed config bytes.
     /// @param salt Salt used to derive the policyId.
@@ -475,7 +479,12 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         vm.recordLogs();
         bytes32 policyId2 = policyManager.installWithSignature(binding, userSig, 0, bytes(""));
         assertEq(policyId2, policyId);
-        assertEq(vm.getRecordedLogs().length, 0);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 policyInstalledSig = PolicyManager.PolicyInstalled.selector;
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(logs[i].topics[0] != policyInstalledSig);
+        }
     }
 
     /// @notice Allows installing multiple otherwise identical bindings via distinct salts.
