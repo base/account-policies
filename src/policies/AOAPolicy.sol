@@ -145,8 +145,8 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @param newPolicyManager Address of the new PolicyManager.
     function setPolicyManager(address newPolicyManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newPolicyManager.code.length == 0) revert PolicyManagerNotContract(newPolicyManager);
-        address oldManager = address(_policyManager);
-        _policyManager = PolicyManager(newPolicyManager);
+        address oldManager = address(policyManager);
+        policyManager = PolicyManager(newPolicyManager);
         emit PolicyManagerUpdated(oldManager, newPolicyManager);
     }
 
@@ -206,8 +206,7 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
 
     /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
     function _isValidExecutorSig(address executor, bytes32 digest, bytes memory signature) internal returns (bool) {
-        return
-            _policyManager.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
+        return policyManager.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
     /// @dev Reverts if `nonce` is already used for `policyId`, then marks it as used.

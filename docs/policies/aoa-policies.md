@@ -12,6 +12,10 @@ They exist to standardize a common operational pattern:
 
 This family is optional: `PolicyManager` remains schema-agnostic and does not “know” AOA schemas. AOA defines a canonical envelope and shared auth model so policies in this family behave consistently.
 
+### Mutable PolicyManager
+
+AOA policies hold a mutable reference to the `PolicyManager`. The admin can update it via `setPolicyManager(address)`, which emits `PolicyManagerUpdated(oldManager, newManager)`. This supports operational upgrades (e.g., migrating to a new manager deployment) without redeploying policies.
+
 ## Actors and trust boundaries
 
 - **Account**: installs policies; ultimately executes wallet calls (via the manager). The account can always uninstall installed instances.
@@ -45,6 +49,8 @@ AOA policies commit to:
 - `AOAExecutionData.deadline` is optional intent expiry (`0` means “no expiry”)
 
 This makes AOA policies composable: tooling can treat “AOA config + action + signature” as a standard envelope.
+
+AOA policies return early with empty calldata when `executionData` is empty (signaling “no execution” to the manager). This is required because `onExecute` is called during `installWithSignature` and `replaceWithSignature` flows even when no execution is intended. AOA policies may also return `postCallData` from `onExecute`, which the manager forwards to the policy’s `onPostExecute` hook after the account call completes.
 
 ## Config authentication strategy (calldata-heavy by default)
 
@@ -103,6 +109,10 @@ Default AOA ergonomics:
 
 Practical integrator note: for non-account uninstall, AOA policies may require the installed `policyConfig` preimage so
 they can decode the configured executor and verify the committed config hash.
+
+### Replacement (`replaceWithSignature`)
+
+During a `replaceWithSignature` flow, the account has already authorized the replacement via their EIP-712 signature. AOA policies therefore skip executor authorization on the uninstall side of a replacement (`_onUninstallForReplace` calls directly into cleanup logic without requiring an executor signature in `replaceData`). This avoids redundant authorization when the account has already blessed the operation.
 
 ## EIP-712 domains
 

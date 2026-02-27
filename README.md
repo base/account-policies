@@ -93,10 +93,12 @@ manager → policy → manager → account → manager → policy → manager
 A policy authorizes the execution and returns:
 
 * calldata to call on the account (the “actions”)  
-* optional calldata to call back into the policy (post-call verification/steps)
+* optional opaque bytes forwarded to the policy’s `onPostExecute` hook after the account call (post-call verification/steps)
+
+If the policy returns empty calldata for both, the manager treats it as a no-op: no account call, no `onPostExecute`, and no `PolicyExecuted` event. This is how policies signal “nothing to execute” when called with empty `executionData` during `installWithSignature` or `replaceWithSignature`.
 
 This pattern enables strong postconditions (balance deltas, state checks, approval resets) without requiring the manager to understand policy-specific semantics.
-For example: a swap policy can snapshot balances before the wallet call, then verify `tokenOutDelta >= minOut` in the post-call.
+For example: a swap policy can snapshot balances before the wallet call, then verify `tokenOutDelta >= minOut` in `onPostExecute`.
 
 ### Uninstall
 
@@ -153,7 +155,7 @@ The manager is the generic, minimal enforcement layer:
 * enforces `validAfter` / `validUntil` at install and execute  
 * maintains policy instance liveness state (installed / uninstalled)  
 * enforces sticky disables (uninstallation permanently kills a `policyId`)  
-* requires policy addresses to be deployed contracts (code-length check on all lifecycle transitions)  
+* requires the ERC-6492 validator to be a deployed contract (checked at construction)  
 * mediates all policy hooks and provides a consistent execution environment  
 * guarantees “account can always uninstall installed instances”
 
@@ -230,7 +232,8 @@ Policies implement the `Policy` hooks:
 
 * `onInstall`: validate installation and optionally initialize policy state  
 * `onUninstall`: authorize uninstall (including pre-install permanent disable) and optionally clean up policy state  
-* `onExecute`: authorize execution and return a call plan  
+* `onExecute`: authorize execution and return a call plan (called on every execution path, including `installWithSignature` and `replaceWithSignature` — policies MUST handle empty `executionData` gracefully)  
+* `onPostExecute`: optional post-execution hook called after the account call completes (e.g., for postcondition checks or cleanup)  
 * `onReplace`: handle atomic replacement transitions (called with a role indicating whether this policy is the old or new side of the replacement)
 
 Policies are only callable by the manager, which keeps the trust boundary clean and prevents integrators from bypassing lifecycle logic.
