@@ -119,7 +119,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Lifecycle records keyed by policy contract and binding-derived policyId.
     ///
-    /// @dev Exposed as a public getter for integrator/indexer ergonomics.
+    /// @dev Exposed as a public getter for integrators.
     mapping(address policy => mapping(bytes32 policyId => PolicyRecord)) public policies;
 
     ////////////////////////////////////////////////////////////////
@@ -266,8 +266,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
     ///
-    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided is forwarded to
-    ///      the policy's execute hook, which MUST enforce its own execution authorization semantics.
+    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided, including empty
+    ///      bytes, is forwarded to the policy's execute hook, which MUST enforce its own execution authorization semantics.
     ///
     /// @param binding Policy binding parameters authorized by the account (includes `policyConfig`).
     /// @param userSig ERC-6492-compatible signature by `binding.account` over the install typed digest:
@@ -302,7 +302,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// **Authorization:** this function is callable by any address. The PolicyManager does not enforce caller
     /// restrictions — it is the policy's responsibility to implement authorization in its `onUninstall` hook.
-    /// If the hook reverts and `msg.sender` is the bound account, the revert is swallowed (account escape hatch);
+    /// If the hook reverts and `msg.sender` is the bound account, the revert is swallowed and uninstallation succeeds;
     /// otherwise the revert propagates. Policy developers MUST guard `_onUninstall` against unauthorized callers.
     ///
     /// Installed lifecycle (policyId-mode): address by `(policy, policyId)`.
@@ -515,14 +515,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return _isPolicyActiveAt(policy, policyId, timestamp);
     }
 
-    function _isPolicyActiveAt(address policy, bytes32 policyId, uint40 timestamp) internal view returns (bool) {
-        PolicyRecord storage policyRecord = policies[policy][policyId];
-        if (!policyRecord.installed || policyRecord.uninstalled) return false;
-        if (policyRecord.validAfter != 0 && timestamp < policyRecord.validAfter) return false;
-        if (policyRecord.validUntil != 0 && timestamp >= policyRecord.validUntil) return false;
-        return true;
-    }
-
     ////////////////////////////////////////////////////////////////
     ///                     Public Functions                     ///
     ////////////////////////////////////////////////////////////////
@@ -582,115 +574,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
         return policyId;
-    }
-
-    /// @notice Atomically uninstall an existing policy instance and install a new one.
-    ///
-    /// @dev Shared implementation for `replace` and `replaceWithSignature`.
-    ///      - Uninstalls via `Policy.onReplace(..., role=OldPolicy, ...)` (escape hatch enforced).
-    ///      - Installs via `Policy.onReplace(..., role=NewPolicy, ...)`.
-    ///      - Emits `PolicyUninstalled` (old), `PolicyInstalled` (new), and `PolicyReplaced`.
-    ///
-    /// Idempotent behavior:
-    /// - If the old policy is already uninstalled and the new policy is already installed+active for the
-    ///   account, this is a clean no-op (no hooks called, no events emitted).
-    /// - Partial end states (e.g., old uninstalled but new not yet installed) are not treated as
-    ///   idempotent and will revert. This ensures replace is all-or-nothing.
-    ///
-    /// @param oldPolicy Old policy contract address to uninstall.
-    /// @param oldPolicyId Policy identifier for the old binding.
-    /// @param oldPolicyConfig Optional config preimage forwarded to the old policy hook.
-    /// @param replaceData Optional policy-defined payload forwarded to both `onReplace` hooks.
-    /// @param newBinding New binding to install (carries its own `policyConfig`).
-    ///
-    /// @return newPolicyId Deterministic policy identifier for the new binding.
-    function _replace(
-        address oldPolicy,
-        bytes32 oldPolicyId,
-        bytes calldata oldPolicyConfig,
-        bytes calldata replaceData,
-        PolicyBinding calldata newBinding
-    ) internal returns (bytes32 newPolicyId) {
-        if (oldPolicy == address(0) || newBinding.policy == address(0)) {
-            revert InvalidPayload();
-        }
-
-        // Check policyId is not the same
-        newPolicyId = getPolicyId(newBinding);
-        if (newPolicyId == oldPolicyId) revert InvalidPayload();
-
-        PolicyRecord storage oldRecord = policies[oldPolicy][oldPolicyId];
-        PolicyRecord storage newRecord = policies[newBinding.policy][newPolicyId];
-
-        // Idempotent behavior: if the desired end state is already reached, return early.
-        // This enables safe retries even after deadlines expire.
-        if (
-            oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
-                && oldRecord.account == newBinding.account
-        ) {
-            return newPolicyId;
-        }
-
-        if (!oldRecord.installed) revert PolicyNotInstalled(oldPolicyId);
-        if (oldRecord.uninstalled) revert PolicyIsDisabled(oldPolicyId);
-        if (oldRecord.account != newBinding.account) revert InvalidPayload();
-
-        if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
-
-        _uninstallForReplace(
-            oldPolicy, oldPolicyId, oldPolicyConfig, replaceData, newBinding.policy, newPolicyId, msg.sender
-        );
-
-        _installForReplace(newBinding, replaceData, oldPolicy, oldPolicyId);
-
-        emit PolicyReplaced(oldPolicyId, newPolicyId, newBinding.account, oldPolicy, newBinding.policy);
-
-        return newPolicyId;
-    }
-
-    /// @notice Executes an action for a policy instance.
-    ///
-    /// @dev Validates the policy is active, enforces the validity window, then calls the policy hook to obtain
-    ///      account calldata and optional post-call calldata:
-    ///      1) requires the policy is not disabled (uninstalled)
-    ///      2) checks validity window
-    ///      3) calls the policy `onExecute` hook
-    ///      4) calls the account with the policy-prepared calldata
-    ///      5) calls the policy post-call (if any)
-    ///
-    ///      **Security note:** The post-call in step 5 uses an opaque function selector and calldata returned by the
-    ///      policy's `onExecute` hook, unlike other lifecycle calls which have hard-coded selectors. Policy authors
-    ///      MUST ensure the returned `postCallData` cannot be manipulated to make arbitrary calls against the policy
-    ///      in the context of the PolicyManager.
-    ///
-    /// @param policy Policy contract address.
-    /// @param policyId Policy identifier for the binding.
-    /// @param policyConfig Policy-defined config reference (often the full config preimage).
-    /// @param executionData Policy-defined per-execution payload.
-    /// @param caller Immediate external caller that invoked the manager.
-    function _execute(
-        address policy,
-        bytes32 policyId,
-        bytes calldata policyConfig,
-        bytes calldata executionData,
-        address caller
-    ) internal {
-        PolicyRecord storage policyRecord = policies[policy][policyId];
-        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
-
-        address account = policyRecord.account;
-        (bytes memory accountCallData, bytes memory postCallData) =
-            Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
-
-        if (accountCallData.length == 0 && postCallData.length == 0) return;
-
-        _externalCall(account, accountCallData);
-        if (postCallData.length > 0) {
-            Policy(policy).onPostExecute(policyId, account, postCallData);
-        }
-
-        emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
 
     /// @notice Shared implementation for uninstalling or pre-disabling a policy instance.
@@ -790,6 +673,113 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         return policyId;
     }
 
+    /// @notice Executes an action for a policy instance.
+    ///
+    /// @dev Validates the policy is active, enforces the validity window, then calls the policy hook to obtain
+    ///      account calldata and optional post-call calldata:
+    ///      1) requires the policy is not disabled (uninstalled)
+    ///      2) checks validity window
+    ///      3) calls the policy `onExecute` hook
+    ///      4) calls the account with the policy-prepared calldata if non-empty
+    ///      5) calls the policy post-call (if any)
+    ///
+    ///
+    /// @param policy Policy contract address.
+    /// @param policyId Policy identifier for the binding.
+    /// @param policyConfig Policy-defined config reference (often the full config preimage).
+    /// @param executionData Policy-defined per-execution payload.
+    /// @param caller Immediate external caller that invoked the manager.
+    function _execute(
+        address policy,
+        bytes32 policyId,
+        bytes calldata policyConfig,
+        bytes calldata executionData,
+        address caller
+    ) internal {
+        PolicyRecord storage policyRecord = policies[policy][policyId];
+        if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
+
+        address account = policyRecord.account;
+        (bytes memory accountCallData, bytes memory postCallData) =
+            Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
+
+        if (accountCallData.length == 0 && postCallData.length == 0) return;
+
+        // Call the account with the policy-prepared calldata if non-empty
+        if (accountCallData.length == 0) return; // TODO: should this return early or just skip and still call the postExecute?
+        Address.functionCall(account, accountCallData);
+        if (postCallData.length > 0) { // TODO: should this skip if empty or still call onPostExecute with empty calldata?
+            Policy(policy).onPostExecute(policyId, account, postCallData);
+        }
+
+        emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
+    }
+
+    /// @notice Atomically uninstall an existing policy instance and install a new one.
+    ///
+    /// @dev Shared implementation for `replace` and `replaceWithSignature`.
+    ///      - Uninstalls via `Policy.onReplace(..., role=OldPolicy, ...)` (escape hatch enforced).
+    ///      - Installs via `Policy.onReplace(..., role=NewPolicy, ...)`.
+    ///      - Emits `PolicyUninstalled` (old), `PolicyInstalled` (new), and `PolicyReplaced`.
+    ///
+    /// Idempotent behavior:
+    /// - If the old policy is already uninstalled and the new policy is already installed+active for the
+    ///   account, this is a clean no-op (no hooks called, no events emitted).
+    /// - Partial end states (e.g., old uninstalled but new not yet installed) are not treated as
+    ///   idempotent and will revert. This ensures replace is all-or-nothing.
+    ///
+    /// @param oldPolicy Old policy contract address to uninstall.
+    /// @param oldPolicyId Policy identifier for the old binding.
+    /// @param oldPolicyConfig Optional config preimage forwarded to the old policy hook.
+    /// @param replaceData Optional policy-defined payload forwarded to both `onReplace` hooks.
+    /// @param newBinding New binding to install (carries its own `policyConfig`).
+    ///
+    /// @return newPolicyId Deterministic policy identifier for the new binding.
+    function _replace(
+        address oldPolicy,
+        bytes32 oldPolicyId,
+        bytes calldata oldPolicyConfig,
+        bytes calldata replaceData,
+        PolicyBinding calldata newBinding
+    ) internal returns (bytes32 newPolicyId) {
+        if (oldPolicy == address(0) || newBinding.policy == address(0)) {
+            revert InvalidPayload();
+        }
+
+        // Check policyId is not the same
+        newPolicyId = getPolicyId(newBinding);
+        if (newPolicyId == oldPolicyId) revert InvalidPayload();
+
+        PolicyRecord storage oldRecord = policies[oldPolicy][oldPolicyId];
+        PolicyRecord storage newRecord = policies[newBinding.policy][newPolicyId];
+
+        // Idempotent behavior: if the desired end state is already reached, return early.
+        // This enables safe retries even after deadlines expire.
+        if (
+            oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
+                && oldRecord.account == newBinding.account
+        ) {
+            return newPolicyId;
+        }
+
+        if (!oldRecord.installed) revert PolicyNotInstalled(oldPolicyId);
+        if (oldRecord.uninstalled) revert PolicyIsDisabled(oldPolicyId);
+        if (oldRecord.account != newBinding.account) revert InvalidPayload();
+
+        if (newRecord.installed) revert PolicyAlreadyInstalled(newPolicyId);
+
+        _uninstallForReplace(
+            oldPolicy, oldPolicyId, oldPolicyConfig, replaceData, newBinding.policy, newPolicyId, msg.sender
+        );
+
+        _installForReplace(newBinding, replaceData, oldPolicy, oldPolicyId);
+
+        emit PolicyReplaced(oldPolicyId, newPolicyId, newBinding.account, oldPolicy, newBinding.policy);
+
+        return newPolicyId;
+    }
+
     /// @notice Uninstalls a policyId while invoking the replacement-aware policy hook.
     ///
     /// @dev Mirrors `_uninstall` semantics (including the account escape hatch) but calls `Policy.onReplace` with
@@ -880,17 +870,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (msg.sender != sender) revert InvalidSender(msg.sender, sender);
     }
 
-    /// @notice Performs an external call if `data` is non-empty.
-    ///
-    /// @dev Uses `Address.functionCall` to bubble revert reasons.
-    ///
-    /// @param target Call target.
-    /// @param data ABI-encoded calldata.
-    function _externalCall(address target, bytes memory data) internal {
-        if (data.length == 0) return;
-        Address.functionCall(target, data);
-    }
-
     /// @dev Requires `account` to have signed `digest` (ERC-6492 supported, side effects allowed).
     function _requireValidAccountSig(address account, bytes32 digest, bytes calldata signature) internal {
         if (!PUBLIC_ERC6492_VALIDATOR.isValidSignatureNowAllowSideEffects(account, digest, signature)) {
@@ -910,6 +889,23 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         uint40 currentTimestamp = uint40(block.timestamp);
         if (validAfter != 0 && currentTimestamp < validAfter) revert BeforeValidAfter(currentTimestamp, validAfter);
         if (validUntil != 0 && currentTimestamp >= validUntil) revert AfterValidUntil(currentTimestamp, validUntil);
+    }
+
+    /// @notice True if the policy is installed, not uninstalled, and would be within its valid install window at the
+    ///         given timestamp.
+    ///
+    /// @param policy Policy contract address.
+    /// @param policyId Policy identifier.
+    /// @param timestamp The timestamp (seconds) to check against the validity window.
+    ///
+    /// @return True if the policy is installed, not uninstalled, and would be within its valid install window at the
+    ///              given timestamp.
+    function _isPolicyActiveAt(address policy, bytes32 policyId, uint40 timestamp) internal view returns (bool) {
+        PolicyRecord storage policyRecord = policies[policy][policyId];
+        if (!policyRecord.installed || policyRecord.uninstalled) return false;
+        if (policyRecord.validAfter != 0 && timestamp < policyRecord.validAfter) return false;
+        if (policyRecord.validUntil != 0 && timestamp >= policyRecord.validUntil) return false;
+        return true;
     }
 
     /// @dev EIP-712 domain metadata.
