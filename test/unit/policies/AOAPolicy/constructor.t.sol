@@ -33,7 +33,7 @@ contract ConstructorTest is AOAPolicyTestBase {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");
         AOATestPolicy p = new AOATestPolicy(policyManagerAddr, owner);
-        assertEq(address(p.POLICY_MANAGER()), policyManagerAddr);
+        assertEq(address(p.policyManager()), policyManagerAddr);
     }
 
     /// @notice Grants DEFAULT_ADMIN_ROLE to the admin address.

@@ -188,7 +188,7 @@ contract MorphoLendPolicy is AOAPolicy {
         view
         returns (RecurringAllowance.Limit memory depositLimit)
     {
-        (,,, uint40 validAfter, uint40 validUntil) = _policyManager.policies(address(this), policyId);
+        (,,, uint40 validAfter, uint40 validUntil) = policyManager.policies(address(this), policyId);
         uint40 start = validAfter;
         uint40 end = validUntil == 0 ? type(uint40).max : validUntil;
         return RecurringAllowance.Limit({

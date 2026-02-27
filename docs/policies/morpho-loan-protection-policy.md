@@ -6,7 +6,7 @@ For shared AOA concepts (executor authorization, signature binding, replay prote
 
 ## Summary
 
-The Morpho Blue address is set at deployment (immutable). Each policy deployment targets exactly one Morpho instance.
+The Morpho Blue address is set at deployment (immutable, validated as a deployed contract). Each policy deployment targets exactly one Morpho instance.
 
 The account commits to a specific market, a trigger LTV, and a max top-up amount. If the account's position exceeds the trigger LTV, the executor can supply collateral on the account's behalf — once.
 
@@ -22,7 +22,8 @@ The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LoanP
 
 ### Install-time validation
 
-- Market must exist: fetches `morpho.idToMarketParams(marketId)` and requires all params (loan token, collateral token, oracle, irm, lltv) to be nonzero.
+- Market must exist: fetches `morpho.idToMarketParams(marketId)` and requires all params to be nonzero. Additionally verifies `market.lastUpdate != 0` (Morpho sets this on `createMarket`; zero means the market was never created via the canonical path).
+- **Trigger LTV below LLTV**: `triggerLtv` must be strictly less than the market's `lltv` (the liquidation threshold). A trigger at or above `lltv` would mean the policy can only act when the position is already liquidatable, making it useless for protection.
 - **One active policy per market**: at most one active policy per `(account, marketId)`. Enforced via a mapping; cleaned up on uninstall.
 
 ## Execution (`TopUpData`)
@@ -49,14 +50,14 @@ The approval typically returns to zero after the supply.
 
 ## LTV computation
 
-Current LTV is derived onchain:
+The policy calls `morpho.accrueInterest(marketParams)` before reading any market state to ensure totals reflect the latest interest accrual. Current LTV is then derived onchain:
 
 ```
 currentLtv = (borrowAssets * 1e18) / collateralValue
 ```
 
 Where:
-- `borrowAssets = (position.borrowShares * market.totalBorrowAssets) / market.totalBorrowShares` (rounded up)
+- `borrowAssets = SharesMathLib.toAssetsUp(position.borrowShares, market.totalBorrowAssets, market.totalBorrowShares)` (rounded up, using Morpho's virtual-shares math)
 - `collateralValue = (position.collateral * oracle.price()) / 1e36`
 
 Reverts if collateral value rounds to zero (prevents division by zero and nonsensical LTV).
@@ -66,5 +67,5 @@ Reverts if collateral value rounds to zero (prevents division by zero and nonsen
 Beyond standard AOA state (config hash, used nonces):
 
 - Per-`policyId` one-shot used flag
-- `(account, marketId) → policyId` mapping (uniqueness constraint)
-- `policyId → marketKey` mapping (for uninstall cleanup)
+- `activePolicyByMarket`: `(account, marketId) → policyId` mapping (uniqueness constraint, public)
+- `marketKeyByPolicyId`: `policyId → marketKey` mapping (for uninstall cleanup, public)

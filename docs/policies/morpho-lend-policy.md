@@ -12,9 +12,9 @@ The account commits to a vault and a recurring deposit budget at install time. T
 
 | Field | Description |
 |---|---|
-| `vault` | Morpho vault to deposit into (must be nonzero) |
-| `depositLimit.allowance` | Maximum deposit amount per recurring period |
-| `depositLimit.period` | Period length in seconds |
+| `vault` | Morpho vault to deposit into (must be a deployed contract) |
+| `depositLimit.allowance` | Maximum deposit amount per recurring period (must be nonzero) |
+| `depositLimit.period` | Period length in seconds (must be nonzero) |
 
 The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LendPolicyConfig({ vault, depositLimit })))`.
 

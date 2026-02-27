@@ -29,11 +29,8 @@ abstract contract Policy {
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Native token sentinel used by this protocol (ERC-7528 convention).
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
     /// @dev The `PolicyManager` instance authorized to call hooks.
-    PolicyManager internal _policyManager;
+    PolicyManager public policyManager;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -56,7 +53,7 @@ abstract contract Policy {
 
     /// @notice Restricts execution to the configured PolicyManager.
     modifier onlyPolicyManager() {
-        _requireSender(address(_policyManager));
+        _requireSender(address(policyManager));
         _;
     }
 
@@ -66,20 +63,15 @@ abstract contract Policy {
 
     /// @notice Constructs the policy and sets its manager.
     ///
-    /// @param policyManager Address of the `PolicyManager` authorized to call this policy's hooks.
-    constructor(address policyManager) {
-        if (policyManager.code.length == 0) revert PolicyManagerNotContract(policyManager);
-        _policyManager = PolicyManager(policyManager);
+    /// @param policyManager_ Address of the `PolicyManager` authorized to call this policy's hooks.
+    constructor(address policyManager_) {
+        if (address(policyManager_).code.length == 0) revert PolicyManagerNotContract(policyManager_);
+        policyManager = PolicyManager(policyManager_);
     }
 
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
-
-    /// @notice The `PolicyManager` instance authorized to call hooks.
-    function POLICY_MANAGER() public view virtual returns (PolicyManager) {
-        return _policyManager;
-    }
 
     /// @notice Policy hook invoked during installation.
     ///
@@ -126,9 +118,8 @@ abstract contract Policy {
 
     /// @notice Policy hook invoked by the PolicyManager after the account call in `_execute`.
     ///
-    /// @dev Replaces the former open-selector `_externalCall(policy, postCallData)` pattern. Only called
-    ///      when `onExecute` returns non-empty `postCallData`. Default implementation is a no-op;
-    ///      policies that need post-execution logic MUST override `_onPostExecute`.
+    /// @dev Only called when `onExecute` returns non-empty `postCallData`.
+    ///      Default implementation is a no-op; policies that need post-execution logic MUST override `_onPostExecute`.
     ///
     /// @param policyId Policy identifier for the binding.
     /// @param account Account associated with the policyId.
