@@ -707,11 +707,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (accountCallData.length == 0 && postCallData.length == 0) return;
 
         // Call the account with the policy-prepared calldata if non-empty
-        if (accountCallData.length == 0) return; // TODO: should this return early or just skip and still call the postExecute?
+        if (accountCallData.length == 0) return; // If not calldata, no execution, skip onPostExecute.
         Address.functionCall(account, accountCallData);
-        if (postCallData.length > 0) { // TODO: should this skip if empty or still call onPostExecute with empty calldata?
-            Policy(policy).onPostExecute(policyId, account, postCallData);
-        }
+
+        // Executes even if postCallData is empty. Policies must handle empty postCallData gracefully.
+        Policy(policy).onPostExecute(policyId, account, postCallData);
 
         emit PolicyExecuted(policyId, account, policy, keccak256(executionData));
     }
