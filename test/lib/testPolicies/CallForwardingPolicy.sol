@@ -62,6 +62,7 @@ contract CallForwardingPolicy is Policy {
     }
 
     function _onPostExecute(bytes32 policyId, address, bytes calldata postCallData) internal override {
+        if (postCallData.length == 0) return;
         PostAction action = abi.decode(postCallData, (PostAction));
         if (action == PostAction.CallPost) {
             postCalls++;

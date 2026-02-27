@@ -95,7 +95,7 @@ A policy authorizes the execution and returns:
 * calldata to call on the account (the “actions”)  
 * optional opaque bytes forwarded to the policy’s `onPostExecute` hook after the account call (post-call verification/steps)
 
-If the policy returns empty calldata for both, the manager treats it as a no-op: no account call, no `onPostExecute`, and no `PolicyExecuted` event. This is how policies signal “nothing to execute” when called with empty `executionData` during `installWithSignature` or `replaceWithSignature`.
+If the policy returns empty `accountCallData`, the manager treats it as a no-op: no account call, no `onPostExecute`, and no `PolicyExecuted` event. When `accountCallData` is non-empty, `onPostExecute` is always called after the account call; policies must handle empty `postCallData` gracefully. This is how policies signal “nothing to execute” when called with empty `executionData` during `installWithSignature` or `replaceWithSignature`.
 
 This pattern enables strong postconditions (balance deltas, state checks, approval resets) without requiring the manager to understand policy-specific semantics.
 For example: a swap policy can snapshot balances before the wallet call, then verify `tokenOutDelta >= minOut` in `onPostExecute`.

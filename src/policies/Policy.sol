@@ -105,7 +105,7 @@ abstract contract Policy {
     /// @param caller External caller that invoked the manager.
     ///
     /// @return accountCallData ABI-encoded calldata to execute on the account (or empty for no-op).
-    /// @return postCallData Opaque bytes forwarded to `onPostExecute` after the account call (or empty to skip).
+    /// @return postCallData Opaque bytes forwarded to `onPostExecute` after the account call (may be empty; policies must handle gracefully).
     function onExecute(
         bytes32 policyId,
         address account,
@@ -118,7 +118,8 @@ abstract contract Policy {
 
     /// @notice Policy hook invoked by the PolicyManager after the account call in `_execute`.
     ///
-    /// @dev Only called when `onExecute` returns non-empty `postCallData`.
+    /// @dev Called whenever `onExecute` returns non-empty `accountCallData`. `postCallData` may be empty;
+    ///      implementations must handle that case gracefully.
     ///      Default implementation is a no-op; policies that need post-execution logic MUST override `_onPostExecute`.
     ///
     /// @param policyId Policy identifier for the binding.
