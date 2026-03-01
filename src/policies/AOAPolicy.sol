@@ -54,8 +54,10 @@ abstract contract AOAPolicy is Policy, AccessControl, Pausable, EIP712 {
     /// @notice EIP-712 typehash for executor-signed execution intents.
     ///
     /// @dev Outer signed struct tying an execution to a policy instance.
-    bytes32 public constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
+    bytes32 public constant EXECUTION_TYPEHASH = keccak256(
+        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,ExecutionData executionData)"
+        "ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)"
+    );
 
     /// @notice EIP-712 typehash for the inner execution data struct hashed inside `EXECUTION_TYPEHASH`.
     bytes32 public constant EXECUTION_DATA_TYPEHASH =

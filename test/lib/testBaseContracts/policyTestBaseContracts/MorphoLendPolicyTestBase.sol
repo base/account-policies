@@ -27,8 +27,10 @@ contract MintableToken is ERC20 {
 abstract contract MorphoLendPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
-    bytes32 internal constant EXECUTION_TYPEHASH =
-        keccak256("Execution(bytes32 policyId,address account,bytes32 policyConfigHash,bytes32 executionDataHash)");
+    bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
+        "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,ExecutionData executionData)"
+        "ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)"
+    );
     bytes32 internal constant EXECUTION_DATA_TYPEHASH =
         keccak256("ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)");
 
