@@ -55,11 +55,6 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @notice Morpho Blue singleton contract address.
     address public immutable MORPHO;
 
-    /// @notice Convenience alias for `MORPHO` (lowercase getter).
-    function morpho() external view returns (address) {
-        return MORPHO;
-    }
-
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
 
@@ -124,6 +119,11 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
     ///                 External View Functions                  ///
     ////////////////////////////////////////////////////////////////
+
+    /// @notice Convenience alias for `MORPHO` (lowercase getter).
+    function morpho() external view returns (address) {
+        return MORPHO;
+    }
 
     /// @notice Return whether the policyId has been used (one-shot).
     ///
