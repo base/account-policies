@@ -4,7 +4,6 @@ pragma solidity ^0.8.23;
 import {Vm} from "forge-std/Vm.sol";
 
 import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
-import {PolicyManager} from "../../../../src/PolicyManager.sol";
 
 import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
 

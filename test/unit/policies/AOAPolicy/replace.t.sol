@@ -3,10 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
-import {
-    AOATestPolicy,
-    AOAPolicyTestBase
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
 
 /// @title ReplaceTest
 ///

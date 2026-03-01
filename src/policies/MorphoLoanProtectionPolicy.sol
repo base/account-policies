@@ -53,7 +53,12 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Morpho Blue singleton contract address.
-    address public immutable morpho;
+    address public immutable MORPHO;
+
+    /// @notice Convenience alias for `MORPHO` (lowercase getter).
+    function morpho() external view returns (address) {
+        return MORPHO;
+    }
 
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
@@ -113,7 +118,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param morpho_ Morpho Blue singleton contract address.
     constructor(address policyManager, address admin, address morpho_) AOAPolicy(policyManager, admin) {
         if (morpho_.code.length == 0) revert MorphoNotContract(morpho_);
-        morpho = morpho_;
+        MORPHO = morpho_;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -215,10 +220,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         calls[0] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, morpho, topUpAssets)
+            data: abi.encodeWithSelector(IERC20.approve.selector, MORPHO, topUpAssets)
         });
         calls[1] = CoinbaseSmartWallet.Call({
-            target: morpho,
+            target: MORPHO,
             value: 0,
             data: abi.encodeWithSelector(
                 IMorphoBlue.supplyCollateral.selector, marketParams, topUpAssets, account, bytes("")
@@ -235,7 +240,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///
     /// @return marketParams Market parameters for the given marketId.
     function _requireMarketParams(Id marketId_) internal view returns (MarketParams memory marketParams) {
-        marketParams = IMorphoBlue(morpho).idToMarketParams(marketId_);
+        marketParams = IMorphoBlue(MORPHO).idToMarketParams(marketId_);
         // Treat zeroed params as "market does not exist / not initialized on this Morpho instance".
         if (
             marketParams.loanToken == address(0) || marketParams.collateralToken == address(0)
@@ -244,7 +249,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
 
         // Morpho sets lastUpdate = block.timestamp on createMarket; a zero value means the market
         // was never created via the canonical path.
-        Market memory mkt = IMorphoBlue(morpho).market(marketId_);
+        Market memory mkt = IMorphoBlue(MORPHO).market(marketId_);
         if (mkt.lastUpdate == 0) revert MarketNotFound(marketId_);
     }
 
@@ -265,7 +270,7 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         MarketParams memory marketParams,
         address account
     ) internal returns (uint256 currentLtvWad) {
-        IMorphoBlue morphoBlue = IMorphoBlue(morpho);
+        IMorphoBlue morphoBlue = IMorphoBlue(MORPHO);
 
         // Accrue interest so totalBorrowAssets/totalBorrowShares are up to date.
         morphoBlue.accrueInterest(marketParams);

@@ -4,7 +4,6 @@ pragma solidity ^0.8.23;
 import {Test} from "forge-std/Test.sol";
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
 import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 

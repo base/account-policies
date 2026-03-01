@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {Id, MarketParams} from "../../src/interfaces/morpho/BlueTypes.sol";
+import {MarketParams} from "../../src/interfaces/morpho/BlueTypes.sol";
 import {MorphoLoanProtectionPolicy} from "../../src/policies/MorphoLoanProtectionPolicy.sol";
 
 /// @title MorphoLoanProtectionHarness

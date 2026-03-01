@@ -83,12 +83,11 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
     ///
     /// @param policyId Policy identifier for the binding.
-    /// @param account Account associated with the policyId.
     /// @param policyConfig Full config preimage bytes.
     ///
     /// @return lastUpdated Last stored period usage snapshot.
     /// @return current Current period usage computed from `depositLimit`.
-    function getDepositLimitPeriodUsage(bytes32 policyId, address account, bytes calldata policyConfig)
+    function getDepositLimitPeriodUsage(bytes32 policyId, address, bytes calldata policyConfig)
         external
         view
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)

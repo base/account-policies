@@ -243,9 +243,8 @@ contract ExecuteTest is PolicyManagerTestBase {
     ///
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the binding (hashed into `policyId`).
-    /// @param tag Arbitrary tag forwarded to the receiver call data.
     /// @param value ETH value forwarded to the receiver call (bounded in-test).
-    function test_reverts_whenAccountCallReverts(bytes32 configSeed, uint256 salt, bytes32 tag, uint256 value) public {
+    function test_reverts_whenAccountCallReverts(bytes32 configSeed, uint256 salt, uint256 value) public {
         value = bound(value, 0, MAX_CALL_VALUE);
         vm.deal(address(account), value);
 

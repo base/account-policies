@@ -187,10 +187,11 @@ abstract contract Policy {
             _onUninstallForReplace(
                 policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
             );
-            return;
+        } else {
+            _onInstallForReplace(
+                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
+            );
         }
-
-        _onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller);
     }
 
     ////////////////////////////////////////////////////////////////
