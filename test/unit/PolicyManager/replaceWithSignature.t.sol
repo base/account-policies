@@ -858,6 +858,49 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         assertTrue(policyManager.isPolicyActive(address(callPolicy), newPolicyId));
     }
 
+    /// @notice Reverts with Unauthorized when old policy's onReplace reverts and the caller is not the account.
+    ///
+    /// @dev The escape hatch only applies when `effectiveCaller == account`. When a third-party relayer calls
+    ///      `replaceWithSignature` and the old policy reverts, the manager must propagate Unauthorized.
+    ///
+    /// @param relayer Fuzzed relayer address (must not be the account).
+    function test_reverts_whenOldPolicyHookReverts_andCallerIsNotAccount(address relayer) public {
+        vm.assume(relayer != address(account));
+        vm.assume(relayer != address(0));
+
+        RevertOnUninstallForReplacePolicy oldPolicy = new RevertOnUninstallForReplacePolicy(address(policyManager));
+
+        bytes memory oldConfig = abi.encode(bytes32("old"));
+        PolicyManager.PolicyBinding memory oldBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(oldPolicy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_OLD_SALT,
+            policyConfig: oldConfig
+        });
+        vm.prank(address(account));
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
+
+        PolicyManager.PolicyBinding memory newBinding =
+            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(oldPolicy), oldPolicyId, oldConfig, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(oldPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldConfig,
+            replaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.Unauthorized.selector, relayer));
+        vm.prank(relayer);
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+    }
+
     /// @notice When the replace end state is already reached and no execution data is provided, the replace is
     ///         skipped but `_execute` still runs (policy returns empty data → no-op). Sig is still required.
     function test_isIdempotent_whenEndStateAlreadyReached_andNoExecution_skipsReplaceButStillExecutes() public {
