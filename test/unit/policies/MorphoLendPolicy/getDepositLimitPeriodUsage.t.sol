@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {RecurringAllowance} from "../../../../src/policies/accounting/RecurringAllowance.sol";
 
 import {
@@ -36,7 +36,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
+                SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
         policy.getDepositLimitPeriodUsage(policyId, address(account), wrongConfig);

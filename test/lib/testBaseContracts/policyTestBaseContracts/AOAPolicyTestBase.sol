@@ -5,12 +5,13 @@ import {Test} from "forge-std/Test.sol";
 
 import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorAuthorizedPolicy} from "../../../../src/policies/SingleExecutorAuthorizedPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 
-/// @notice Minimal AOA policy used for testing shared AOA behaviors.
-contract AOATestPolicy is AOAPolicy {
+/// @notice Minimal single-executor authorized policy used for testing shared single-executor behaviors.
+contract SingleExecutorAuthorizedTestPolicy is SingleExecutorAuthorizedPolicy {
     bytes32 public lastExecutePolicyId;
     address public lastExecuteAccount;
     address public lastExecuteExecutor;
@@ -22,24 +23,24 @@ contract AOATestPolicy is AOAPolicy {
     address public lastUninstallCaller;
     uint256 public uninstallCalls;
 
-    constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
+    constructor(address policyManager, address admin) SingleExecutorAuthorizedPolicy(policyManager, admin) {}
 
-    function _onAOAExecute(
+    function _onSingleExecutorExecute(
         bytes32 policyId,
         address account,
-        AOAConfig memory aoaConfig,
+        SingleExecutorConfig memory singleExecutorConfig,
         bytes memory,
         bytes memory actionData
     ) internal override returns (bytes memory, bytes memory) {
         lastExecutePolicyId = policyId;
         lastExecuteAccount = account;
-        lastExecuteExecutor = aoaConfig.executor;
+        lastExecuteExecutor = singleExecutorConfig.executor;
         lastActionData = actionData;
         executeCalls++;
         return ("", "");
     }
 
-    function _onAOAUninstall(bytes32 policyId, address account, address caller) internal override {
+    function _onSingleExecutorUninstall(bytes32 policyId, address account, address caller) internal override {
         lastUninstallPolicyId = policyId;
         lastUninstallAccount = account;
         lastUninstallCaller = caller;
@@ -52,15 +53,15 @@ contract AOATestPolicy is AOAPolicy {
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
-        name = "AOA Test Policy";
+        name = "Single Executor Test Policy";
         version = "1";
     }
 }
 
-/// @title AOAPolicyTestBase
+/// @title SingleExecutorAuthorizedPolicyTestBase
 ///
-/// @notice Shared fixture for testing AOA wrapper semantics.
-abstract contract AOAPolicyTestBase is Test {
+/// @notice Shared fixture for testing single-executor authorized policy wrapper semantics.
+abstract contract SingleExecutorAuthorizedPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
     bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
@@ -69,8 +70,9 @@ abstract contract AOAPolicyTestBase is Test {
     );
     bytes32 internal constant EXECUTION_DATA_TYPEHASH =
         keccak256("ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)");
-    bytes32 internal constant AOA_UNINSTALL_TYPEHASH =
-        keccak256("AOAUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
+    bytes32 internal constant SINGLE_EXECUTOR_UNINSTALL_TYPEHASH = keccak256(
+        "SingleExecutorUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)"
+    );
 
     uint256 internal ownerPk = uint256(keccak256("owner"));
     address internal owner = vm.addr(ownerPk);
@@ -80,12 +82,12 @@ abstract contract AOAPolicyTestBase is Test {
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
-    AOATestPolicy internal policy;
+    SingleExecutorAuthorizedTestPolicy internal policy;
 
     bytes internal policyConfig;
     PolicyManager.PolicyBinding internal binding;
 
-    function setUpAOABase() internal {
+    function setUpSingleExecutorBase() internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -93,12 +95,12 @@ abstract contract AOAPolicyTestBase is Test {
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
-        policy = new AOATestPolicy(address(policyManager), owner);
+        policy = new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner);
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
-        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), bytes(""));
+        policyConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), bytes(""));
         binding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -124,7 +126,7 @@ abstract contract AOAPolicyTestBase is Test {
         });
     }
 
-    /// @dev Builds AOA execution data with a valid executor signature for the default binding.
+    /// @dev Builds single-executor execution data with a valid executor signature for the default binding.
     function _buildExecutionData(bytes memory actionData, uint256 nonce, uint256 deadline)
         internal
         view
@@ -136,11 +138,14 @@ abstract contract AOAPolicyTestBase is Test {
             keccak256(abi.encode(EXECUTION_DATA_TYPEHASH, keccak256(actionData), nonce, deadline));
         bytes32 structHash =
             keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, address(account), configHash, executionDataHash));
-        bytes32 digest = _hashTypedData(address(policy), "AOA Test Policy", "1", structHash);
+        bytes32 digest = _hashTypedData(address(policy), "Single Executor Test Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
-        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
+        return abi.encode(
+            SingleExecutorPolicy.SingleExecutorExecutionData({nonce: nonce, deadline: deadline, signature: sig}),
+            actionData
+        );
     }
 
     /// @dev Signs an executor uninstall intent.
@@ -150,9 +155,9 @@ abstract contract AOAPolicyTestBase is Test {
         returns (bytes memory)
     {
         bytes32 structHash = keccak256(
-            abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
+            abi.encode(SINGLE_EXECUTOR_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
         );
-        bytes32 digest = _hashTypedData(address(policy), "AOA Test Policy", "1", structHash);
+        bytes32 digest = _hashTypedData(address(policy), "Single Executor Test Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         return abi.encodePacked(r, s, v);
@@ -214,5 +219,13 @@ abstract contract AOAPolicyTestBase is Test {
             )
         );
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+    }
+}
+
+/// @notice Backward-compatible alias — inherits everything from `SingleExecutorAuthorizedPolicyTestBase`.
+abstract contract AOAPolicyTestBase is SingleExecutorAuthorizedPolicyTestBase {
+    /// @dev Backward-compatible alias for `setUpSingleExecutorBase`.
+    function setUpAOABase() internal {
+        setUpSingleExecutorBase();
     }
 }

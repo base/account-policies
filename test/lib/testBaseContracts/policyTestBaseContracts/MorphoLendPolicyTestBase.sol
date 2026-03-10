@@ -7,7 +7,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLendPolicy} from "../../../../src/policies/MorphoLendPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
@@ -70,7 +70,7 @@ abstract contract MorphoLendPolicyTestBase is Test {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: uint160(1_000_000 ether), period: 1 days})
             })
         );
-        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        policyConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -88,19 +88,22 @@ abstract contract MorphoLendPolicyTestBase is Test {
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
-        returns (AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg)
+        returns (
+            SingleExecutorPolicy.SingleExecutorConfig memory singleExecutorConfig,
+            MorphoLendPolicy.LendPolicyConfig memory cfg
+        )
     {
         bytes memory policySpecificConfig;
-        (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
+        (singleExecutorConfig, policySpecificConfig) =
+            abi.decode(policyConfig_, (SingleExecutorPolicy.SingleExecutorConfig, bytes));
         cfg = abi.decode(policySpecificConfig, (MorphoLendPolicy.LendPolicyConfig));
     }
 
-    function _encodePolicyConfig(AOAPolicy.AOAConfig memory aoa, MorphoLendPolicy.LendPolicyConfig memory cfg)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(aoa, abi.encode(cfg));
+    function _encodePolicyConfig(
+        SingleExecutorPolicy.SingleExecutorConfig memory singleExecutorConfig,
+        MorphoLendPolicy.LendPolicyConfig memory cfg
+    ) internal pure returns (bytes memory) {
+        return abi.encode(singleExecutorConfig, abi.encode(cfg));
     }
 
     function _execWithNonce(uint256 assets, uint256 nonce) internal {
@@ -121,7 +124,10 @@ abstract contract MorphoLendPolicyTestBase is Test {
         bytes32 execDigest = _getPolicyExecutionDigest(binding_, actionData, nonce, deadline);
         bytes memory sig = _signExecution(execDigest);
 
-        return abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: sig}), actionData);
+        return abi.encode(
+            SingleExecutorPolicy.SingleExecutorExecutionData({nonce: nonce, deadline: deadline, signature: sig}),
+            actionData
+        );
     }
 
     function _signExecution(bytes32 execDigest) internal view returns (bytes memory) {
@@ -178,4 +184,3 @@ abstract contract MorphoLendPolicyTestBase is Test {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 }
-

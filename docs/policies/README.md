@@ -9,11 +9,11 @@ The goal is to make it easy to answer:
 - What config is committed at install time, and what data is required at execution time?
 - What invariants/limits does the policy enforce?
 
-## AOA policy family
+## single executor policy family
 
-Some policies in this repo are “Automated On-chain Actions” (AOA) policies: they share a common configuration + authorization pattern (account chooses an **executor**, executor signs execution intents, any relayer can submit).
+Some policies in this repo are “single executor” policies: they share a common configuration + authorization pattern (account optionally chooses an **executor**, executor signs execution intents, any relayer can submit).
 
-- See `aoa-policies.md`
+- See `single-executor-policies.md`
 
 ## Current policies
 

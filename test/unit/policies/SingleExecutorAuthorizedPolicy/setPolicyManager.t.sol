@@ -4,16 +4,16 @@ pragma solidity ^0.8.23;
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 
 import {Policy} from "../../../../src/policies/Policy.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {
     AOAPolicyTestBase,
-    AOATestPolicy
+    SingleExecutorAuthorizedTestPolicy
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
 
 /// @title SetPolicyManagerTest
 ///
-/// @notice Test contract for `AOAPolicy.setPolicyManager`.
+/// @notice Test contract for `SingleExecutorPolicy.setPolicyManager`.
 contract SetPolicyManagerTest is AOAPolicyTestBase {
     function setUp() public {
         setUpAOABase();
@@ -55,7 +55,7 @@ contract SetPolicyManagerTest is AOAPolicyTestBase {
 
     /// @notice Updates the stored policy manager address.
     function test_updatesPolicyManager() public {
-        address newManager = address(new AOATestPolicy(address(policyManager), owner));
+        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
 
         vm.prank(owner);
         policy.setPolicyManager(newManager);
@@ -65,11 +65,11 @@ contract SetPolicyManagerTest is AOAPolicyTestBase {
 
     /// @notice Emits PolicyManagerUpdated with old and new addresses.
     function test_emitsPolicyManagerUpdated() public {
-        address newManager = address(new AOATestPolicy(address(policyManager), owner));
+        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
         address oldManager = address(policy.policyManager());
 
         vm.expectEmit(true, true, true, true, address(policy));
-        emit AOAPolicy.PolicyManagerUpdated(oldManager, newManager);
+        emit SingleExecutorPolicy.PolicyManagerUpdated(oldManager, newManager);
         vm.prank(owner);
         policy.setPolicyManager(newManager);
     }

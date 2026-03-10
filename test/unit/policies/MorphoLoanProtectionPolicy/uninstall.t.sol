@@ -4,7 +4,7 @@ pragma solidity ^0.8.23;
 import {Test} from "forge-std/Test.sol";
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 
 import {MorphoLoanProtectionHarness} from "../../../lib/MorphoLoanProtectionHarness.sol";
@@ -17,8 +17,9 @@ import {
 /// @notice Full-flow uninstall tests for `MorphoLoanProtectionPolicy` verifying that internal
 ///         state (`_activePolicyByMarket`, `_marketKeyByPolicyId`) is properly cleaned up.
 contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
-    bytes32 internal constant AOA_UNINSTALL_TYPEHASH =
-        keccak256("AOAUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)");
+    bytes32 internal constant SINGLE_EXECUTOR_UNINSTALL_TYPEHASH = keccak256(
+        "SingleExecutorUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)"
+    );
 
     function setUp() public {
         setUpMorphoLoanProtectionBase();
@@ -51,7 +52,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory newConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -99,7 +100,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory newConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory newConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -121,8 +122,9 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         view
         returns (bytes memory)
     {
-        bytes32 structHash =
-            keccak256(abi.encode(AOA_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(SINGLE_EXECUTOR_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
+        );
         bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
