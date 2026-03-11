@@ -46,6 +46,34 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         assertTrue(policy.isExecuted(policyId));
     }
 
+    /// @notice Executes a native ETH transfer from the account to a recipient.
+    function test_success_executesNativeTransfer() public {
+        address recipient = makeAddr("recipient");
+        uint256 amount = 1 ether;
+        vm.deal(address(account), amount);
+
+        bytes memory config = _buildMoiraiConfig(0, executor, recipient, amount, "");
+        bytes32 policyId = _buildAndInstall(config, 0);
+
+        bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
+        policyManager.execute(address(policy), policyId, config, executionData);
+
+        assertEq(recipient.balance, amount);
+    }
+
+    /// @notice Executes a contract call with calldata forwarded to the target.
+    function test_success_executesContractCall() public {
+        address target = makeAddr("target");
+        bytes memory callData = abi.encodeWithSignature("doSomething(uint256)", 42);
+
+        bytes memory config = _buildMoiraiConfig(0, executor, target, 0, callData);
+        bytes32 policyId = _buildAndInstall(config, 0);
+
+        bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
+        vm.expectCall(target, 0, callData);
+        policyManager.execute(address(policy), policyId, config, executionData);
+    }
+
     /// @notice Executes successfully when both time-lock and executor signature are required and both are satisfied.
     function test_success_withBothConditions() public {
         uint256 unlockTime = block.timestamp + 1 days;
