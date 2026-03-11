@@ -55,12 +55,31 @@ abstract contract MoiraiDelegateTestBase is Test {
     ///
     /// @return Encoded `MoiraiConfig` bytes.
     function _buildMoiraiConfig(uint256 unlockTimestamp, address executor_) internal pure returns (bytes memory) {
+        return _buildMoiraiConfig(unlockTimestamp, executor_, address(0), 0, "");
+    }
+
+    /// @notice Builds an encoded `MoiraiConfig` with full call parameters.
+    ///
+    /// @param unlockTimestamp The unlock timestamp. Zero means no time-lock.
+    /// @param executor_ The executor address. Zero means no consensus required.
+    /// @param target_ Target address for the delegated call.
+    /// @param value_ ETH value to send with the call.
+    /// @param callData_ Calldata to pass to `target_`.
+    ///
+    /// @return Encoded `MoiraiConfig` bytes.
+    function _buildMoiraiConfig(
+        uint256 unlockTimestamp,
+        address executor_,
+        address target_,
+        uint256 value_,
+        bytes memory callData_
+    ) internal pure returns (bytes memory) {
         return abi.encode(
             MoiraiDelegate.MoiraiConfig({
                 singleExecutorConfig: SingleExecutorPolicy.SingleExecutorConfig({executor: executor_}),
-                target: address(0),
-                value: 0,
-                callData: "",
+                target: target_,
+                value: value_,
+                callData: callData_,
                 unlockTimestamp: unlockTimestamp
             })
         );
