@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
+
 import {Policy} from "./Policy.sol";
 import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 
@@ -196,7 +198,9 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         _executed[policyId] = true;
 
-        return (config.callData, bytes(""));
+        accountCallData =
+            abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, config.target, config.value, config.callData);
+        return (accountCallData, "");
     }
 
     /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
