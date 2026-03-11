@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
+
 import {Policy} from "./Policy.sol";
 import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 
 /// @title MoiraiDelegate
 ///
-/// @notice A one-shot delegation policy that executes a fixed calldata payload on behalf of an account
-///         under at least one of two configurable conditions: a time-lock and/or an executor signature.
+/// @notice A one-shot delegation policy that executes a fixed call (target, value, calldata) on behalf of
+///         an account under at least one of two configurable conditions: a time-lock and/or an executor signature.
 ///
 /// @dev Inherits `SingleExecutorPolicy` directly. The executor is optional (zero address means no consensus
 ///      required). At least one condition must be configured at install time:
@@ -30,11 +32,11 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     struct MoiraiConfig {
         /// @dev Executor config. `executor == address(0)` means no consensus is required.
         SingleExecutorConfig singleExecutorConfig;
-        /// @dev Target address for the delegated call (informational; callData encodes the full call).
+        /// @dev Target address for the delegated call.
         address target;
         /// @dev ETH value to send with the call.
         uint256 value;
-        /// @dev ABI-encoded calldata to execute on the account.
+        /// @dev Calldata to pass to `target`.
         bytes callData;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means no time-lock.
         uint256 unlockTimestamp;
@@ -196,7 +198,9 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         _executed[policyId] = true;
 
-        return (config.callData, bytes(""));
+        accountCallData =
+            abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, config.target, config.value, config.callData);
+        return (accountCallData, "");
     }
 
     /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
