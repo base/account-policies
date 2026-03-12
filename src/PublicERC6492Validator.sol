@@ -10,7 +10,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 ///
 /// @dev Anyone can make arbitrary calls from this contract, so it should never have privileged access control.
 ///
-/// @author Coinbase (https://github.com/coinbase/spend-permissions)
+/// @author Coinbase (https://github.com/base/account-policies)
 contract PublicERC6492Validator {
     /// @notice Validate contract signature and execute side effects if provided.
     ///
