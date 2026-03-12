@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title UninstallTest
 ///
-/// @notice Test contract for `AOAPolicy._onUninstall` authorization logic.
+/// @notice Test contract for `SingleExecutorAuthorizedPolicy._onUninstall` authorization logic.
 ///
-/// @dev Tests call `policy.onUninstall` directly (pranked as the PolicyManager) to isolate AOA
+/// @dev Tests call `policy.onUninstall` directly (pranked as the PolicyManager) to isolate
 ///      authorization from the PolicyManager's try/catch wrapper, enabling specific error assertions.
-contract UninstallTest is AOAPolicyTestBase {
+contract UninstallTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================
@@ -31,7 +33,8 @@ contract UninstallTest is AOAPolicyTestBase {
         vm.assume(relayer != address(account));
 
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory wrongConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), wrongConfigSuffix);
+        bytes memory wrongConfig =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), wrongConfigSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
 
         bytes memory sig = _signUninstall(policyId, keccak256(policyConfig), 0);
@@ -39,7 +42,7 @@ contract UninstallTest is AOAPolicyTestBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
+                SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
         vm.prank(address(policyManager));
@@ -56,7 +59,7 @@ contract UninstallTest is AOAPolicyTestBase {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory uninstallData = abi.encode(badSig, uint256(0));
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.Unauthorized.selector, relayer));
+        vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.Unauthorized.selector, relayer));
         vm.prank(address(policyManager));
         policy.onUninstall(policyId, address(account), policyConfig, uninstallData, relayer);
     }
@@ -74,7 +77,9 @@ contract UninstallTest is AOAPolicyTestBase {
         bytes memory sig = _signUninstall(policyId, keccak256(policyConfig), deadline);
         bytes memory uninstallData = abi.encode(sig, deadline);
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.SignatureExpired.selector, block.timestamp, deadline));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.SignatureExpired.selector, block.timestamp, deadline)
+        );
         vm.prank(address(policyManager));
         policy.onUninstall(policyId, address(account), policyConfig, uninstallData, relayer);
     }
@@ -141,7 +146,7 @@ contract UninstallTest is AOAPolicyTestBase {
         bytes32 freshPolicyId = policyManager.getPolicyId(freshBinding);
         bytes memory uninstallData = abi.encode(badSig, uint256(0));
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.Unauthorized.selector, relayer));
+        vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.Unauthorized.selector, relayer));
         vm.prank(address(policyManager));
         policy.onUninstall(freshPolicyId, address(account), policyConfig, uninstallData, relayer);
     }
@@ -164,7 +169,9 @@ contract UninstallTest is AOAPolicyTestBase {
         bytes memory sig = _signUninstall(freshPolicyId, keccak256(policyConfig), deadline);
         bytes memory uninstallData = abi.encode(sig, deadline);
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.SignatureExpired.selector, block.timestamp, deadline));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.SignatureExpired.selector, block.timestamp, deadline)
+        );
         vm.prank(address(policyManager));
         policy.onUninstall(freshPolicyId, address(account), policyConfig, uninstallData, relayer);
     }

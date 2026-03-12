@@ -1,8 +1,8 @@
 # `MorphoLoanProtectionPolicy`
 
-An AOA policy for **one-shot collateral top-ups** on Morpho Blue when an account's position is at risk of liquidation.
+A single executor policy for **one-shot collateral top-ups** on Morpho Blue when an account's position is at risk of liquidation.
 
-For shared AOA concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `aoa-policies.md`.
+For shared single executor concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `single-executor-policies.md`.
 
 ## Summary
 
@@ -18,7 +18,7 @@ The account commits to a specific market, a trigger LTV, and a max top-up amount
 | `triggerLtv` | Minimum LTV (wad, 1e18 = 100%) required to allow execution |
 | `maxTopUpAssets` | Maximum collateral top-up per execution (must be nonzero) |
 
-The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LoanProtectionPolicyConfig({ marketId, triggerLtv, maxTopUpAssets })))`.
+The full `policyConfig` is `abi.encode(SingleExecutorConfig({ executor }), abi.encode(LoanProtectionPolicyConfig({ marketId, triggerLtv, maxTopUpAssets })))`.
 
 ### Install-time validation
 
@@ -39,7 +39,7 @@ The policy enforces:
 1. `topUpAssets > 0` and `topUpAssets <= maxTopUpAssets`
 2. Current LTV ≥ `triggerLtv` (computed from onchain position data and oracle price)
 3. Policy instance not already used (one-shot)
-4. Standard AOA checks (executor signature, nonce, deadline, config preimage)
+4. Standard single executor checks (executor signature, nonce, deadline, config preimage)
 
 Then returns a wallet call plan:
 
@@ -64,7 +64,7 @@ Reverts if collateral value rounds to zero (prevents division by zero and nonsen
 
 ## Additional storage
 
-Beyond standard AOA state (config hash, used nonces):
+Beyond standard single executor state (config hash, used nonces):
 
 - Per-`policyId` one-shot used flag
 - `activePolicyByMarket`: `(account, marketId) → policyId` mapping (uniqueness constraint, public)

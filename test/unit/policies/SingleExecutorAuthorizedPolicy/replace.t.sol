@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ReplaceTest
 ///
-/// @notice Tests for replace and replaceWithSignature on AOA policies, verifying that
+/// @notice Tests for replace and replaceWithSignature on single-executor authorized policies, verifying that
 ///         the `_onUninstallForReplace` override skips redundant executor authorization.
-contract ReplaceTest is AOAPolicyTestBase {
+contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
     uint256 internal constant NEW_SALT = 42;
 
     bytes internal newPolicyConfig;
     PolicyManager.PolicyBinding internal newBinding;
 
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
 
-        newPolicyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), bytes("new"));
+        newPolicyConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), bytes("new"));
         newBinding = PolicyManager.PolicyBinding({
             account: address(account),
             policy: address(policy),
@@ -69,8 +71,8 @@ contract ReplaceTest is AOAPolicyTestBase {
         assertTrue(policyManager.isPolicyActive(address(policy), newPolicyId));
     }
 
-    /// @notice `_onAOAUninstall` is called during replacement so subclass cleanup runs.
-    function test_replaceWithSignature_callsOnAOAUninstall() public {
+    /// @notice `_onSingleExecutorUninstall` is called during replacement so subclass cleanup runs.
+    function test_replaceWithSignature_callsOnSingleExecutorUninstall() public {
         bytes32 oldPolicyId = policyManager.getPolicyId(binding);
         bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
         bytes memory userSig = _signReplace(address(policy), oldPolicyId, policyConfig, newPolicyId, 0);
@@ -111,6 +113,7 @@ contract ReplaceTest is AOAPolicyTestBase {
 
     /// @notice A third-party relayer can call `replaceWithSignature` (not the account) and
     ///         the replacement succeeds without executor authorization.
+    ///
     /// @param relayer Fuzzed relayer address (must not be the account).
     function test_replaceWithSignature_succeedsFromRelayer(address relayer) public {
         vm.assume(relayer != address(account) && relayer != address(0));

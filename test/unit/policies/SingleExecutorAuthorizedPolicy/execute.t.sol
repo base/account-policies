@@ -3,16 +3,19 @@ pragma solidity ^0.8.23;
 
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ExecuteTest
 ///
-/// @notice Test contract for `AOAPolicy._onExecute` behavior (config hash check, executor sig, nonce, deadline).
-contract ExecuteTest is AOAPolicyTestBase {
+/// @notice Test contract for `SingleExecutorAuthorizedPolicy._onExecute` behavior (config hash check, executor sig,
+///         nonce, deadline).
+contract ExecuteTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================
@@ -41,12 +44,13 @@ contract ExecuteTest is AOAPolicyTestBase {
     function test_reverts_whenConfigHashMismatch(bytes calldata configSuffix, bytes calldata executionData) public {
         vm.assume(executionData.length > 0);
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory wrongConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), configSuffix);
+        bytes memory wrongConfig =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), configSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
+                SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
         policyManager.execute(address(policy), policyId, wrongConfig, executionData);
@@ -58,10 +62,11 @@ contract ExecuteTest is AOAPolicyTestBase {
     /// @param badSig Arbitrary bytes that do not form a valid executor signature.
     function test_reverts_whenInvalidExecutorSignature(uint256 nonce, bytes calldata badSig) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory executionData =
-            abi.encode(AOAPolicy.AOAExecutionData({nonce: nonce, deadline: 0, signature: badSig}), bytes(""));
+        bytes memory executionData = abi.encode(
+            SingleExecutorPolicy.SingleExecutorExecutionData({nonce: nonce, deadline: 0, signature: badSig}), bytes("")
+        );
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.Unauthorized.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.Unauthorized.selector, address(this)));
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
 
@@ -77,7 +82,9 @@ contract ExecuteTest is AOAPolicyTestBase {
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
 
         bytes memory executionData2 = _buildExecutionData(actionData, nonce, 0);
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.ExecutionNonceAlreadyUsed.selector, policyId, nonce));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.ExecutionNonceAlreadyUsed.selector, policyId, nonce)
+        );
         policyManager.execute(address(policy), policyId, policyConfig, executionData2);
     }
 
@@ -92,7 +99,9 @@ contract ExecuteTest is AOAPolicyTestBase {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory executionData = _buildExecutionData(bytes(""), nonce, deadline);
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.SignatureExpired.selector, block.timestamp, deadline));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.SignatureExpired.selector, block.timestamp, deadline)
+        );
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
 
@@ -100,11 +109,11 @@ contract ExecuteTest is AOAPolicyTestBase {
     // Success
     // =============================================================
 
-    /// @notice Forwards the decoded AOA config and action data to `_onAOAExecute`.
+    /// @notice Forwards the decoded single-executor config and action data to `_onSingleExecutorExecute`.
     ///
     /// @param actionSeed Seed for generating action data.
     /// @param nonce Executor-chosen nonce.
-    function test_callsOnAOAExecute(bytes32 actionSeed, uint256 nonce) public {
+    function test_callsOnSingleExecutorExecute(bytes32 actionSeed, uint256 nonce) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory actionData = abi.encode(actionSeed);
         bytes memory executionData = _buildExecutionData(actionData, nonce, 0);

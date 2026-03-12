@@ -10,11 +10,12 @@ import {Id, Market, MarketParams, Position} from "../interfaces/morpho/BlueTypes
 import {IMorphoBlue} from "../interfaces/morpho/IMorphoBlue.sol";
 import {IOracle} from "../interfaces/morpho/IOracle.sol";
 
-import {AOAPolicy} from "./AOAPolicy.sol";
+import {SingleExecutorAuthorizedPolicy} from "./SingleExecutorAuthorizedPolicy.sol";
 
 /// @title MorphoLoanProtectionPolicy
 ///
-/// @notice AOA policy that can supply collateral to Morpho Blue if an account's LTV exceeds a trigger threshold.
+/// @notice Single-executor authorized policy that can supply collateral to Morpho Blue if an account's LTV exceeds a
+///         trigger threshold.
 ///
 /// @dev Properties:
 ///      - immutable Morpho Blue singleton address (set at deployment)
@@ -27,7 +28,7 @@ import {AOAPolicy} from "./AOAPolicy.sol";
 ///      further interest accrual can change between blocks; executors may not submit transactions in time;
 ///      and gas costs may prevent timely execution. Even after a successful top-up, the position may become
 ///      unhealthy again in subsequent blocks. The policy provides a best-effort protection mechanism only.
-contract MorphoLoanProtectionPolicy is AOAPolicy {
+contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
@@ -111,7 +112,9 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
     /// @param morpho_ Morpho Blue singleton contract address.
-    constructor(address policyManager, address admin, address morpho_) AOAPolicy(policyManager, admin) {
+    constructor(address policyManager, address admin, address morpho_)
+        SingleExecutorAuthorizedPolicy(policyManager, admin)
+    {
         if (morpho_.code.length == 0) revert MorphoNotContract(morpho_);
         MORPHO = morpho_;
     }
@@ -138,13 +141,15 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
     ///                    Internal Functions                    ///
     ////////////////////////////////////////////////////////////////
 
-    /// @inheritdoc AOAPolicy
+    /// @inheritdoc SingleExecutorAuthorizedPolicy
     ///
     /// @dev Validates config, enforces one-policy-per-market, and stores market linkage for uninstall.
-    function _onAOAInstall(bytes32 policyId, address account, AOAConfig memory, bytes memory policySpecificConfig)
-        internal
-        override
-    {
+    function _onSingleExecutorInstall(
+        bytes32 policyId,
+        address account,
+        SingleExecutorConfig memory,
+        bytes memory policySpecificConfig
+    ) internal override {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         bytes32 marketKey = Id.unwrap(config.marketId);
         if (marketKey == bytes32(0)) revert ZeroMarketId();
@@ -165,10 +170,10 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         marketKeyByPolicyId[policyId] = marketKey;
     }
 
-    /// @inheritdoc AOAPolicy
+    /// @inheritdoc SingleExecutorAuthorizedPolicy
     ///
     /// @dev Clears per-install state for a policy instance.
-    function _onAOAUninstall(bytes32 policyId, address account, address) internal override {
+    function _onSingleExecutorUninstall(bytes32 policyId, address account, address) internal override {
         _clearInstallState(policyId, account);
     }
 
@@ -185,13 +190,13 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         }
     }
 
-    /// @inheritdoc AOAPolicy
+    /// @inheritdoc SingleExecutorAuthorizedPolicy
     ///
     /// @dev Executes a collateral top-up once, enforcing trigger LTV and one-shot semantics.
-    function _onAOAExecute(
+    function _onSingleExecutorExecute(
         bytes32 policyId,
         address account,
-        AOAConfig memory,
+        SingleExecutorConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
@@ -301,4 +306,3 @@ contract MorphoLoanProtectionPolicy is AOAPolicy {
         version = "1";
     }
 }
-

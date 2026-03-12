@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {Id, Market, MarketParams} from "../../../../src/interfaces/morpho/BlueTypes.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 
 import {
@@ -12,7 +12,7 @@ import {
 
 /// @title InstallTest
 ///
-/// @notice Test contract for `MorphoLoanProtectionPolicy` install-time behavior (`_onAOAInstall`).
+/// @notice Test contract for `MorphoLoanProtectionPolicy` install-time behavior (`_onSingleExecutorInstall`).
 contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     function setUp() public {
         setUpMorphoLoanProtectionBase();
@@ -31,7 +31,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: Id.wrap(bytes32(0)), triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -48,7 +48,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 0
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -70,7 +70,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: badMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -90,7 +90,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: triggerLtv, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -132,7 +132,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: staleMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -151,7 +151,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), psc);
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
         PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
         bytes memory userSig = _signInstall(b);
 
@@ -180,7 +180,7 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
+                SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
         policyManager.execute(address(policy), policyId, wrongConfig, executionData);

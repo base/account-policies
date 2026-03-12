@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLendPolicy} from "../../../../src/policies/MorphoLendPolicy.sol";
 import {RecurringAllowance} from "../../../../src/policies/accounting/RecurringAllowance.sol";
 
@@ -12,7 +12,7 @@ import {
 
 /// @title InstallTest
 ///
-/// @notice Test contract for `MorphoLendPolicy` install-time behavior (`_onAOAInstall`).
+/// @notice Test contract for `MorphoLendPolicy` install-time behavior (`_onSingleExecutorInstall`).
 contract InstallTest is MorphoLendPolicyTestBase {
     function setUp() public {
         setUpMorphoLendBase();
@@ -34,7 +34,8 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: period})
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -61,7 +62,8 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: 0})
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -89,7 +91,8 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 vault: address(vault), depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: 0, period: period})
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),
@@ -124,7 +127,8 @@ contract InstallTest is MorphoLendPolicyTestBase {
                 depositLimit: MorphoLendPolicy.DepositLimitConfig({allowance: allowance, period: period})
             })
         );
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         PolicyManager.PolicyBinding memory b = PolicyManager.PolicyBinding({
             account: address(account),

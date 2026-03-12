@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {
-    AOAPolicyTestBase,
-    AOATestPolicy
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+    SingleExecutorAuthorizedPolicyTestBase,
+    SingleExecutorAuthorizedTestPolicy
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ConstructorTest
 ///
-/// @notice Test contract for `AOAPolicy` constructor behavior.
-contract ConstructorTest is AOAPolicyTestBase {
+/// @notice Test contract for `SingleExecutorPolicy` constructor behavior.
+contract ConstructorTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     /// @notice Reverts when admin is the zero address.
@@ -22,8 +22,8 @@ contract ConstructorTest is AOAPolicyTestBase {
     function test_reverts_whenAdminIsZeroAddress(address policyManagerAddr) public {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");
-        vm.expectRevert(AOAPolicy.ZeroAdmin.selector);
-        new AOATestPolicy(policyManagerAddr, address(0));
+        vm.expectRevert(SingleExecutorPolicy.ZeroAdmin.selector);
+        new SingleExecutorAuthorizedTestPolicy(policyManagerAddr, address(0));
     }
 
     /// @notice Stores the PolicyManager address.
@@ -32,7 +32,7 @@ contract ConstructorTest is AOAPolicyTestBase {
     function test_setsPolicyManager(address policyManagerAddr) public {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");
-        AOATestPolicy p = new AOATestPolicy(policyManagerAddr, owner);
+        SingleExecutorAuthorizedTestPolicy p = new SingleExecutorAuthorizedTestPolicy(policyManagerAddr, owner);
         assertEq(address(p.policyManager()), policyManagerAddr);
     }
 
@@ -41,7 +41,7 @@ contract ConstructorTest is AOAPolicyTestBase {
     /// @param admin Non-zero admin address.
     function test_grantsAdminRole(address admin) public {
         vm.assume(admin != address(0));
-        AOATestPolicy p = new AOATestPolicy(address(policyManager), admin);
+        SingleExecutorAuthorizedTestPolicy p = new SingleExecutorAuthorizedTestPolicy(address(policyManager), admin);
         assertTrue(p.hasRole(p.DEFAULT_ADMIN_ROLE(), admin));
     }
 }

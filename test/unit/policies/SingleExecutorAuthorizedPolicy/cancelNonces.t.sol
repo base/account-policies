@@ -3,16 +3,18 @@ pragma solidity ^0.8.23;
 
 import {Vm} from "forge-std/Vm.sol";
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title CancelNoncesTest
 ///
-/// @notice Tests for `AOAPolicy.cancelNonces`.
-contract CancelNoncesTest is AOAPolicyTestBase {
+/// @notice Tests for `SingleExecutorPolicy.cancelNonces`.
+contract CancelNoncesTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================
@@ -24,7 +26,8 @@ contract CancelNoncesTest is AOAPolicyTestBase {
     /// @param wrongConfigSuffix Arbitrary bytes that produce a different config hash.
     function test_reverts_whenConfigHashMismatch(bytes calldata wrongConfigSuffix) public {
         bytes32 policyId = policyManager.getPolicyId(binding);
-        bytes memory wrongConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), wrongConfigSuffix);
+        bytes memory wrongConfig =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), wrongConfigSuffix);
         vm.assume(keccak256(wrongConfig) != keccak256(policyConfig));
 
         uint256[] memory nonces = new uint256[](1);
@@ -32,7 +35,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AOAPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
+                SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
         vm.prank(executor);
@@ -50,7 +53,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         uint256[] memory nonces = new uint256[](1);
         nonces[0] = nonce;
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.UnauthorizedCanceller.selector, caller, executor));
+        vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.UnauthorizedCanceller.selector, caller, executor));
         vm.prank(caller);
         policy.cancelNonces(policyId, nonces, policyConfig);
     }
@@ -61,7 +64,9 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         uint256[] memory nonces = new uint256[](1);
         nonces[0] = 0;
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.UnauthorizedCanceller.selector, address(account), executor));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.UnauthorizedCanceller.selector, address(account), executor)
+        );
         vm.prank(address(account));
         policy.cancelNonces(policyId, nonces, policyConfig);
     }
@@ -79,7 +84,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         nonces[0] = nonce;
 
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, nonce, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, nonce, executor);
 
         vm.prank(executor);
         policy.cancelNonces(policyId, nonces, policyConfig);
@@ -100,11 +105,11 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         nonces[2] = nonceC;
 
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, nonceA, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, nonceA, executor);
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, nonceB, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, nonceB, executor);
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, nonceC, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, nonceC, executor);
 
         vm.prank(executor);
         policy.cancelNonces(policyId, nonces, policyConfig);
@@ -123,7 +128,9 @@ contract CancelNoncesTest is AOAPolicyTestBase {
 
         bytes memory executionData = _buildExecutionData(bytes(""), nonce, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(AOAPolicy.ExecutionNonceAlreadyUsed.selector, policyId, nonce));
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.ExecutionNonceAlreadyUsed.selector, policyId, nonce)
+        );
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
 
@@ -145,7 +152,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != AOAPolicy.NonceCancelled.selector);
+            assertTrue(logs[i].topics[0] != SingleExecutorPolicy.NonceCancelled.selector);
         }
     }
 
@@ -166,7 +173,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != AOAPolicy.NonceCancelled.selector);
+            assertTrue(logs[i].topics[0] != SingleExecutorPolicy.NonceCancelled.selector);
         }
     }
 
@@ -182,7 +189,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         nonces[0] = nonce;
 
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, nonce, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, nonce, executor);
 
         vm.prank(executor);
         policy.cancelNonces(policyId, nonces, policyConfig);
@@ -199,7 +206,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != AOAPolicy.NonceCancelled.selector);
+            assertTrue(logs[i].topics[0] != SingleExecutorPolicy.NonceCancelled.selector);
         }
     }
 
@@ -220,7 +227,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         nonces[1] = freshNonce;
 
         vm.expectEmit(true, false, false, true, address(policy));
-        emit AOAPolicy.NonceCancelled(policyId, freshNonce, executor);
+        emit SingleExecutorPolicy.NonceCancelled(policyId, freshNonce, executor);
 
         vm.recordLogs();
         vm.prank(executor);
@@ -229,7 +236,7 @@ contract CancelNoncesTest is AOAPolicyTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 cancelCount;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] == AOAPolicy.NonceCancelled.selector) {
+            if (logs[i].topics[0] == SingleExecutorPolicy.NonceCancelled.selector) {
                 cancelCount++;
             }
         }

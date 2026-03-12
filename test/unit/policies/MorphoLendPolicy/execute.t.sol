@@ -13,10 +13,10 @@ import {
 
 /// @title ExecuteTest
 ///
-/// @notice Test contract for `MorphoLendPolicy` execution behavior (`_onAOAExecute`).
+/// @notice Test contract for `MorphoLendPolicy` execution behavior (`_onSingleExecutorExecute`).
 ///
-/// @dev AOA-inherited execute behavior (pause gate, executor sig, nonce replay, deadline) is covered
-///      in `test/unit/policies/AOAPolicy/execute.t.sol`. This suite covers MorphoLendPolicy-specific
+/// @dev SingleExecutor-inherited execute behavior (pause gate, executor sig, nonce replay, deadline) is covered
+///      in `test/unit/policies/SingleExecutorAuthorizedPolicy/execute.t.sol`. This suite covers MorphoLendPolicy-specific
 ///      execution logic only.
 contract ExecuteTest is MorphoLendPolicyTestBase {
     /// @dev Deposit allowance configured in setUp (1M ether per day).

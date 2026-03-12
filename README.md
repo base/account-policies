@@ -184,7 +184,7 @@ The manager stays neutral; policies decide.
 
 ### Uninstall is intentionally permissionless at the manager level
 
-`PolicyManager.uninstall()` can be called by anyone. The manager does **not** gate uninstall to the account — it delegates uninstall authorization entirely to the policy's `onUninstall` hook. Policies define who (beyond the account) may trigger uninstall and under what conditions (e.g., executor signatures in AOA policies).
+`PolicyManager.uninstall()` can be called by anyone. The manager does **not** gate uninstall to the account — it delegates uninstall authorization entirely to the policy's `onUninstall` hook. Policies define who (beyond the account) may trigger uninstall and under what conditions (e.g., executor signatures in single-executor authorized policies).
 
 The manager's one guarantee is that **the account can always uninstall**, even if the policy hook reverts. Non-account callers are blocked when the hook reverts; this is the escape hatch.
 
@@ -192,7 +192,7 @@ Policy implementors must be aware: if `onUninstall` does not validate the `effec
 
 ### Execute is intentionally permissionless at the manager level
 
-`PolicyManager.execute()` can be called by anyone. Execution authorization is fully delegated to the policy's `onExecute` hook. Policies MUST enforce their own execution authorization (e.g., executor signature validation in AOA policies). A policy that does not validate the caller in `onExecute` would allow anyone to trigger execution.
+`PolicyManager.execute()` can be called by anyone. Execution authorization is fully delegated to the policy's `onExecute` hook. Policies MUST enforce their own execution authorization (e.g., executor signature validation in single-executor authorized policies). A policy that does not validate the caller in `onExecute` would allow anyone to trigger execution.
 
 ---
 
@@ -210,7 +210,7 @@ If a policy contract is deployed behind an upgradeable proxy, the proxy admin co
 
 When the account force-uninstalls a policy via the escape hatch (i.e., the policy's `onUninstall` hook reverts but `effectiveCaller == account`), the manager marks the policyId as uninstalled but the policy's internal cleanup code does not run. Any per-policy state that would normally be cleared during uninstall (e.g., uniqueness constraints, market linkage maps) remains stale.
 
-For the current AOA policy implementations, this is not a practical concern — the account-path fast path in `AOAPolicy._onUninstall` directly calls the cleanup logic (`_onAOAUninstall`) with only simple storage operations that cannot revert.
+For the current single-executor authorized policy implementations, this is not a practical concern — the account-path fast path in `SingleExecutorAuthorizedPolicy._onUninstall` directly calls the cleanup logic (`_onSingleExecutorUninstall`) with only simple storage operations that cannot revert.
 
 However, future policy authors should keep this in mind:
 
@@ -222,7 +222,7 @@ However, future policy authors should keep this in mind:
 
 The `installWithSignature` convenience allows a relayer to atomically install a policy and trigger an execution. However, the account's install signature authorizes only the binding, not the execution data. The same install signature can be re-submitted with different execution data to trigger additional executions after the install becomes a no-op.
 
-This is safe only if the policy independently authorizes each execution (as AOA policies do via executor signatures with per-execution nonces). Policy implementors must not rely on the install signature as proof of execution authorization.
+This is safe only if the policy independently authorizes each execution (as single-executor authorized policies do via executor signatures with per-execution nonces). Policy implementors must not rely on the install signature as proof of execution authorization.
 
 ---
 

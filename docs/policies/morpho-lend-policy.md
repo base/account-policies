@@ -1,8 +1,8 @@
 # `MorphoLendPolicy`
 
-An AOA policy for **recurring, budgeted deposits** into a pinned Morpho vault.
+A single executor policy for **recurring, budgeted deposits** into a pinned Morpho vault.
 
-For shared AOA concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `aoa-policies.md`.
+For shared single executor concepts (executor authorization, signature binding, replay protection, config authentication, nonce cancellation), see `single-executor-policies.md`.
 
 ## Summary
 
@@ -16,7 +16,7 @@ The account commits to a vault and a recurring deposit budget at install time. T
 | `depositLimit.allowance` | Maximum deposit amount per recurring period (must be nonzero) |
 | `depositLimit.period` | Period length in seconds (must be nonzero) |
 
-The full `policyConfig` is `abi.encode(AOAConfig({ executor }), abi.encode(LendPolicyConfig({ vault, depositLimit })))`.
+The full `policyConfig` is `abi.encode(SingleExecutorConfig({ executor }), abi.encode(LendPolicyConfig({ vault, depositLimit })))`.
 
 ## Execution (`LendData`)
 
@@ -30,7 +30,7 @@ The policy enforces:
 
 1. `depositAssets > 0`
 2. Recurring budget not exceeded
-3. Standard AOA checks (executor signature, nonce, deadline, config preimage)
+3. Standard single executor checks (executor signature, nonce, deadline, config preimage)
 
 Then returns a wallet call plan:
 
@@ -48,6 +48,6 @@ Deposits are bounded by a `RecurringAllowance` (in vault asset units). The allow
 
 ## Additional storage
 
-Beyond standard AOA state (config hash, used nonces):
+Beyond standard single executor state (config hash, used nonces):
 
 - Recurring allowance usage per `policyId`

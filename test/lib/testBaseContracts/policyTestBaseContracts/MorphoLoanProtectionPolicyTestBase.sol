@@ -8,7 +8,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoBlue, MockMorphoOracle} from "../../mocks/MockMorphoBlue.sol";
@@ -104,7 +104,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
                 marketId: marketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
             })
         );
-        policyConfig = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        policyConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
 
         binding = PolicyManager.PolicyBinding({
             account: address(account),
@@ -122,10 +122,14 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
     function _decodePolicyConfig(bytes memory policyConfig_)
         internal
         pure
-        returns (AOAPolicy.AOAConfig memory aoa, MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg)
+        returns (
+            SingleExecutorPolicy.SingleExecutorConfig memory singleExecutorConfig,
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig memory cfg
+        )
     {
         bytes memory policySpecificConfig;
-        (aoa, policySpecificConfig) = abi.decode(policyConfig_, (AOAPolicy.AOAConfig, bytes));
+        (singleExecutorConfig, policySpecificConfig) =
+            abi.decode(policyConfig_, (SingleExecutorPolicy.SingleExecutorConfig, bytes));
         cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig));
     }
 
@@ -186,7 +190,9 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
 
         return abi.encode(
-            AOAPolicy.AOAExecutionData({nonce: nonce, deadline: deadline, signature: abi.encodePacked(r, s, v)}),
+            SingleExecutorPolicy.SingleExecutorExecutionData({
+                nonce: nonce, deadline: deadline, signature: abi.encodePacked(r, s, v)
+            }),
             actionData
         );
     }
@@ -223,4 +229,3 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 }
-

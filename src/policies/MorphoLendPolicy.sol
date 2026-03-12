@@ -5,19 +5,19 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {IMorphoVault} from "../interfaces/morpho/IMorphoVault.sol";
-import {AOAPolicy} from "./AOAPolicy.sol";
+import {SingleExecutorAuthorizedPolicy} from "./SingleExecutorAuthorizedPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
 /// @title MorphoLendPolicy
 ///
-/// @notice AOA policy that deposits assets into a fixed Morpho vault on behalf of an account.
+/// @notice Single-executor authorized policy that deposits assets into a fixed Morpho vault on behalf of an account.
 ///
 /// @dev Properties:
 ///      - fixed vault (pinned in config)
 ///      - fixed receiver (the account)
 ///      - executor-signed execution intents
 ///      - recurring allowance bounds on deposited assets (allowance window derived from policy validity window)
-contract MorphoLendPolicy is AOAPolicy {
+contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
@@ -25,9 +25,11 @@ contract MorphoLendPolicy is AOAPolicy {
     /// @notice Deposit allowance parameters.
     ///
     /// @dev The allowance window bounds (`start`/`end`) are derived from the policy validity window
-    ///      (`PolicyManager.policies(policy, policyId).validAfter/validUntil`) to avoid duplicating timestamps in config.
+    ///      (`PolicyManager.policies(policy, policyId).validAfter/validUntil`) to avoid duplicating timestamps in
+    ///      config.
     struct DepositLimitConfig {
-        /// @dev Maximum deposits per recurring period window, in the vault asset token's smallest unit (ERC20 decimals).
+        /// @dev Maximum deposits per recurring period window, in the vault asset token's smallest unit (ERC20
+        ///      decimals).
         uint160 allowance;
         /// @dev RecurringAllowance.Limit.period length in seconds.
         uint40 period;
@@ -72,7 +74,7 @@ contract MorphoLendPolicy is AOAPolicy {
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
-    constructor(address policyManager, address admin) AOAPolicy(policyManager, admin) {}
+    constructor(address policyManager, address admin) SingleExecutorAuthorizedPolicy(policyManager, admin) {}
 
     ////////////////////////////////////////////////////////////////
     ///                 External View Functions                  ///
@@ -93,7 +95,7 @@ contract MorphoLendPolicy is AOAPolicy {
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
     {
         _requireConfigHash(policyId, policyConfig);
-        (, bytes memory policySpecificConfig) = _decodeAOAConfig(policyConfig);
+        (, bytes memory policySpecificConfig) = _decodeSingleExecutorConfig(policyConfig);
 
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
@@ -119,23 +121,27 @@ contract MorphoLendPolicy is AOAPolicy {
     ///                    Internal Functions                    ///
     ////////////////////////////////////////////////////////////////
 
-    /// @inheritdoc AOAPolicy
+    /// @inheritdoc SingleExecutorAuthorizedPolicy
     ///
     /// @dev Validates Morpho vault config at install time.
-    function _onAOAInstall(bytes32, address, AOAConfig memory, bytes memory policySpecificConfig) internal override {
+    function _onSingleExecutorInstall(bytes32, address, SingleExecutorConfig memory, bytes memory policySpecificConfig)
+        internal
+        view
+        override
+    {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         if (lendPolicyConfig.vault.code.length == 0) revert VaultNotContract(lendPolicyConfig.vault);
         if (lendPolicyConfig.depositLimit.period == 0) revert RecurringAllowance.ZeroPeriod();
         if (lendPolicyConfig.depositLimit.allowance == 0) revert RecurringAllowance.ZeroAllowance();
     }
 
-    /// @inheritdoc AOAPolicy
+    /// @inheritdoc SingleExecutorAuthorizedPolicy
     ///
     /// @dev Executes a Morpho vault deposit, enforcing recurring allowance bounds.
-    function _onAOAExecute(
+    function _onSingleExecutorExecute(
         bytes32 policyId,
         address account,
-        AOAConfig memory,
+        SingleExecutorConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
@@ -204,4 +210,3 @@ contract MorphoLendPolicy is AOAPolicy {
         version = "1";
     }
 }
-

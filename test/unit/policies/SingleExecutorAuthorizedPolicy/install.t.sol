@@ -1,33 +1,37 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {AOAPolicy} from "../../../../src/policies/AOAPolicy.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title InstallTest
 ///
-/// @notice Test contract for `AOAPolicy._onInstall` behavior (config hash storage, AOAConfig decoding).
-contract InstallTest is AOAPolicyTestBase {
+/// @notice Test contract for `SingleExecutorAuthorizedPolicy._onInstall` behavior (config hash storage,
+///         SingleExecutorConfig decoding).
+contract InstallTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the AOAConfig executor is the zero address.
+    /// @notice Reverts when the SingleExecutorConfig executor is the zero address.
     ///
     /// @param salt Salt for deriving a unique policyId.
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_reverts_whenExecutorIsZeroAddress(uint256 salt, bytes calldata policySpecificConfig) public {
-        bytes memory badConfig = abi.encode(AOAPolicy.AOAConfig({executor: address(0)}), policySpecificConfig);
+        bytes memory badConfig =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: address(0)}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(badConfig, salt);
         bytes memory userSig = _signInstall(b);
 
-        vm.expectRevert(AOAPolicy.ZeroExecutor.selector);
+        vm.expectRevert(SingleExecutorPolicy.ZeroExecutor.selector);
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
@@ -40,7 +44,8 @@ contract InstallTest is AOAPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param policySpecificConfig Arbitrary policy-specific config bytes.
     function test_storesConfigHash(uint256 salt, bytes calldata policySpecificConfig) public {
-        bytes memory config = abi.encode(AOAPolicy.AOAConfig({executor: executor}), policySpecificConfig);
+        bytes memory config =
+            abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), policySpecificConfig);
         PolicyManager.PolicyBinding memory b = _binding(config, salt);
         bytes memory userSig = _signInstall(b);
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
