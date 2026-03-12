@@ -3,8 +3,9 @@ pragma solidity ^0.8.23;
 
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 
-import {SingleExecutorAuthorizedPolicyTestBase} from
-    "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title AccessControlTest
 ///

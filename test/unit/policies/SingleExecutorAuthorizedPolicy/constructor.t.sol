@@ -50,8 +50,7 @@ contract ConstructorTest is SingleExecutorAuthorizedPolicyTestBase {
     /// @param admin Non-zero admin address.
     function test_grantsPauserRole(address admin) public {
         vm.assume(admin != address(0));
-        SingleExecutorAuthorizedTestPolicy p =
-            new SingleExecutorAuthorizedTestPolicy(address(policyManager), admin);
+        SingleExecutorAuthorizedTestPolicy p = new SingleExecutorAuthorizedTestPolicy(address(policyManager), admin);
         assertTrue(p.hasRole(p.PAUSER_ROLE(), admin));
     }
 }
