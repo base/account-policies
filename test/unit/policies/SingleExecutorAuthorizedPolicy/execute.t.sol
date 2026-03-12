@@ -22,10 +22,15 @@ contract ExecuteTest is SingleExecutorAuthorizedPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when the policy is paused, regardless of execution data content.
+    /// @notice Reverts when the policy is paused and execution data is non-empty.
     ///
-    /// @param executionData Arbitrary execution data (pause gate fires before any decoding).
+    /// @dev Empty execution data bypasses the pause check (no-op early return), allowing `installWithSignature`
+    ///      and `replaceWithSignature` to succeed while paused.
+    ///
+    /// @param executionData Arbitrary non-empty execution data.
     function test_reverts_whenPaused(bytes calldata executionData) public {
+        vm.assume(executionData.length > 0);
+
         vm.prank(owner);
         policy.pause();
 
