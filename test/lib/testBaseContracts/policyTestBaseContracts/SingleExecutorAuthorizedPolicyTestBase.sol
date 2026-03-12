@@ -222,10 +222,3 @@ abstract contract SingleExecutorAuthorizedPolicyTestBase is Test {
     }
 }
 
-/// @notice Backward-compatible alias — inherits everything from `SingleExecutorAuthorizedPolicyTestBase`.
-abstract contract AOAPolicyTestBase is SingleExecutorAuthorizedPolicyTestBase {
-    /// @dev Backward-compatible alias for `setUpSingleExecutorBase`.
-    function setUpAOABase() internal {
-        setUpSingleExecutorBase();
-    }
-}

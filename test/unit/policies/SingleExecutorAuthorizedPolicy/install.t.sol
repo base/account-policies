@@ -4,15 +4,17 @@ pragma solidity ^0.8.23;
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title InstallTest
 ///
 /// @notice Test contract for `SingleExecutorAuthorizedPolicy._onInstall` behavior (config hash storage,
 ///         SingleExecutorConfig decoding).
-contract InstallTest is AOAPolicyTestBase {
+contract InstallTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================

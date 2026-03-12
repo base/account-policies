@@ -5,15 +5,17 @@ import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ExecuteTest
 ///
 /// @notice Test contract for `SingleExecutorAuthorizedPolicy._onExecute` behavior (config hash check, executor sig,
 ///         nonce, deadline).
-contract ExecuteTest is AOAPolicyTestBase {
+contract ExecuteTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================

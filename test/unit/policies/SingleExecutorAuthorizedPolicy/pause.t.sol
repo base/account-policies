@@ -4,14 +4,16 @@ pragma solidity ^0.8.23;
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title PauseTest
 ///
 /// @notice Test contract for `SingleExecutorPolicy.pause`.
-contract PauseTest is AOAPolicyTestBase {
+contract PauseTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================

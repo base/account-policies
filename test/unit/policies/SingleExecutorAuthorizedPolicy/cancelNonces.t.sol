@@ -5,14 +5,16 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title CancelNoncesTest
 ///
 /// @notice Tests for `SingleExecutorPolicy.cancelNonces`.
-contract CancelNoncesTest is AOAPolicyTestBase {
+contract CancelNoncesTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================

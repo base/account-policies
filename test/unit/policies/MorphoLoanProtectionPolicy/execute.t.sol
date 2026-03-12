@@ -18,7 +18,7 @@ import {
 /// @notice Test contract for `MorphoLoanProtectionPolicy` execution behavior (`_onSingleExecutorExecute`).
 ///
 /// @dev SingleExecutor-inherited execute behavior (pause gate, executor sig, nonce replay, deadline) is covered
-///      in `test/unit/policies/AOAPolicy/execute.t.sol`. This suite covers
+///      in `test/unit/policies/SingleExecutorAuthorizedPolicy/execute.t.sol`. This suite covers
 ///      MorphoLoanProtectionPolicy-specific execution logic only.
 ///
 ///      Default setUp state:

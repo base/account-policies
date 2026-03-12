@@ -4,16 +4,16 @@ pragma solidity ^0.8.23;
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {
-    AOAPolicyTestBase,
+    SingleExecutorAuthorizedPolicyTestBase,
     SingleExecutorAuthorizedTestPolicy
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ConstructorTest
 ///
 /// @notice Test contract for `SingleExecutorPolicy` constructor behavior.
-contract ConstructorTest is AOAPolicyTestBase {
+contract ConstructorTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     /// @notice Reverts when admin is the zero address.

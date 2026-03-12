@@ -3,20 +3,22 @@ pragma solidity ^0.8.23;
 
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title ReplaceTest
 ///
 /// @notice Tests for replace and replaceWithSignature on single-executor authorized policies, verifying that
 ///         the `_onUninstallForReplace` override skips redundant executor authorization.
-contract ReplaceTest is AOAPolicyTestBase {
+contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
     uint256 internal constant NEW_SALT = 42;
 
     bytes internal newPolicyConfig;
     PolicyManager.PolicyBinding internal newBinding;
 
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
 
         newPolicyConfig = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), bytes("new"));
         newBinding = PolicyManager.PolicyBinding({

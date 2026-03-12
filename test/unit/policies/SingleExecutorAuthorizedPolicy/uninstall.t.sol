@@ -4,7 +4,9 @@ pragma solidity ^0.8.23;
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 
-import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+import {
+    SingleExecutorAuthorizedPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title UninstallTest
 ///
@@ -12,9 +14,9 @@ import {AOAPolicyTestBase} from "../../../lib/testBaseContracts/policyTestBaseCo
 ///
 /// @dev Tests call `policy.onUninstall` directly (pranked as the PolicyManager) to isolate
 ///      authorization from the PolicyManager's try/catch wrapper, enabling specific error assertions.
-contract UninstallTest is AOAPolicyTestBase {
+contract UninstallTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================

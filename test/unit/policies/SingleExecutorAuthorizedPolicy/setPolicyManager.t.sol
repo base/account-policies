@@ -7,16 +7,16 @@ import {Policy} from "../../../../src/policies/Policy.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {
-    AOAPolicyTestBase,
+    SingleExecutorAuthorizedPolicyTestBase,
     SingleExecutorAuthorizedTestPolicy
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/AOAPolicyTestBase.sol";
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
 /// @title SetPolicyManagerTest
 ///
 /// @notice Test contract for `SingleExecutorPolicy.setPolicyManager`.
-contract SetPolicyManagerTest is AOAPolicyTestBase {
+contract SetPolicyManagerTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
-        setUpAOABase();
+        setUpSingleExecutorBase();
     }
 
     // =============================================================
