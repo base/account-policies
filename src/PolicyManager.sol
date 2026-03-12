@@ -600,9 +600,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             // Idempotent behavior: uninstalling an already-uninstalled policyId is a no-op.
             if (policyRecordByBinding.uninstalled) return policyId;
 
+            policyRecordByBinding.uninstalled = true;
+
             // Installed lifecycle: uninstall by policyId.
             if (policyRecordByBinding.installed) {
-                policyRecordByBinding.uninstalled = true;
                 try Policy(binding.policy)
                     .onUninstall(
                         policyId,
@@ -624,7 +625,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             // Pre-install uninstallation: config must be non-empty in the binding.
             if (binding.policyConfig.length == 0) revert InvalidPayload();
 
-            policyRecordByBinding.uninstalled = true;
             policyRecordByBinding.account = binding.account;
             policyRecordByBinding.validAfter = binding.validAfter;
             policyRecordByBinding.validUntil = binding.validUntil;
