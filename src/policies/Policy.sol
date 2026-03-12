@@ -223,7 +223,7 @@ abstract contract Policy {
         postCallData;
     }
 
-    /// @dev Policy-specific uninstall hook. Revert to refuse non-account uninstallation.
+    /// @dev Policy-specific uninstall hook. Revert to refuse unauthorized uninstallation.
     ///      `PolicyManager.uninstall` is callable by ANY address — the manager relies on this hook to enforce
     ///      authorization. If this hook reverts and the caller is the bound account, the manager swallows the
     ///      revert (account escape hatch); otherwise the revert propagates. Implementations MUST validate
