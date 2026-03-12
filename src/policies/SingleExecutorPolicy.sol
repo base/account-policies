@@ -151,6 +151,13 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///
     /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the new address has no deployed code.
     ///
+    ///      WARNING: Changing the policy manager breaks several Policy-to-Manager assumptions. The new manager has no
+    ///      knowledge of install/uninstall state recorded by the old manager, so a policyId that was previously
+    ///      uninstalled could appear fresh and be reinstalled. Additionally, `_configHashByPolicyId` entries written
+    ///      during prior installs remain on the policy and may collide with new installs under the new manager.
+    ///      A replacement PolicyManager should account for prior install state (e.g. by reading the old manager's
+    ///      records) to preserve the one-install-per-policyId invariant.
+    ///
     /// @param newPolicyManager Address of the new PolicyManager.
     function setPolicyManager(address newPolicyManager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newPolicyManager.code.length == 0) revert PolicyManagerNotContract(newPolicyManager);
