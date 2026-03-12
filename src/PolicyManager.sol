@@ -373,15 +373,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) external nonReentrant returns (bytes32 newPolicyId) {
         newPolicyId = getPolicyId(payload.newBinding);
 
-        // Check whether the replace has already been completed (idempotent retry).
-        bool alreadyReplaced;
-        {
-            PolicyRecord storage oldRecord = policies[payload.oldPolicy][payload.oldPolicyId];
-            PolicyRecord storage newRecord = policies[payload.newBinding.policy][newPolicyId];
-            alreadyReplaced = oldRecord.uninstalled && newRecord.installed && !newRecord.uninstalled
-                && oldRecord.account == payload.newBinding.account;
-        }
-
         if (deadline != 0 && block.timestamp > deadline) revert DeadlineExpired(block.timestamp, deadline);
         bytes32 digest = _hashTypedData(
             keccak256(
@@ -398,11 +389,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         );
         _requireValidAccountSig(payload.newBinding.account, digest, userSig);
 
-        if (!alreadyReplaced) {
-            _replace(
-                payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
-            );
-        }
+        _replace(
+            payload.oldPolicy, payload.oldPolicyId, payload.oldPolicyConfig, payload.replaceData, payload.newBinding
+        );
 
         _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
 
