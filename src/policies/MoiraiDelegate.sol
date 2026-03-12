@@ -16,8 +16,8 @@ import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 ///      - `unlockTimestamp > 0` — execution is gated behind a time-lock.
 ///      - `executor != address(0)` — execution requires a valid executor-signed intent.
 ///
-///      Config format: `policyConfig = abi.encode(MoiraiConfig)` — NOT the nested `(SingleExecutorConfig,
-///      bytes)` pattern used by `SingleExecutorAuthorizedPolicy`.
+///      Config format: `policyConfig = abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` — the canonical
+///      single-executor encoding shared across all `SingleExecutorPolicy` subclasses.
 ///
 ///      Execution data format (when executor is set): `executionData = abi.encode(SingleExecutorExecutionData,
 ///      bytes actionData)`.
@@ -28,10 +28,12 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Full configuration for a MoiraiDelegate policy instance.
+    /// @notice Policy-specific configuration for a MoiraiDelegate instance.
+    ///
+    /// @dev Encoded as the inner `policySpecificConfig` bytes inside the canonical
+    ///      `abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` envelope.
+    ///      `consensusSigner` must equal the `executor` in the outer `SingleExecutorConfig`.
     struct MoiraiConfig {
-        /// @dev Executor config. `executor == address(0)` means no consensus is required.
-        SingleExecutorConfig singleExecutorConfig;
         /// @dev Target address for the delegated call.
         address target;
         /// @dev ETH value to send with the call.
@@ -40,6 +42,9 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         bytes callData;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means no time-lock.
         uint256 unlockTimestamp;
+        /// @dev Address authorized to co-sign execution. `address(0)` means no consensus required.
+        ///      Must match the `executor` field in the outer `SingleExecutorConfig`.
+        address consensusSigner;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -58,8 +63,14 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @param policyId Policy identifier that was already executed.
     error AlreadyExecuted(bytes32 policyId);
 
-    /// @notice Thrown when neither `unlockTimestamp` nor `executor` is configured.
+    /// @notice Thrown when neither `unlockTimestamp` nor `consensusSigner` is configured.
     error NoConditionSpecified();
+
+    /// @notice Thrown when `MoiraiConfig.consensusSigner` does not match the outer `SingleExecutorConfig.executor`.
+    ///
+    /// @param executor Executor address from the outer `SingleExecutorConfig`.
+    /// @param consensusSigner Consensus signer address from `MoiraiConfig`.
+    error ExecutorConsensusSignerMismatch(address executor, address consensusSigner);
 
     /// @notice Thrown when the current timestamp has not yet reached the configured unlock timestamp.
     ///
@@ -90,42 +101,23 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         return _executed[policyId];
     }
 
-    /// @notice Cancels one or more nonces, preventing future execution intents that use them.
-    ///
-    /// @dev Overrides the base implementation to decode `MoiraiConfig` instead of the canonical
-    ///      `(SingleExecutorConfig, bytes)` shape. Only the configured executor may cancel nonces.
-    ///      Already-used nonces are skipped silently for idempotency.
-    ///
-    ///      Not gated by `whenNotPaused` — nonce cancellation is a safety/revocation mechanism that
-    ///      should always be available.
-    ///
-    /// @param policyId Policy identifier for the binding.
-    /// @param nonces Array of nonces to cancel.
-    /// @param policyConfig Full config preimage bytes (hash must match the stored config hash for `policyId`).
-    function cancelNonces(bytes32 policyId, uint256[] calldata nonces, bytes calldata policyConfig) external override {
-        _requireConfigHash(policyId, policyConfig);
-        MoiraiConfig memory config = abi.decode(policyConfig, (MoiraiConfig));
-        if (msg.sender != config.singleExecutorConfig.executor) {
-            revert UnauthorizedCanceller(msg.sender, config.singleExecutorConfig.executor);
-        }
-        for (uint256 i; i < nonces.length; ++i) {
-            if (!_usedNonces[policyId][nonces[i]]) {
-                _usedNonces[policyId][nonces[i]] = true;
-                emit NonceCancelled(policyId, nonces[i], msg.sender);
-            }
-        }
-    }
-
     ////////////////////////////////////////////////////////////////
     ///                    Internal Functions                    ///
     ////////////////////////////////////////////////////////////////
 
     /// @inheritdoc Policy
     ///
-    /// @dev Decodes `MoiraiConfig`, validates that at least one condition is set, and stores the config hash.
-    function _onInstall(bytes32 policyId, address, bytes calldata policyConfig, address) internal override {
-        MoiraiConfig memory config = abi.decode(policyConfig, (MoiraiConfig));
-        if (config.unlockTimestamp == 0 && config.singleExecutorConfig.executor == address(0)) {
+    /// @dev Decodes the canonical `(SingleExecutorConfig, bytes)` envelope, decodes the inner `MoiraiConfig`,
+    ///      validates that `consensusSigner` matches the outer executor, validates that at least one condition
+    ///      is set, and stores the config hash.
+    function _onInstall(bytes32 policyId, address, bytes calldata policyConfig) internal override {
+        (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
+            _decodeSingleExecutorConfig(policyConfig);
+        MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
+        if (singleExecutorConfig.executor != config.consensusSigner) {
+            revert ExecutorConsensusSignerMismatch(singleExecutorConfig.executor, config.consensusSigner);
+        }
+        if (config.unlockTimestamp == 0 && config.consensusSigner == address(0)) {
             revert NoConditionSpecified();
         }
         _storeConfigHash(policyId, policyConfig);
@@ -152,8 +144,7 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         bytes calldata,
         bytes calldata,
         address,
-        bytes32,
-        address
+        bytes32
     ) internal override {
         delete _executed[policyId];
         delete _configHashByPolicyId[policyId];
@@ -167,6 +158,11 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     ///      When `executionData` is empty the function returns early without touching `_executed[policyId]`.
     ///      This is an intentional no-op: it does NOT consume the one-shot execution lock. Callers who want
     ///      to trigger the policy must supply non-empty `executionData`.
+    ///
+    ///      For delay-only policies (`consensusSigner == address(0)`), the content of `executionData` is
+    ///      ignored entirely — only its non-zero length is checked. Any non-empty bytes trigger execution
+    ///      once the time-lock is met. The actual call parameters (`target`, `value`, `callData`) are always
+    ///      taken from `policyConfig`, not from `executionData`.
     function _onExecute(
         bytes32 policyId,
         address account,
@@ -178,7 +174,9 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         _requireConfigHash(policyId, policyConfig);
 
-        MoiraiConfig memory config = abi.decode(policyConfig, (MoiraiConfig));
+        (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
+            _decodeSingleExecutorConfig(policyConfig);
+        MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
 
         if (_executed[policyId]) revert AlreadyExecuted(policyId);
 
@@ -188,11 +186,11 @@ contract MoiraiDelegate is SingleExecutorPolicy {
             }
         }
 
-        if (config.singleExecutorConfig.executor != address(0)) {
+        if (config.consensusSigner != address(0)) {
             (SingleExecutorExecutionData memory executionData_, bytes memory actionData) =
                 abi.decode(executionData, (SingleExecutorExecutionData, bytes));
             _validateAndConsumeExecutionIntent(
-                policyId, account, config.singleExecutorConfig.executor, executionData_, actionData, caller
+                policyId, account, singleExecutorConfig.executor, executionData_, actionData, caller
             );
         }
 

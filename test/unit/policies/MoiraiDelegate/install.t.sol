@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {MoiraiDelegate} from "../../../../src/policies/MoiraiDelegate.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {
     MoiraiDelegateTestBase
@@ -80,6 +81,26 @@ contract InstallTest is MoiraiDelegateTestBase {
         bytes memory userSig = _signInstall(binding);
 
         vm.expectRevert(MoiraiDelegate.NoConditionSpecified.selector);
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when `MoiraiConfig.consensusSigner` does not match the outer `SingleExecutorConfig.executor`.
+    function test_reverts_executorConsensusSignerMismatch() public {
+        address otherSigner = makeAddr("otherSigner");
+        bytes memory config = abi.encode(
+            SingleExecutorPolicy.SingleExecutorConfig({executor: executor}),
+            abi.encode(
+                MoiraiDelegate.MoiraiConfig({
+                    target: address(0), value: 0, callData: "", unlockTimestamp: 0, consensusSigner: otherSigner
+                })
+            )
+        );
+        PolicyManager.PolicyBinding memory binding = _buildBinding(config, 0);
+        bytes memory userSig = _signInstall(binding);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(MoiraiDelegate.ExecutorConsensusSignerMismatch.selector, executor, otherSigner)
+        );
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 }

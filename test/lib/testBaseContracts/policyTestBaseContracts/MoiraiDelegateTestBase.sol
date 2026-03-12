@@ -58,7 +58,7 @@ abstract contract MoiraiDelegateTestBase is Test {
         return _buildMoiraiConfig(unlockTimestamp, executor_, address(0), 0, "");
     }
 
-    /// @notice Builds an encoded `MoiraiConfig` with full call parameters.
+    /// @notice Builds an encoded policy config with full call parameters.
     ///
     /// @param unlockTimestamp The unlock timestamp. Zero means no time-lock.
     /// @param executor_ The executor address. Zero means no consensus required.
@@ -66,7 +66,7 @@ abstract contract MoiraiDelegateTestBase is Test {
     /// @param value_ ETH value to send with the call.
     /// @param callData_ Calldata to pass to `target_`.
     ///
-    /// @return Encoded `MoiraiConfig` bytes.
+    /// @return Canonical `abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` bytes.
     function _buildMoiraiConfig(
         uint256 unlockTimestamp,
         address executor_,
@@ -75,13 +75,16 @@ abstract contract MoiraiDelegateTestBase is Test {
         bytes memory callData_
     ) internal pure returns (bytes memory) {
         return abi.encode(
-            MoiraiDelegate.MoiraiConfig({
-                singleExecutorConfig: SingleExecutorPolicy.SingleExecutorConfig({executor: executor_}),
-                target: target_,
-                value: value_,
-                callData: callData_,
-                unlockTimestamp: unlockTimestamp
-            })
+            SingleExecutorPolicy.SingleExecutorConfig({executor: executor_}),
+            abi.encode(
+                MoiraiDelegate.MoiraiConfig({
+                    consensusSigner: executor_,
+                    target: target_,
+                    value: value_,
+                    callData: callData_,
+                    unlockTimestamp: unlockTimestamp
+                })
+            )
         );
     }
 
@@ -163,6 +166,37 @@ abstract contract MoiraiDelegateTestBase is Test {
             SingleExecutorPolicy.SingleExecutorExecutionData({nonce: nonce, deadline: deadline, signature: sig}),
             actionData
         );
+    }
+
+    /// @notice Signs a replace intent with the owner key.
+    ///
+    /// @param oldPolicyId Old policy identifier being replaced.
+    /// @param oldPolicyConfig Old policy config preimage.
+    /// @param newPolicyId New policy identifier.
+    ///
+    /// @return ERC-6492-compatible signature bytes.
+    function _signReplace(bytes32 oldPolicyId, bytes memory oldPolicyConfig, bytes32 newPolicyId)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                policyManager.REPLACE_POLICY_TYPEHASH(),
+                address(account),
+                address(policy),
+                oldPolicyId,
+                keccak256(oldPolicyConfig),
+                newPolicyId,
+                uint256(0)
+            )
+        );
+        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
+        bytes32 replaySafeDigest = account.replaySafeHash(digest);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        return account.wrapSignature(0, signature);
     }
 
     /// @notice Computes an EIP-712 typed-data digest.

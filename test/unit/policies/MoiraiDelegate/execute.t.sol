@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
+
 import {MoiraiDelegate} from "../../../../src/policies/MoiraiDelegate.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
@@ -119,6 +121,20 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     // =============================================================
     // Reverts
     // =============================================================
+
+    /// @notice Reverts when the policy is paused by the admin.
+    ///
+    /// @param executionData Arbitrary execution data (paused check fires before any decoding).
+    function test_reverts_whenPaused(bytes calldata executionData) public {
+        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes32 policyId = _buildAndInstall(config, 0);
+
+        vm.prank(owner);
+        policy.pause();
+
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        policyManager.execute(address(policy), policyId, config, executionData);
+    }
 
     /// @notice Reverts when the unlock timestamp has not yet been reached.
     function test_reverts_beforeUnlockTime() public {
