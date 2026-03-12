@@ -72,7 +72,8 @@ contract ReplaceTest is PolicyManagerTestBase {
                 oldPolicy: oldPolicy,
                 oldPolicyId: oldPolicyId,
                 oldPolicyConfig: oldPolicyConfig,
-                replaceData: "",
+                oldPolicyReplaceData: "",
+                newPolicyReplaceData: "",
                 newBinding: newBinding
             });
         vm.prank(newBinding.account);
@@ -109,7 +110,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(oldPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -141,7 +143,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -167,7 +170,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -189,7 +193,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(0),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
@@ -211,7 +216,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
         vm.expectRevert(PolicyManager.InvalidPayload.selector);
@@ -232,7 +238,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: policyId,
             oldPolicyConfig: config,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: binding
         });
 
@@ -270,7 +277,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: "",
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -303,7 +311,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: "",
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -341,7 +350,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: abi.encode(bytes32(0)),
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -366,7 +376,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -403,7 +414,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -440,7 +452,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -468,7 +481,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -493,7 +507,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -515,7 +530,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -538,7 +554,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -572,7 +589,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(oldPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -601,7 +619,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -634,7 +653,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(oldPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -661,7 +681,8 @@ contract ReplaceTest is PolicyManagerTestBase {
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: oldPolicyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 

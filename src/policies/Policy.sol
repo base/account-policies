@@ -159,6 +159,9 @@ abstract contract Policy {
     ///      + `onInstall`
     ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
     ///
+    ///      The manager passes each policy its own dedicated `replaceData` blob — old and new policies receive
+    ///      independent payloads so they can be developed without knowledge of each other.
+    ///
     /// Default behavior:
     /// - `role == OldPolicy`: delegates to `_onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
     /// - `role == NewPolicy`: delegates to `_onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
@@ -166,9 +169,9 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload:
-    /// - For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
-    /// - For `role == NewPolicy`, default implementation ignores it.
+    /// @param replaceData Policy-specific replacement payload (each policy receives its own independent blob from the
+    ///        `ReplacePayload`). For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
+    ///        For `role == NewPolicy`, default implementation ignores it.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param role Whether this hook is being invoked for the old policy or the new policy.
@@ -242,7 +245,8 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this (old) policy instance.
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param replaceData The old policy's dedicated replacement payload (`oldPolicyReplaceData` from the
+    ///        `ReplacePayload`). Default implementation forwards this as `uninstallData` to `_onUninstall`.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param effectiveCaller Effective caller forwarded by the manager.
@@ -269,7 +273,8 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this (new) policy instance.
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param replaceData The new policy's dedicated replacement payload (`newPolicyReplaceData` from the
+    ///        `ReplacePayload`). Default implementation ignores this value.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param effectiveCaller Effective caller forwarded by the manager.
