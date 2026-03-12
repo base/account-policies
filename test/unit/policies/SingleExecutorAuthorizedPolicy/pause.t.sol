@@ -20,15 +20,15 @@ contract PauseTest is SingleExecutorAuthorizedPolicyTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Reverts when caller does not have DEFAULT_ADMIN_ROLE.
+    /// @notice Reverts when caller does not have PAUSER_ROLE.
     ///
-    /// @param caller Non-admin caller.
-    function test_reverts_whenCallerLacksAdminRole(address caller) public {
-        vm.assume(!policy.hasRole(policy.DEFAULT_ADMIN_ROLE(), caller));
+    /// @param caller Non-pauser caller.
+    function test_reverts_whenCallerLacksPauserRole(address caller) public {
+        vm.assume(!policy.hasRole(policy.PAUSER_ROLE(), caller));
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, caller, policy.DEFAULT_ADMIN_ROLE()
+                IAccessControl.AccessControlUnauthorizedAccount.selector, caller, policy.PAUSER_ROLE()
             )
         );
         vm.prank(caller);
