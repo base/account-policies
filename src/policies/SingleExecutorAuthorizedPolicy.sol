@@ -121,8 +121,9 @@ abstract contract SingleExecutorAuthorizedPolicy is SingleExecutorPolicy {
         bytes calldata policyConfig,
         bytes calldata executionData,
         address caller
-    ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
         if (executionData.length == 0) return (accountCallData, postCallData);
+        _requireNotPaused();
 
         _requireConfigHash(policyId, policyConfig);
 
