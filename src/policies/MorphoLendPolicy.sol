@@ -73,7 +73,7 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Constructs the policy.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
-    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     constructor(address policyManager, address admin) SingleExecutorAuthorizedPolicy(policyManager, admin) {}
 
     ////////////////////////////////////////////////////////////////

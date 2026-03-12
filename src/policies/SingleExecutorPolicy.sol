@@ -44,6 +44,9 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///                    Constants/Storage                     ///
     ////////////////////////////////////////////////////////////////
 
+    /// @notice Role identifier for addresses authorized to pause/unpause the policy.
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
     /// @notice Stored config hash per policy instance.
     ///
     /// @dev Single-executor policies are calldata-heavy; they store only a hash and require the full config preimage
@@ -130,13 +133,14 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///                       Constructor                        ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Constructs the policy and grants the admin role.
+    /// @notice Constructs the policy and grants the admin and pauser roles.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
-    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     constructor(address policyManager, address admin) Policy(policyManager) {
         if (admin == address(0)) revert ZeroAdmin();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(PAUSER_ROLE, admin);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -157,15 +161,15 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
 
     /// @notice Pauses execution for this policy.
     ///
-    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`.
-    function pause() external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @dev Only callable by `PAUSER_ROLE`.
+    function pause() external virtual onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
     /// @notice Unpauses execution for this policy.
     ///
-    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`.
-    function unpause() external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @dev Only callable by `PAUSER_ROLE`.
+    function unpause() external virtual onlyRole(PAUSER_ROLE) {
         _unpause();
     }
 

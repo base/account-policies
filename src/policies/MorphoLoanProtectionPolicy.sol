@@ -110,7 +110,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Constructs the policy.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
-    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
     constructor(address policyManager, address admin, address morpho_)
         SingleExecutorAuthorizedPolicy(policyManager, admin)
