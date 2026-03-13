@@ -14,14 +14,14 @@ contract RecordingReplacePolicy is CallForwardingPolicy {
 
     constructor(address policyManager) CallForwardingPolicy(policyManager) {}
 
-    function _onUninstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32, address)
+    function _onUninstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32)
         internal
         override
     {
         oldPolicyCalled = true;
     }
 
-    function _onInstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32, address)
+    function _onInstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32)
         internal
         override
     {
