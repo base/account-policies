@@ -39,7 +39,8 @@ contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
             oldPolicy: address(policy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: policyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -61,7 +62,8 @@ contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
             oldPolicy: address(policy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: policyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -81,7 +83,8 @@ contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
             oldPolicy: address(policy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: policyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -102,7 +105,8 @@ contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
             oldPolicy: address(policy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: policyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 
@@ -126,7 +130,8 @@ contract ReplaceTest is SingleExecutorAuthorizedPolicyTestBase {
             oldPolicy: address(policy),
             oldPolicyId: oldPolicyId,
             oldPolicyConfig: policyConfig,
-            replaceData: "",
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
             newBinding: newBinding
         });
 

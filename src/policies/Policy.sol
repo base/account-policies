@@ -65,7 +65,7 @@ abstract contract Policy {
     ///
     /// @param policyManager_ Address of the `PolicyManager` authorized to call this policy's hooks.
     constructor(address policyManager_) {
-        if (address(policyManager_).code.length == 0) revert PolicyManagerNotContract(policyManager_);
+        if (_isNotPersistentCode(policyManager_)) revert PolicyManagerNotContract(policyManager_);
         policyManager = PolicyManager(policyManager_);
     }
 
@@ -159,6 +159,9 @@ abstract contract Policy {
     ///      + `onInstall`
     ///      calls so a policy can distinguish replacement from standalone lifecycle transitions.
     ///
+    ///      The manager passes each policy its own dedicated `replaceData` blob — old and new policies receive
+    ///      independent payloads so they can be developed without knowledge of each other.
+    ///
     /// Default behavior:
     /// - `role == OldPolicy`: delegates to `_onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
     /// - `role == NewPolicy`: delegates to `_onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
@@ -166,9 +169,12 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload:
-    /// - For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
-    /// - For `role == NewPolicy`, default implementation ignores it.
+    /// @param replaceData Policy-specific replacement payload (each policy receives its own independent blob from the
+    ///        `ReplacePayload`). NOT signed over by the account — the transaction submitter can supply arbitrary
+    ///        values. Policies that rely on this blob for authorization MUST independently validate it (e.g., by
+    ///        requiring a scoped executor signature within the blob).
+    ///        For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
+    ///        For `role == NewPolicy`, default implementation ignores it.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param role Whether this hook is being invoked for the old policy or the new policy.
@@ -220,7 +226,7 @@ abstract contract Policy {
         postCallData;
     }
 
-    /// @dev Policy-specific uninstall hook. Revert to refuse non-account uninstallation.
+    /// @dev Policy-specific uninstall hook. Revert to refuse unauthorized uninstallation.
     ///      `PolicyManager.uninstall` is callable by ANY address — the manager relies on this hook to enforce
     ///      authorization. If this hook reverts and the caller is the bound account, the manager swallows the
     ///      revert (account escape hatch); otherwise the revert propagates. Implementations MUST validate
@@ -242,7 +248,8 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this (old) policy instance.
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param replaceData The old policy's dedicated replacement payload (`oldPolicyReplaceData` from the
+    ///        `ReplacePayload`). Default implementation forwards this as `uninstallData` to `_onUninstall`.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param effectiveCaller Effective caller forwarded by the manager.
@@ -269,7 +276,8 @@ abstract contract Policy {
     /// @param policyId Policy identifier for this (new) policy instance.
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
-    /// @param replaceData Optional policy-defined replacement payload.
+    /// @param replaceData The new policy's dedicated replacement payload (`newPolicyReplaceData` from the
+    ///        `ReplacePayload`). Default implementation ignores this value.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param effectiveCaller Effective caller forwarded by the manager.
@@ -295,6 +303,18 @@ abstract contract Policy {
     /// @dev Requires `msg.sender` to equal `sender`.
     function _requireSender(address sender) internal view {
         if (msg.sender != sender) revert InvalidCaller(msg.sender, sender);
+    }
+
+    /// @notice Returns true if `addr` has no deployed code or has an EIP-7702 delegation indicator.
+    ///
+    /// @dev EIP-7702 delegation indicators are exactly 23 bytes starting with `0xef0100`. Such addresses are EOAs
+    ///      that have delegated their code to another contract and may revoke the delegation at any time.
+    ///      Infrastructure addresses (PolicyManager, vaults, Morpho) must be permanently deployed contracts.
+    function _isNotPersistentCode(address addr) internal view returns (bool) {
+        bytes memory code = addr.code;
+        if (code.length == 0) return true;
+        if (code.length == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00) return true;
+        return false;
     }
 }
 
