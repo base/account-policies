@@ -170,7 +170,10 @@ abstract contract Policy {
     /// @param account Account associated with the replacement.
     /// @param policyConfig Config bytes for this policy instance.
     /// @param replaceData Policy-specific replacement payload (each policy receives its own independent blob from the
-    ///        `ReplacePayload`). For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
+    ///        `ReplacePayload`). NOT signed over by the account — the transaction submitter can supply arbitrary
+    ///        values. Policies that rely on this blob for authorization MUST independently validate it (e.g., by
+    ///        requiring a scoped executor signature within the blob).
+    ///        For `role == OldPolicy`, default implementation forwards this as `uninstallData`.
     ///        For `role == NewPolicy`, default implementation ignores it.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.

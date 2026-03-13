@@ -42,6 +42,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     }
 
     /// @notice Payload used for uninstall+install in a single call.
+    ///
+    /// @dev SECURITY: `oldPolicyReplaceData` and `newPolicyReplaceData` are NOT covered by the account's EIP-712
+    ///      signature in `replaceWithSignature`. The account signs over the policy identities (old policyId, new
+    ///      policyId) but not the replace data blobs. This means the transaction submitter (e.g. a relayer) can
+    ///      supply arbitrary replace data without the account's explicit approval.
+    ///
+    ///      Policies that use replace data for authorization or state transfer MUST independently validate
+    ///      these blobs — for example, by requiring an executor signature within the blob that is scoped to the
+    ///      specific replacement context (policyId, account, new policy identity, etc.). Do not assume the account
+    ///      has approved the contents of these fields.
     struct ReplacePayload {
         /// @dev Old policy contract address to uninstall.
         address oldPolicy;
@@ -50,8 +60,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         /// @dev Optional config preimage forwarded to the old policy's uninstall hook.
         bytes oldPolicyConfig;
         /// @dev Optional policy-defined payload forwarded to the old policy's `onReplace` hook.
+        ///      NOT signed over by the account — see struct-level security note.
         bytes oldPolicyReplaceData;
         /// @dev Optional policy-defined payload forwarded to the new policy's `onReplace` hook.
+        ///      NOT signed over by the account — see struct-level security note.
         bytes newPolicyReplaceData;
         /// @dev New binding to install (carries its own `policyConfig`).
         PolicyBinding newBinding;
