@@ -388,12 +388,12 @@ contract ReplaceTest is PolicyManagerTestBase {
         policyManager.replace(payload);
     }
 
-    /// @notice Reverts when current timestamp is before `newBinding.validAfter`.
+    /// @notice Replace succeeds even when current timestamp is before `newBinding.validAfter`.
     ///
-    /// @dev Expects `PolicyManager.BeforeValidAfter`.
+    /// @dev Early install of the new binding is allowed; execution is still gated by the validity window.
     ///
     /// @param validAfterSeed Seed used to pick a validAfter strictly after current timestamp.
-    function test_reverts_whenNewBindingBeforeValidAfter(uint40 validAfterSeed) public {
+    function test_succeeds_whenNewBindingBeforeValidAfter(uint40 validAfterSeed) public {
         vm.warp(WARP_BASE_TIMESTAMP);
         uint256 nowTs = block.timestamp;
 
@@ -419,9 +419,10 @@ contract ReplaceTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, uint40(nowTs), validAfter));
         vm.prank(address(account));
-        policyManager.replace(payload);
+        bytes32 newPolicyId = policyManager.replace(payload);
+        assertTrue(policyManager.isPolicyInstalled(address(callPolicy), newPolicyId));
+        assertTrue(policyManager.isPolicyUninstalled(address(callPolicy), oldPolicyId));
     }
 
     /// @notice Reverts when current timestamp is at/after `newBinding.validUntil`.

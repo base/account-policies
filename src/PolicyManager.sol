@@ -533,7 +533,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Installs a policy instance after the caller has been authorized (directly or via signature).
     ///
-    /// @dev Enforces install window validity. Installation is idempotent.
+    /// @dev Rejects expired bindings (`validUntil` in the past) but allows early installation before `validAfter`.
+    ///      Execution is still gated by the full validity window. Installation is idempotent.
     ///
     /// @param binding Policy binding parameters (includes `policyConfig`).
     ///
@@ -546,7 +547,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
         if (policyRecord.installed) return policyId;
 
-        _checkValidityWindow(binding.validAfter, binding.validUntil);
+        // Allow early install (before validAfter), but reject already-expired bindings.
+        if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
+            revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
+        }
 
         policies[binding.policy][policyId] = PolicyRecord({
             installed: true,
@@ -662,13 +666,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Executes an action for a policy instance.
     ///
-    /// @dev Validates the policy is active, enforces the validity window, then calls the policy hook to obtain
-    ///      account calldata and optional post-call calldata:
+    /// @dev Validates the policy is active, calls the policy hook, then enforces the validity window only when
+    ///      the policy returns an account action:
     ///      1) requires the policy is not disabled (uninstalled)
-    ///      2) checks validity window
-    ///      3) calls the policy `onExecute` hook
-    ///      4) calls the account with the policy-prepared calldata if non-empty
-    ///      5) calls the policy post-call (if any)
+    ///      2) calls the policy `onExecute` hook
+    ///      3) if `accountCallData` is empty, returns (no window check, no account call)
+    ///      4) checks validity window (only for actual executions)
+    ///      5) calls the account with the policy-prepared calldata
+    ///      6) calls the policy post-call (if any)
     ///
     ///
     /// @param policy Policy contract address.
@@ -685,13 +690,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ) internal {
         PolicyRecord storage policyRecord = policies[policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
 
         address account = policyRecord.account;
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
 
         if (accountCallData.length == 0) return;
+
+        // Enforce validity window only when the policy returns an account action. This allows
+        // `installWithSignature` / `replaceWithSignature` to succeed before `validAfter` when no
+        // execution is requested (policy returns empty calldata for empty executionData).
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
 
         Address.functionCall(account, accountCallData);
 
@@ -838,7 +847,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes32 otherPolicyId
     ) internal {
         address account = binding.account;
-        _checkValidityWindow(binding.validAfter, binding.validUntil);
+
+        // Allow early install (before validAfter), but reject already-expired bindings.
+        if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
+            revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
+        }
 
         policyRecord.installed = true;
         policyRecord.account = account;

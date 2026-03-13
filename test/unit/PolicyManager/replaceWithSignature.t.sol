@@ -430,14 +430,14 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
-    /// @notice Reverts when installing the new policy outside its validity window.
+    /// @notice Replace succeeds even when current timestamp is before `newBinding.validAfter`.
     ///
-    /// @dev Expects `PolicyManager.BeforeValidAfter` / `PolicyManager.AfterValidUntil`.
+    /// @dev Early install of the new binding is allowed; execution is still gated by the validity window.
     ///
     /// @param validAfterSeed Seed used to pick a validAfter strictly after current timestamp.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the old binding (hashed into `policyId`).
-    function test_reverts_whenNewBindingOutsideValidityWindow(uint40 validAfterSeed, bytes32 configSeed, uint256 salt)
+    function test_succeeds_whenNewBindingBeforeValidAfter(uint40 validAfterSeed, bytes32 configSeed, uint256 salt)
         public
     {
         vm.warp(WARP_BASE_TIMESTAMP);
@@ -468,8 +468,9 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, uint40(nowTs), validAfter));
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+        assertTrue(policyManager.isPolicyInstalled(address(callPolicy), newPolicyId));
+        assertTrue(policyManager.isPolicyUninstalled(address(callPolicy), oldPolicyId));
     }
 
     /// @notice Bubbles a revert when the new policy's replacement install hook reverts.
@@ -540,20 +541,13 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
     }
 
     /// @notice When end state is already reached and the validity window has expired, replaceWithSignature
-    ///         still returns early (idempotent) even when executionData is provided.
-    ///
-    /// @dev After I-13 / G-01, the idempotency check no longer gates on executionData length. Once the
-    ///      desired end state is reached, the call always returns early without signature validation,
-    ///      deadline checks, or execution — regardless of executionData content.
-    ///
-    /// @param validUntilSeed Seed used to pick a validUntil strictly after current timestamp.
-    /// @notice Reverts when retrying a completed replace outside the validity window, because `_execute`
-    ///         checks the new policy's validity window even when the replace itself is idempotent.
+    ///         succeeds with empty executionData because the validity window is only enforced when the policy
+    ///         returns a non-empty account action.
     ///
     /// @param validUntilSeed Seed for the validity window upper bound.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the old binding (hashed into `policyId`).
-    function test_reverts_whenEndStateAlreadyReached_butOutsideValidityWindow(
+    function test_succeeds_whenEndStateAlreadyReached_andOutsideValidityWindow_withEmptyExecution(
         uint40 validUntilSeed,
         bytes32 configSeed,
         uint256 salt
@@ -590,7 +584,8 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes memory userSig =
             _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, uint40(validUntil), validUntil));
+        // Succeeds: replace is idempotent and no execution happens (empty executionData → empty accountCallData
+        // → validity window not checked).
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 

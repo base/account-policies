@@ -114,15 +114,15 @@ contract InstallTest is PolicyManagerTestBase {
         _install(binding);
     }
 
-    /// @notice Reverts when current timestamp is before `binding.validAfter`.
+    /// @notice Installation succeeds even when current timestamp is before `binding.validAfter`.
     ///
-    /// @dev Expects `PolicyManager.BeforeValidAfter`.
+    /// @dev Early install is allowed; execution is still gated by the validity window.
     ///
     /// @param validAfterSeed Seed used to derive a future validAfter bound.
     /// @param beforeOffset Seed used to pick a timestamp strictly before validAfter.
     /// @param configSeed Seed used to build the committed config bytes.
     /// @param salt Salt used to derive the policyId.
-    function test_reverts_whenBeforeValidAfter(
+    function test_succeeds_whenBeforeValidAfter(
         uint40 validAfterSeed,
         uint40 beforeOffset,
         bytes32 configSeed,
@@ -141,8 +141,8 @@ contract InstallTest is PolicyManagerTestBase {
         uint40 beforeTs = uint40(uint256(beforeOffset) % uint256(range));
         vm.warp(uint256(beforeTs));
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, beforeTs, validAfter));
-        _install(binding);
+        bytes32 policyId = _install(binding);
+        assertTrue(policyManager.isPolicyInstalled(address(installPolicy), policyId));
     }
 
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.

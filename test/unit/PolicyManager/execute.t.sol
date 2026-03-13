@@ -29,8 +29,8 @@ contract ExecuteTest is PolicyManagerTestBase {
     function _expectRevertBeforeValidAfter(
         bytes32 policyId,
         uint40 validAfter,
-        bytes calldata policyConfig,
-        bytes calldata executionData
+        bytes memory policyConfig,
+        bytes memory executionData
     ) internal {
         vm.expectRevert(
             abi.encodeWithSelector(PolicyManager.BeforeValidAfter.selector, uint40(block.timestamp), validAfter)
@@ -47,8 +47,8 @@ contract ExecuteTest is PolicyManagerTestBase {
     function _expectRevertAfterValidUntil(
         bytes32 policyId,
         uint40 validUntil,
-        bytes calldata policyConfig,
-        bytes calldata executionData
+        bytes memory policyConfig,
+        bytes memory executionData
     ) internal {
         vm.expectRevert(
             abi.encodeWithSelector(PolicyManager.AfterValidUntil.selector, uint40(block.timestamp), validUntil)
@@ -146,31 +146,32 @@ contract ExecuteTest is PolicyManagerTestBase {
         policyManager.execute(address(callPolicy), policyId, executePolicyConfig, executionData);
     }
 
-    /// @notice Reverts when current timestamp is before `validAfter`.
+    /// @notice Reverts when current timestamp is before `validAfter` and execution produces an account action.
     ///
-    /// @dev Expects `PolicyManager.BeforeValidAfter`.
+    /// @dev Expects `PolicyManager.BeforeValidAfter`. Uses valid `ForwardCall`-encoded execution data so
+    ///      the policy returns non-empty `accountCallData`, which triggers the validity window check.
     ///
     /// @param validAfter Binding lower bound (seconds). Zero means "no lower bound" and is excluded by bounding.
     /// @param beforeOffset Seed used to pick a timestamp strictly before `validAfter`.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the binding (hashed into `policyId`).
-    /// @param policyConfig Opaque config bytes forwarded to the policy during `execute`.
-    /// @param executionData Opaque execution bytes forwarded to the policy during `execute`.
-    function test_reverts_whenBeforeValidAfter(
-        uint40 validAfter,
-        uint40 beforeOffset,
-        bytes32 configSeed,
-        uint256 salt,
-        bytes calldata policyConfig,
-        bytes calldata executionData
-    ) public {
-        vm.assume(policyConfig.length <= MAX_BYTES_LEN);
-        vm.assume(executionData.length <= MAX_BYTES_LEN);
-
+    function test_reverts_whenBeforeValidAfter(uint40 validAfter, uint40 beforeOffset, bytes32 configSeed, uint256 salt)
+        public
+    {
         validAfter = uint40(bound(uint256(validAfter), 1, uint256(type(uint40).max)));
 
         vm.warp(uint256(validAfter));
-        (bytes32 policyId,) = _installCallPolicy(abi.encode(configSeed), salt, validAfter, 0);
+        (bytes32 policyId, bytes memory policyConfig) = _installCallPolicy(abi.encode(configSeed), salt, validAfter, 0);
+
+        // Build valid execution data that produces non-empty accountCallData.
+        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
+            target: address(receiver),
+            value: 0,
+            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
+            revertOnExecute: false,
+            postAction: CallForwardingPolicy.PostAction.None
+        });
+        bytes memory executionData = abi.encode(f);
 
         // Choose any timestamp strictly before `validAfter` without discarding fuzz cases.
         uint40 nowTs = uint40(uint256(beforeOffset) % uint256(validAfter));
@@ -178,32 +179,33 @@ contract ExecuteTest is PolicyManagerTestBase {
         _expectRevertBeforeValidAfter(policyId, validAfter, policyConfig, executionData);
     }
 
-    /// @notice Reverts when current timestamp is at/after `validUntil`.
+    /// @notice Reverts when current timestamp is at/after `validUntil` and execution produces an account action.
     ///
-    /// @dev Expects `PolicyManager.AfterValidUntil`.
+    /// @dev Expects `PolicyManager.AfterValidUntil`. Uses valid `ForwardCall`-encoded execution data so
+    ///      the policy returns non-empty `accountCallData`, which triggers the validity window check.
     ///
     /// @param validUntil Binding upper bound (seconds). Zero means "no upper bound" and is excluded by bounding.
     /// @param afterOffset Seed used to pick a timestamp at/after `validUntil`.
     /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
     /// @param salt Salt used to build the binding (hashed into `policyId`).
-    /// @param policyConfig Opaque config bytes forwarded to the policy during `execute`.
-    /// @param executionData Opaque execution bytes forwarded to the policy during `execute`.
-    function test_reverts_whenAfterValidUntil(
-        uint40 validUntil,
-        uint40 afterOffset,
-        bytes32 configSeed,
-        uint256 salt,
-        bytes calldata policyConfig,
-        bytes calldata executionData
-    ) public {
-        vm.assume(policyConfig.length <= MAX_BYTES_LEN);
-        vm.assume(executionData.length <= MAX_BYTES_LEN);
-
+    function test_reverts_whenAfterValidUntil(uint40 validUntil, uint40 afterOffset, bytes32 configSeed, uint256 salt)
+        public
+    {
         vm.warp(1_000_000);
         uint40 nowTs = uint40(block.timestamp);
         validUntil = uint40(bound(uint256(validUntil), uint256(nowTs) + 1, uint256(type(uint40).max)));
 
-        (bytes32 policyId,) = _installCallPolicy(abi.encode(configSeed), salt, 0, validUntil);
+        (bytes32 policyId, bytes memory policyConfig) = _installCallPolicy(abi.encode(configSeed), salt, 0, validUntil);
+
+        // Build valid execution data that produces non-empty accountCallData.
+        CallForwardingPolicy.ForwardCall memory f = CallForwardingPolicy.ForwardCall({
+            target: address(receiver),
+            value: 0,
+            data: abi.encodeWithSelector(receiver.ping.selector, bytes32(0)),
+            revertOnExecute: false,
+            postAction: CallForwardingPolicy.PostAction.None
+        });
+        bytes memory executionData = abi.encode(f);
 
         // Choose any timestamp at/after `validUntil` without discarding fuzz cases.
         uint40 range = type(uint40).max - validUntil + 1;
