@@ -65,7 +65,7 @@ abstract contract Policy {
     ///
     /// @param policyManager_ Address of the `PolicyManager` authorized to call this policy's hooks.
     constructor(address policyManager_) {
-        if (address(policyManager_).code.length == 0) revert PolicyManagerNotContract(policyManager_);
+        if (_isNotPersistentCode(policyManager_)) revert PolicyManagerNotContract(policyManager_);
         policyManager = PolicyManager(policyManager_);
     }
 
@@ -300,6 +300,18 @@ abstract contract Policy {
     /// @dev Requires `msg.sender` to equal `sender`.
     function _requireSender(address sender) internal view {
         if (msg.sender != sender) revert InvalidCaller(msg.sender, sender);
+    }
+
+    /// @notice Returns true if `addr` has no deployed code or has an EIP-7702 delegation indicator.
+    ///
+    /// @dev EIP-7702 delegation indicators are exactly 23 bytes starting with `0xef0100`. Such addresses are EOAs
+    ///      that have delegated their code to another contract and may revoke the delegation at any time.
+    ///      Infrastructure addresses (PolicyManager, vaults, Morpho) must be permanently deployed contracts.
+    function _isNotPersistentCode(address addr) internal view returns (bool) {
+        bytes memory code = addr.code;
+        if (code.length == 0) return true;
+        if (code.length == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00) return true;
+        return false;
     }
 }
 

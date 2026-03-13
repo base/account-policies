@@ -115,7 +115,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     constructor(address policyManager, address admin, address morpho_)
         SingleExecutorAuthorizedPolicy(policyManager, admin)
     {
-        if (morpho_.code.length == 0) revert MorphoNotContract(morpho_);
+        if (_isNotPersistentCode(morpho_)) revert MorphoNotContract(morpho_);
         MORPHO = morpho_;
     }
 

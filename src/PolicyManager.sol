@@ -241,9 +241,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param publicERC6492Validator ERC-6492 validator used for account signatures (and counterfactual side effects).
     constructor(PublicERC6492Validator publicERC6492Validator) {
-        if (address(publicERC6492Validator).code.length == 0) {
-            revert ValidatorNotContract(address(publicERC6492Validator));
-        }
+        bytes memory code = address(publicERC6492Validator).code;
+        bool notPersistent =
+            code.length == 0 || (code.length == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00);
+        if (notPersistent) revert ValidatorNotContract(address(publicERC6492Validator));
         PUBLIC_ERC6492_VALIDATOR = publicERC6492Validator;
     }
 

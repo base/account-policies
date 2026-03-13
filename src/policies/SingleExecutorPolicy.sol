@@ -160,7 +160,7 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///
     /// @param newPolicyManager Address of the new PolicyManager.
     function setPolicyManager(address newPolicyManager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (newPolicyManager.code.length == 0) revert PolicyManagerNotContract(newPolicyManager);
+        if (_isNotPersistentCode(newPolicyManager)) revert PolicyManagerNotContract(newPolicyManager);
         address oldManager = address(policyManager);
         policyManager = PolicyManager(newPolicyManager);
         emit PolicyManagerUpdated(oldManager, newPolicyManager);
