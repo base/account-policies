@@ -631,7 +631,7 @@ contract ReplaceTest is PolicyManagerTestBase {
         assertTrue(newPolicy.newPolicyCalled());
     }
 
-    /// @notice Old policy uninstall hook revert cannot block replacement when effective caller is the account.
+    /// @notice Old policy uninstall hook revert cannot block replacement (reverts are unconditionally swallowed).
     function test_oldPolicyHookRevert_doesNotBlockReplace() public {
         RevertOnUninstallForReplacePolicy oldPolicy = new RevertOnUninstallForReplacePolicy(address(policyManager));
 
