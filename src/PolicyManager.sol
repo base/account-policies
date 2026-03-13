@@ -180,7 +180,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Thrown when attempting an action on an uninstalled policyId.
     error PolicyIsDisabled(bytes32 policyId);
 
-    /// @notice Thrown when attempting to install a policyId that is already installed.
+    /// @notice Thrown during `replace` when the new policyId is already installed (and the replacement end state
+    ///         has not been fully reached).
     error PolicyAlreadyInstalled(bytes32 policyId);
 
     /// @notice Thrown when an EIP-712 signature is past its deadline.
