@@ -83,12 +83,8 @@ abstract contract Policy {
     /// @param policyId Deterministic policy identifier derived from the binding.
     /// @param account Account that installed the policy.
     /// @param policyConfig Full config preimage bytes.
-    /// @param effectiveCaller Effective caller forwarded by the manager (usually `msg.sender` of the manager call).
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address effectiveCaller)
-        external
-        onlyPolicyManager
-    {
-        _onInstall(policyId, account, policyConfig, effectiveCaller);
+    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig) external onlyPolicyManager {
+        _onInstall(policyId, account, policyConfig);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call.
@@ -163,8 +159,8 @@ abstract contract Policy {
     ///      independent payloads so they can be developed without knowledge of each other.
     ///
     /// Default behavior:
-    /// - `role == OldPolicy`: delegates to `_onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
-    /// - `role == NewPolicy`: delegates to `_onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller)`
+    /// - `role == OldPolicy`: delegates to `_onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId)`
+    /// - `role == NewPolicy`: delegates to `_onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId)`
     ///
     /// @param policyId Policy identifier for this policy instance (old or new depending on `role`).
     /// @param account Account associated with the replacement.
@@ -178,7 +174,6 @@ abstract contract Policy {
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
     /// @param role Whether this hook is being invoked for the old policy or the new policy.
-    /// @param effectiveCaller Effective caller forwarded by the manager.
     function onReplace(
         bytes32 policyId,
         address account,
@@ -186,17 +181,12 @@ abstract contract Policy {
         bytes calldata replaceData,
         address otherPolicy,
         bytes32 otherPolicyId,
-        ReplaceRole role,
-        address effectiveCaller
+        ReplaceRole role
     ) external onlyPolicyManager {
         if (role == ReplaceRole.OldPolicy) {
-            _onUninstallForReplace(
-                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
-            );
+            _onUninstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId);
         } else {
-            _onInstallForReplace(
-                policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId, effectiveCaller
-            );
+            _onInstallForReplace(policyId, account, policyConfig, replaceData, otherPolicy, otherPolicyId);
         }
     }
 
@@ -205,7 +195,7 @@ abstract contract Policy {
     ////////////////////////////////////////////////////////////////
 
     /// @dev Policy-specific install hook. Revert to refuse installation.
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig) internal virtual;
 
     /// @dev Policy-specific execute hook. Called on every execution path including `installWithSignature` and
     ///      `replaceWithSignature`. Implementations MUST handle empty `executionData` (e.g., return all-empty to
@@ -243,7 +233,9 @@ abstract contract Policy {
     ///
     /// @dev Override to implement replacement-aware uninstallation logic.
     ///
-    /// Default behavior: delegates to `_onUninstall(..., uninstallData=replaceData, caller=effectiveCaller)`.
+    /// Default behavior: delegates to `_onUninstall(..., uninstallData=replaceData, caller=account)`.
+    /// The account is always the effective caller during replacement because the account authorized the operation
+    /// (directly via `replace()` or via signature in `replaceWithSignature()`).
     ///
     /// @param policyId Policy identifier for this (old) policy instance.
     /// @param account Account associated with the replacement.
@@ -252,26 +244,24 @@ abstract contract Policy {
     ///        `ReplacePayload`). Default implementation forwards this as `uninstallData` to `_onUninstall`.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
-    /// @param effectiveCaller Effective caller forwarded by the manager.
     function _onUninstallForReplace(
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
         bytes calldata replaceData,
         address otherPolicy,
-        bytes32 otherPolicyId,
-        address effectiveCaller
+        bytes32 otherPolicyId
     ) internal virtual {
         otherPolicy;
         otherPolicyId;
-        _onUninstall(policyId, account, policyConfig, replaceData, effectiveCaller);
+        _onUninstall(policyId, account, policyConfig, replaceData, account);
     }
 
     /// @notice Policy-specific replacement install hook.
     ///
     /// @dev Override to implement replacement-aware installation logic.
     ///
-    /// Default behavior: delegates to `_onInstall(..., caller=effectiveCaller)`.
+    /// Default behavior: delegates to `_onInstall(...)`.
     ///
     /// @param policyId Policy identifier for this (new) policy instance.
     /// @param account Account associated with the replacement.
@@ -280,20 +270,18 @@ abstract contract Policy {
     ///        `ReplacePayload`). Default implementation ignores this value.
     /// @param otherPolicy The other policy contract involved in the replacement.
     /// @param otherPolicyId The other policyId involved in the replacement.
-    /// @param effectiveCaller Effective caller forwarded by the manager.
     function _onInstallForReplace(
         bytes32 policyId,
         address account,
         bytes calldata policyConfig,
         bytes calldata replaceData,
         address otherPolicy,
-        bytes32 otherPolicyId,
-        address effectiveCaller
+        bytes32 otherPolicyId
     ) internal virtual {
         replaceData;
         otherPolicy;
         otherPolicyId;
-        _onInstall(policyId, account, policyConfig, effectiveCaller);
+        _onInstall(policyId, account, policyConfig);
     }
 
     ////////////////////////////////////////////////////////////////

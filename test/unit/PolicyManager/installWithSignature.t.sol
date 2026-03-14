@@ -348,10 +348,11 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         assertEq(validUntil, binding.validUntil);
     }
 
-    /// @notice Forwards the manager caller as the effective caller to the policy install hook.
+    /// @notice Forwards the correct account to the policy install hook regardless of the transaction submitter.
     ///
-    /// @dev When installWithSignature is called by a relayer, effectiveCaller = msg.sender (relayer).
-    function test_callsOnInstall_forwardsManagerMsgSender_asEffectiveCaller() public {
+    /// @dev When installWithSignature is called by a relayer, the policy install hook still receives the account
+    ///      that authorized the installation (not the relayer).
+    function test_callsOnInstall_forwardsAccount_regardlessOfCaller() public {
         address relayer = address(0x123);
         bytes memory policyConfig = abi.encode(bytes32(0));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, 0);
@@ -360,7 +361,6 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         vm.prank(relayer);
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
 
-        assertEq(installPolicy.lastEffectiveCaller(), relayer);
         assertEq(installPolicy.lastAccount(), address(account));
     }
 

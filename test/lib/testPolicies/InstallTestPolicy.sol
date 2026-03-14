@@ -15,18 +15,13 @@ contract InstallTestPolicy is Policy {
     bytes32 public lastPolicyId;
     address public lastAccount;
     bytes public lastPolicyConfig;
-    address public lastEffectiveCaller;
 
     constructor(address policyManager) Policy(policyManager) {}
 
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address effectiveCaller)
-        internal
-        override
-    {
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig) internal override {
         lastPolicyId = policyId;
         lastAccount = account;
         lastPolicyConfig = policyConfig;
-        lastEffectiveCaller = effectiveCaller;
 
         // Sentinel: any config whose first byte is 0xff triggers a revert for revert-bubbling tests.
         if (policyConfig.length > 0 && policyConfig[0] == 0xff) revert OnInstallReverted();

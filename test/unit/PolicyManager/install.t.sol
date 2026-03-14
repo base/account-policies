@@ -229,19 +229,18 @@ contract InstallTest is PolicyManagerTestBase {
         assertEq(validUntil, binding.validUntil);
     }
 
-    /// @notice Calls the policy hook with the account as effective caller.
+    /// @notice Calls the policy install hook with the correct account.
     ///
-    /// @dev Verifies `policy.onInstall(..., effectiveCaller)` receives `binding.account` as `effectiveCaller`.
+    /// @dev Verifies `policy.onInstall(policyId, account, policyConfig)` receives `binding.account`.
     ///
     /// @param configSeed Seed used to build the committed config bytes.
     /// @param salt Salt used to derive the policyId.
-    function test_callsOnInstall_withAccountAsCaller(bytes32 configSeed, uint256 salt) public {
+    function test_callsOnInstall_withAccount(bytes32 configSeed, uint256 salt) public {
         bytes memory policyConfig = abi.encode(_safeConfigSeed(configSeed));
         PolicyManager.PolicyBinding memory binding = _binding(address(installPolicy), policyConfig, salt);
 
         _install(binding);
 
-        assertEq(installPolicy.lastEffectiveCaller(), address(account));
         assertEq(installPolicy.lastAccount(), address(account));
     }
 
