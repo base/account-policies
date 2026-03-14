@@ -33,7 +33,7 @@ abstract contract SingleExecutorAuthorizedPolicy is SingleExecutorPolicy {
     ///
     /// @dev Single-executor install hook: stores config hash, decodes `SingleExecutorConfig`, validates non-zero
     ///      executor, and calls `_onSingleExecutorInstall`.
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address) internal override {
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig) internal override {
         _storeConfigHash(policyId, policyConfig);
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory policySpecificConfig) =
             _decodeSingleExecutorConfig(policyConfig);

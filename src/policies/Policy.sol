@@ -83,12 +83,8 @@ abstract contract Policy {
     /// @param policyId Deterministic policy identifier derived from the binding.
     /// @param account Account that installed the policy.
     /// @param policyConfig Full config preimage bytes.
-    /// @param effectiveCaller Effective caller forwarded by the manager (usually `msg.sender` of the manager call).
-    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address effectiveCaller)
-        external
-        onlyPolicyManager
-    {
-        _onInstall(policyId, account, policyConfig, effectiveCaller);
+    function onInstall(bytes32 policyId, address account, bytes calldata policyConfig) external onlyPolicyManager {
+        _onInstall(policyId, account, policyConfig);
     }
 
     /// @notice Authorize the execution and build the account call and optional post-call.
@@ -199,7 +195,7 @@ abstract contract Policy {
     ////////////////////////////////////////////////////////////////
 
     /// @dev Policy-specific install hook. Revert to refuse installation.
-    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig, address caller) internal virtual;
+    function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig) internal virtual;
 
     /// @dev Policy-specific execute hook. Called on every execution path including `installWithSignature` and
     ///      `replaceWithSignature`. Implementations MUST handle empty `executionData` (e.g., return all-empty to
@@ -265,9 +261,7 @@ abstract contract Policy {
     ///
     /// @dev Override to implement replacement-aware installation logic.
     ///
-    /// Default behavior: delegates to `_onInstall(..., caller=account)`.
-    /// The account is always the effective caller during replacement because the account authorized the operation
-    /// (directly via `replace()` or via signature in `replaceWithSignature()`).
+    /// Default behavior: delegates to `_onInstall(...)`.
     ///
     /// @param policyId Policy identifier for this (new) policy instance.
     /// @param account Account associated with the replacement.
@@ -287,7 +281,7 @@ abstract contract Policy {
         replaceData;
         otherPolicy;
         otherPolicyId;
-        _onInstall(policyId, account, policyConfig, account);
+        _onInstall(policyId, account, policyConfig);
     }
 
     ////////////////////////////////////////////////////////////////

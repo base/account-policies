@@ -14,7 +14,7 @@ contract RecordAccountOnUninstallPolicy is Policy {
 
     constructor(address policyManager) Policy(policyManager) {}
 
-    function _onInstall(bytes32, address, bytes calldata, address) internal override {}
+    function _onInstall(bytes32, address, bytes calldata) internal override {}
 
     function _onExecute(bytes32, address, bytes calldata, bytes calldata, address)
         internal

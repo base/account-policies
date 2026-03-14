@@ -574,7 +574,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             validUntil: binding.validUntil
         });
 
-        Policy(binding.policy).onInstall(policyId, binding.account, binding.policyConfig, msg.sender);
+        Policy(binding.policy).onInstall(policyId, binding.account, binding.policyConfig);
 
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
