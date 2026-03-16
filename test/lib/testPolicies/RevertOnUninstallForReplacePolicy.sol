@@ -14,7 +14,7 @@ contract RevertOnUninstallForReplacePolicy is CallForwardingPolicy {
 
     constructor(address policyManager) CallForwardingPolicy(policyManager) {}
 
-    function _onUninstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32, address)
+    function _onUninstallForReplace(bytes32, address, bytes calldata, bytes calldata, address, bytes32)
         internal
         pure
         override

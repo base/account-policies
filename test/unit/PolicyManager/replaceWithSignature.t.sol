@@ -839,7 +839,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         assertTrue(newPolicy.newPolicyCalled());
     }
 
-    /// @notice Old policy uninstall hook revert cannot block replacement when effective caller is the account.
+    /// @notice Old policy uninstall hook revert cannot block replacement (reverts are unconditionally swallowed).
     function test_oldPolicyHookRevert_doesNotBlockReplace() public {
         RevertOnUninstallForReplacePolicy oldPolicy = new RevertOnUninstallForReplacePolicy(address(policyManager));
 
@@ -876,13 +876,13 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         assertTrue(policyManager.isPolicyActive(address(callPolicy), newPolicyId));
     }
 
-    /// @notice Reverts with Unauthorized when old policy's onReplace reverts and the caller is not the account.
+    /// @notice Old policy hook revert does not block replacement even when the caller is a relayer (not the account).
     ///
-    /// @dev The escape hatch only applies when `effectiveCaller == account`. When a third-party relayer calls
-    ///      `replaceWithSignature` and the old policy reverts, the manager must propagate Unauthorized.
+    /// @dev The account authorized the replacement (via signature), so hook reverts are unconditionally swallowed
+    ///      regardless of who submits the transaction. The relayer's identity is not propagated to the hook.
     ///
     /// @param relayer Fuzzed relayer address (must not be the account).
-    function test_reverts_whenOldPolicyHookReverts_andCallerIsNotAccount(address relayer) public {
+    function test_oldPolicyHookRevert_doesNotBlockReplace_whenCallerIsNotAccount(address relayer) public {
         vm.assume(relayer != address(account));
         vm.assume(relayer != address(0));
 
@@ -915,9 +915,10 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyManager.Unauthorized.selector, relayer));
         vm.prank(relayer);
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+
+        assertTrue(policyManager.isPolicyActive(address(callPolicy), newPolicyId));
     }
 
     /// @notice When the replace end state is already reached and no execution data is provided, the replace is

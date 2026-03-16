@@ -574,7 +574,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             validUntil: binding.validUntil
         });
 
-        Policy(binding.policy).onInstall(policyId, binding.account, binding.policyConfig, msg.sender);
+        Policy(binding.policy).onInstall(policyId, binding.account, binding.policyConfig);
 
         emit PolicyInstalled(policyId, binding.account, binding.policy);
 
@@ -726,7 +726,8 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Atomically uninstall an existing policy instance and install a new one.
     ///
     /// @dev Shared implementation for `replace` and `replaceWithSignature`.
-    ///      - Uninstalls via `Policy.onReplace(..., role=OldPolicy, ...)` (escape hatch enforced).
+    ///      - Uninstalls via `Policy.onReplace(..., role=OldPolicy, ...)`; hook reverts are unconditionally
+    ///        swallowed because the account authorized the replacement.
     ///      - Installs via `Policy.onReplace(..., role=NewPolicy, ...)`.
     ///      - Emits `PolicyUninstalled` (old), `PolicyInstalled` (new), and `PolicyReplaced`.
     ///
@@ -774,8 +775,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             payload.oldPolicyConfig,
             payload.oldPolicyReplaceData,
             payload.newBinding.policy,
-            newPolicyId,
-            msg.sender
+            newPolicyId
         );
 
         _installForReplace(
@@ -796,8 +796,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Uninstalls a policyId while invoking the replacement-aware policy hook.
     ///
-    /// @dev Mirrors `_uninstall` semantics (including the account escape hatch) but calls `Policy.onReplace` with
-    ///      `role == OldPolicy` so the policy can distinguish replacement from a standalone uninstallation.
+    /// @dev Mirrors `_uninstall` semantics but calls `Policy.onReplace` with `role == OldPolicy` so the policy can
+    ///      distinguish replacement from a standalone uninstallation.
+    ///
+    ///      The account always authorized the replacement (directly via `replace()` or via signature in
+    ///      `replaceWithSignature()`), so hook reverts are unconditionally swallowed — the escape hatch is implicit.
     ///
     ///      The caller (`_replace`) must have already validated `policyRecord.installed` and `!policyRecord.uninstalled`.
     ///
@@ -808,7 +811,6 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param oldPolicyReplaceData Policy-defined replacement payload forwarded to the old policy's `onReplace` hook.
     /// @param otherPolicy New policy contract address being installed.
     /// @param otherPolicyId Policy identifier for the new binding.
-    /// @param effectiveCaller Effective caller forwarded by the manager (used for authorization + escape hatch).
     function _uninstallForReplace(
         PolicyRecord storage policyRecord,
         address policy,
@@ -816,8 +818,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         bytes memory policyConfig,
         bytes calldata oldPolicyReplaceData,
         address otherPolicy,
-        bytes32 otherPolicyId,
-        address effectiveCaller
+        bytes32 otherPolicyId
     ) internal {
         policyRecord.uninstalled = true;
         try Policy(policy)
@@ -828,21 +829,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 oldPolicyReplaceData,
                 otherPolicy,
                 otherPolicyId,
-                Policy.ReplaceRole.OldPolicy,
-                effectiveCaller
+                Policy.ReplaceRole.OldPolicy
             ) {}
-        catch {
-            if (effectiveCaller != policyRecord.account) revert Unauthorized(effectiveCaller);
-        }
+            catch {}
         emit PolicyUninstalled(policyId, policyRecord.account, policy);
     }
 
     /// @notice Installs a policy instance while invoking the replacement-aware policy hook.
     ///
     /// @dev Mirrors `_install` semantics but calls `Policy.onReplace` with `role == NewPolicy` so the policy can
-    ///      distinguish replacement from a standalone installation. The `effectiveCaller` passed to the hook is
-    ///      `binding.account` (not `msg.sender`) so both the old-policy uninstall and new-policy install see a
-    ///      consistent caller identity — the account that authorized the replacement.
+    ///      distinguish replacement from a standalone installation.
     ///
     ///      The caller (`_replace`) must have already validated `!policyRecord.installed` and `!policyRecord.uninstalled`.
     ///
@@ -880,8 +876,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 newPolicyReplaceData,
                 otherPolicy,
                 otherPolicyId,
-                Policy.ReplaceRole.NewPolicy,
-                account
+                Policy.ReplaceRole.NewPolicy
             );
         emit PolicyInstalled(policyId, account, binding.policy);
     }
