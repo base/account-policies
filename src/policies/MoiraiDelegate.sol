@@ -138,14 +138,10 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @inheritdoc Policy
     ///
     /// @dev During replacement the account has already authorized the operation. Allow it and clean up state.
-    function _onUninstallForReplace(
-        bytes32 policyId,
-        address,
-        bytes calldata,
-        bytes calldata,
-        address,
-        bytes32
-    ) internal override {
+    function _onUninstallForReplace(bytes32 policyId, address, bytes calldata, bytes calldata, address, bytes32)
+        internal
+        override
+    {
         delete _executed[policyId];
         delete _configHashByPolicyId[policyId];
     }
