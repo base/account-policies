@@ -174,8 +174,8 @@ contract AccessControlTest is SingleExecutorAuthorizedPolicyTestBase {
         policy.grantRole(pauserRole, makeAddr("other"));
     }
 
-    /// @notice Pauser without admin role cannot call setPolicyManager.
-    function test_pauserCannotSetPolicyManager() public {
+    /// @notice Pauser without admin role cannot call addPolicyManager.
+    function test_pauserCannotAddPolicyManager() public {
         vm.prank(owner);
         policy.grantRole(pauserRole, pauser);
 
@@ -183,7 +183,7 @@ contract AccessControlTest is SingleExecutorAuthorizedPolicyTestBase {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, pauser, adminRole)
         );
         vm.prank(pauser);
-        policy.setPolicyManager(address(policyManager));
+        policy.addPolicyManager(address(policyManager));
     }
 
     // =============================================================

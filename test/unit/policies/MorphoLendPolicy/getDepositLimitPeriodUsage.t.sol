@@ -39,7 +39,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
                 SingleExecutorPolicy.PolicyConfigHashMismatch.selector, keccak256(wrongConfig), keccak256(policyConfig)
             )
         );
-        policy.getDepositLimitPeriodUsage(policyId, address(account), wrongConfig);
+        policy.getDepositLimitPeriodUsage(policyId, address(policyManager), wrongConfig);
     }
 
     // =============================================================
@@ -51,7 +51,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
         bytes32 policyId = policyManager.getPolicyId(binding);
 
         (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current) =
-            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+            policy.getDepositLimitPeriodUsage(policyId, address(policyManager), policyConfig);
 
         assertEq(lastUpdated.spend, 0);
         assertEq(current.spend, 0);
@@ -68,7 +68,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
 
         bytes32 policyId = policyManager.getPolicyId(binding);
         (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current) =
-            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+            policy.getDepositLimitPeriodUsage(policyId, address(policyManager), policyConfig);
 
         assertEq(lastUpdated.spend, depositAssets);
         assertEq(current.spend, depositAssets);
@@ -96,7 +96,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
 
         bytes32 policyId = policyManager.getPolicyId(binding);
         (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current) =
-            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+            policy.getDepositLimitPeriodUsage(policyId, address(policyManager), policyConfig);
 
         assertEq(lastUpdated.spend, first + second);
         assertEq(current.spend, first + second);
@@ -116,7 +116,7 @@ contract GetDepositLimitPeriodUsageTest is MorphoLendPolicyTestBase {
 
         bytes32 policyId = policyManager.getPolicyId(binding);
         (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current) =
-            policy.getDepositLimitPeriodUsage(policyId, address(account), policyConfig);
+            policy.getDepositLimitPeriodUsage(policyId, address(policyManager), policyConfig);
 
         // Stored snapshot retains the deposit from the previous period
         assertEq(lastUpdated.spend, depositAssets);

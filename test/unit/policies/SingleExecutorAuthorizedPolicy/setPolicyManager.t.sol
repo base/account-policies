@@ -11,12 +11,93 @@ import {
     SingleExecutorAuthorizedTestPolicy
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/SingleExecutorAuthorizedPolicyTestBase.sol";
 
-/// @title SetPolicyManagerTest
+/// @title AddPolicyManagerTest
 ///
-/// @notice Test contract for `SingleExecutorPolicy.setPolicyManager`.
-contract SetPolicyManagerTest is SingleExecutorAuthorizedPolicyTestBase {
+/// @notice Test contract for `SingleExecutorPolicy.addPolicyManager`.
+contract AddPolicyManagerTest is SingleExecutorAuthorizedPolicyTestBase {
     function setUp() public {
         setUpSingleExecutorBase();
+    }
+
+    // =============================================================
+    // Reverts
+    // =============================================================
+
+    /// @notice Reverts when caller lacks DEFAULT_ADMIN_ROLE.
+    ///
+    /// @param caller Non-admin caller.
+    function test_reverts_whenCallerLacksAdminRole(address caller) public {
+        vm.assume(!policy.hasRole(policy.DEFAULT_ADMIN_ROLE(), caller));
+        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, caller, policy.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(caller);
+        policy.addPolicyManager(newManager);
+    }
+
+    /// @notice Reverts when the new policy manager address has no deployed code.
+    ///
+    /// @param newManager Fuzzed non-contract address.
+    function test_reverts_whenNewManagerNotContract(address newManager) public {
+        vm.assume(newManager.code.length == 0);
+
+        vm.expectRevert(abi.encodeWithSelector(Policy.PolicyManagerNotContract.selector, newManager));
+        vm.prank(owner);
+        policy.addPolicyManager(newManager);
+    }
+
+    /// @notice Reverts when the manager is already authorized.
+    function test_reverts_whenManagerAlreadyAuthorized() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(SingleExecutorPolicy.ManagerAlreadyAuthorized.selector, address(policyManager))
+        );
+        vm.prank(owner);
+        policy.addPolicyManager(address(policyManager));
+    }
+
+    // =============================================================
+    // Success
+    // =============================================================
+
+    /// @notice Adds a new authorized manager.
+    function test_addsNewManager() public {
+        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
+
+        vm.prank(owner);
+        policy.addPolicyManager(newManager);
+
+        assertTrue(policy.isAuthorizedManager(newManager));
+        assertEq(policy.managerCount(), 2);
+    }
+
+    /// @notice Emits PolicyManagerAdded when a new manager is authorized.
+    function test_emitsPolicyManagerAdded() public {
+        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
+
+        vm.expectEmit(true, true, true, true, address(policy));
+        emit SingleExecutorPolicy.PolicyManagerAdded(newManager);
+        vm.prank(owner);
+        policy.addPolicyManager(newManager);
+    }
+}
+
+/// @title RemovePolicyManagerTest
+///
+/// @notice Test contract for `SingleExecutorPolicy.removePolicyManager`.
+contract RemovePolicyManagerTest is SingleExecutorAuthorizedPolicyTestBase {
+    address internal secondManager;
+
+    function setUp() public {
+        setUpSingleExecutorBase();
+
+        // Add a second manager so we can test removal without hitting the "last manager" guard.
+        secondManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
+        vm.prank(owner);
+        policy.addPolicyManager(secondManager);
     }
 
     // =============================================================
@@ -35,42 +116,49 @@ contract SetPolicyManagerTest is SingleExecutorAuthorizedPolicyTestBase {
             )
         );
         vm.prank(caller);
-        policy.setPolicyManager(address(policyManager));
+        policy.removePolicyManager(secondManager);
     }
 
-    /// @notice Reverts when the new policy manager address has no deployed code.
+    /// @notice Reverts when the manager is not currently authorized.
     ///
-    /// @param newManager Fuzzed non-contract address.
-    function test_reverts_whenNewManagerNotContract(address newManager) public {
-        vm.assume(newManager.code.length == 0);
+    /// @param unknownManager Fuzzed address that is not an authorized manager.
+    function test_reverts_whenManagerNotAuthorized(address unknownManager) public {
+        vm.assume(!policy.isAuthorizedManager(unknownManager));
 
-        vm.expectRevert(abi.encodeWithSelector(Policy.PolicyManagerNotContract.selector, newManager));
+        vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.ManagerNotAuthorized.selector, unknownManager));
         vm.prank(owner);
-        policy.setPolicyManager(newManager);
+        policy.removePolicyManager(unknownManager);
+    }
+
+    /// @notice Reverts when attempting to remove the last remaining manager.
+    function test_reverts_whenRemovingLastManager() public {
+        // Remove secondManager first, leaving only the original.
+        vm.prank(owner);
+        policy.removePolicyManager(secondManager);
+
+        vm.expectRevert(SingleExecutorPolicy.CannotRemoveLastManager.selector);
+        vm.prank(owner);
+        policy.removePolicyManager(address(policyManager));
     }
 
     // =============================================================
     // Success
     // =============================================================
 
-    /// @notice Updates the stored policy manager address.
-    function test_updatesPolicyManager() public {
-        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
-
+    /// @notice Removes an authorized manager.
+    function test_removesManager() public {
         vm.prank(owner);
-        policy.setPolicyManager(newManager);
+        policy.removePolicyManager(secondManager);
 
-        assertEq(address(policy.policyManager()), newManager);
+        assertFalse(policy.isAuthorizedManager(secondManager));
+        assertEq(policy.managerCount(), 1);
     }
 
-    /// @notice Emits PolicyManagerUpdated with old and new addresses.
-    function test_emitsPolicyManagerUpdated() public {
-        address newManager = address(new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner));
-        address oldManager = address(policy.policyManager());
-
+    /// @notice Emits PolicyManagerRemoved when a manager is deauthorized.
+    function test_emitsPolicyManagerRemoved() public {
         vm.expectEmit(true, true, true, true, address(policy));
-        emit SingleExecutorPolicy.PolicyManagerUpdated(oldManager, newManager);
+        emit SingleExecutorPolicy.PolicyManagerRemoved(secondManager);
         vm.prank(owner);
-        policy.setPolicyManager(newManager);
+        policy.removePolicyManager(secondManager);
     }
 }

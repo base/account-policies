@@ -143,6 +143,6 @@ contract InstallTest is MorphoLendPolicyTestBase {
 
         bytes32 policyId = policyManager.getPolicyId(b);
         // getDepositLimitPeriodUsage calls _requireConfigHash internally — success proves the hash was stored
-        policy.getDepositLimitPeriodUsage(policyId, address(account), config);
+        policy.getDepositLimitPeriodUsage(policyId, address(policyManager), config);
     }
 }

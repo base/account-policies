@@ -26,14 +26,15 @@ contract ConstructorTest is SingleExecutorAuthorizedPolicyTestBase {
         new SingleExecutorAuthorizedTestPolicy(policyManagerAddr, address(0));
     }
 
-    /// @notice Stores the PolicyManager address.
+    /// @notice Authorizes the initial PolicyManager.
     ///
     /// @param policyManagerAddr Fuzzed address to set as PolicyManager (etched with code).
-    function test_setsPolicyManager(address policyManagerAddr) public {
+    function test_authorizesInitialManager(address policyManagerAddr) public {
         vm.assume(uint160(policyManagerAddr) > 10);
         vm.etch(policyManagerAddr, hex"00");
         SingleExecutorAuthorizedTestPolicy p = new SingleExecutorAuthorizedTestPolicy(policyManagerAddr, owner);
-        assertEq(address(p.policyManager()), policyManagerAddr);
+        assertTrue(p.isAuthorizedManager(policyManagerAddr));
+        assertEq(p.managerCount(), 1);
     }
 
     /// @notice Grants DEFAULT_ADMIN_ROLE to the admin address.
