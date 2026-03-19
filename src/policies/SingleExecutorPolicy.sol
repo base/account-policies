@@ -47,6 +47,13 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     /// @notice Role identifier for addresses authorized to pause/unpause the policy.
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    /// @dev Set of authorized `PolicyManager` instances. Overrides the base `Policy.policyManager` single-address
+    ///      check to support multiple managers simultaneously during migration scenarios.
+    mapping(address manager => bool authorized) internal _authorizedManagers;
+
+    /// @dev Number of currently authorized managers.
+    uint256 internal _managerCount;
+
     /// @notice Stored config hash per policy instance.
     ///
     /// @dev Single-executor policies are calldata-heavy; they store only a hash and require the full config preimage
@@ -112,15 +119,37 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     /// @param executor Expected executor address.
     error UnauthorizedCanceller(address caller, address executor);
 
+    /// @notice Thrown when a caller is not an authorized PolicyManager.
+    ///
+    /// @param caller Actual caller.
+    error UnauthorizedManager(address caller);
+
+    /// @notice Thrown when attempting to add a manager that is already authorized.
+    ///
+    /// @param manager The already-authorized manager.
+    error ManagerAlreadyAuthorized(address manager);
+
+    /// @notice Thrown when attempting to remove a manager that is not authorized.
+    ///
+    /// @param manager The manager that is not authorized.
+    error ManagerNotAuthorized(address manager);
+
+    /// @notice Thrown when attempting to remove the last authorized manager.
+    error CannotRemoveLastManager();
+
     ////////////////////////////////////////////////////////////////
     ///                         Events                           ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Emitted when the authorized PolicyManager is updated.
+    /// @notice Emitted when a new PolicyManager is authorized.
     ///
-    /// @param oldManager The previous PolicyManager address.
-    /// @param newManager The new PolicyManager address.
-    event PolicyManagerUpdated(address oldManager, address newManager);
+    /// @param manager The newly authorized manager.
+    event PolicyManagerAdded(address manager);
+
+    /// @notice Emitted when a PolicyManager is deauthorized.
+    ///
+    /// @param manager The deauthorized manager.
+    event PolicyManagerRemoved(address manager);
 
     /// @notice Emitted when a nonce is explicitly cancelled.
     ///
@@ -130,15 +159,32 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     event NonceCancelled(bytes32 indexed policyId, uint256 nonce, address canceller);
 
     ////////////////////////////////////////////////////////////////
+    ///                        Modifiers                         ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Restricts execution to an authorized PolicyManager.
+    ///
+    /// @dev Overrides the base `Policy.onlyPolicyManager` to check the multi-manager mapping instead of the single
+    ///      stored `policyManager` address. This allows SingleExecutorPolicy subclasses to accept hook calls from
+    ///      multiple managers simultaneously during migration scenarios.
+    modifier onlyPolicyManager() override {
+        if (!_authorizedManagers[msg.sender]) revert UnauthorizedManager(msg.sender);
+        _;
+    }
+
+    ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Constructs the policy and grants the admin and pauser roles.
+    /// @notice Constructs the policy, registers the initial manager, and grants admin and pauser roles.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     constructor(address policyManager, address admin) Policy(policyManager) {
         if (admin == address(0)) revert ZeroAdmin();
+        _authorizedManagers[policyManager] = true;
+        _managerCount = 1;
+        emit PolicyManagerAdded(policyManager);
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
     }
@@ -147,23 +193,31 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Updates the authorized PolicyManager address.
+    /// @notice Authorizes an additional PolicyManager to call this policy's hooks.
     ///
-    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the new address has no deployed code.
+    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the address has no deployed code or is already
+    ///      authorized.
     ///
-    ///      WARNING: Changing the policy manager breaks several Policy-to-Manager assumptions. The new manager has no
-    ///      knowledge of install/uninstall state recorded by the old manager, so a policyId that was previously
-    ///      uninstalled could appear fresh and be reinstalled. Additionally, `_configHashByPolicyId` entries written
-    ///      during prior installs remain on the policy and may collide with new installs under the new manager.
-    ///      A replacement PolicyManager should account for prior install state (e.g. by reading the old manager's
-    ///      records) to preserve the one-install-per-policyId invariant.
+    ///      Intended for migration scenarios: when deploying a V2 PolicyManager, add it here so the policy accepts
+    ///      hook calls from both V1 and V2 during the transition window. V2 should be written to honor V1-installed
+    ///      policies (read-only passthrough) and only perform lifecycle operations (install/uninstall/replace) for
+    ///      its own natively-tracked policies.
     ///
-    /// @param newPolicyManager Address of the new PolicyManager.
-    function setPolicyManager(address newPolicyManager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (_isNotPersistentCode(newPolicyManager)) revert PolicyManagerNotContract(newPolicyManager);
-        address oldManager = address(policyManager);
-        policyManager = PolicyManager(newPolicyManager);
-        emit PolicyManagerUpdated(oldManager, newPolicyManager);
+    /// @param manager Address of the PolicyManager to authorize.
+    function addPolicyManager(address manager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+        _addPolicyManager(manager);
+    }
+
+    /// @notice Deauthorizes a PolicyManager from calling this policy's hooks.
+    ///
+    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the address is not currently authorized or if it is
+    ///      the last remaining manager (at least one must always be authorized).
+    ///
+    ///      Typically called after a migration is complete and all users have transitioned to V2.
+    ///
+    /// @param manager Address of the PolicyManager to deauthorize.
+    function removePolicyManager(address manager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+        _removePolicyManager(manager);
     }
 
     /// @notice Pauses execution for this policy.
@@ -220,9 +274,14 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
         _configHashByPolicyId[policyId] = keccak256(policyConfig);
     }
 
-    /// @dev Validate executor signature using the policy manager's validator (supports ERC-6492 side effects).
+    /// @dev Validate executor signature using the calling manager's validator (supports ERC-6492 side effects).
+    ///
+    ///      Uses `PolicyManager(msg.sender)` because this function is only called during `onExecute`, where
+    ///      `msg.sender` is always the calling PolicyManager. This naturally routes to the correct manager in a
+    ///      multi-manager scenario.
     function _isValidExecutorSig(address executor, bytes32 digest, bytes memory signature) internal returns (bool) {
-        return policyManager.PUBLIC_ERC6492_VALIDATOR().isValidSignatureNowAllowSideEffects(executor, digest, signature);
+        return PolicyManager(msg.sender).PUBLIC_ERC6492_VALIDATOR()
+            .isValidSignatureNowAllowSideEffects(executor, digest, signature);
     }
 
     /// @dev Reverts if `nonce` is already used for `policyId`, then marks it as used.
@@ -368,5 +427,37 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
         if (!_isValidExecutorSig(executor, digest, singleExecutorExecutionData.signature)) {
             revert Unauthorized(caller);
         }
+    }
+
+    /// @dev Registers a new authorized PolicyManager. Reverts if already authorized or not a contract.
+    function _addPolicyManager(address manager) internal {
+        if (_isNotPersistentCode(manager)) revert PolicyManagerNotContract(manager);
+        if (_authorizedManagers[manager]) revert ManagerAlreadyAuthorized(manager);
+        _authorizedManagers[manager] = true;
+        ++_managerCount;
+        emit PolicyManagerAdded(manager);
+    }
+
+    /// @dev Removes an authorized PolicyManager. Reverts if not authorized or if it's the last one.
+    function _removePolicyManager(address manager) internal {
+        if (!_authorizedManagers[manager]) revert ManagerNotAuthorized(manager);
+        if (_managerCount == 1) revert CannotRemoveLastManager();
+        _authorizedManagers[manager] = false;
+        --_managerCount;
+        emit PolicyManagerRemoved(manager);
+    }
+
+    ////////////////////////////////////////////////////////////////
+    ///                    Public View Functions                 ///
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Returns whether `manager` is an authorized PolicyManager.
+    function isAuthorizedManager(address manager) public view returns (bool) {
+        return _authorizedManagers[manager];
+    }
+
+    /// @notice Returns the number of currently authorized managers.
+    function managerCount() public view returns (uint256) {
+        return _managerCount;
     }
 }

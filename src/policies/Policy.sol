@@ -52,7 +52,9 @@ abstract contract Policy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Restricts execution to the configured PolicyManager.
-    modifier onlyPolicyManager() {
+    ///
+    /// @dev Virtual so subclasses can override with a different authorization strategy (e.g., multi-manager mapping).
+    modifier onlyPolicyManager() virtual {
         _requireSender(address(policyManager));
         _;
     }
