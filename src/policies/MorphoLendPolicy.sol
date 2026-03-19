@@ -5,6 +5,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {IMorphoVault} from "../interfaces/morpho/IMorphoVault.sol";
+import {PolicyManager} from "../PolicyManager.sol";
 import {SingleExecutorAuthorizedPolicy} from "./SingleExecutorAuthorizedPolicy.sol";
 import {RecurringAllowance} from "./accounting/RecurringAllowance.sol";
 
@@ -83,13 +84,16 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Return recurring deposit limit usage for a policy instance.
     ///
     /// @dev Requires the config preimage so the contract can decode `depositLimit` without storing it.
+    ///      The `manager` parameter specifies which PolicyManager to query for validity window timestamps. In a
+    ///      multi-manager scenario, the caller (frontend/backend) knows which manager governs the given policyId.
     ///
     /// @param policyId Policy identifier for the binding.
+    /// @param manager Address of the PolicyManager that manages this policyId.
     /// @param policyConfig Full config preimage bytes.
     ///
     /// @return lastUpdated Last stored period usage snapshot.
     /// @return current Current period usage computed from `depositLimit`.
-    function getDepositLimitPeriodUsage(bytes32 policyId, address, bytes calldata policyConfig)
+    function getDepositLimitPeriodUsage(bytes32 policyId, address manager, bytes calldata policyConfig)
         external
         view
         returns (RecurringAllowance.PeriodUsage memory lastUpdated, RecurringAllowance.PeriodUsage memory current)
@@ -100,7 +104,7 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         lastUpdated = RecurringAllowance.getLastUpdated(_depositLimitState, policyId);
         current = RecurringAllowance.getCurrentPeriod(
-            _depositLimitState, policyId, _addTimeBoundsToDepositLimit(policyId, lendPolicyConfig.depositLimit)
+            _depositLimitState, policyId, _addTimeBoundsToDepositLimit(policyId, manager, lendPolicyConfig.depositLimit)
         );
     }
 
@@ -151,10 +155,11 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
         if (lendData.depositAssets == 0) revert ZeroAmount();
 
         // Consume recurring allowance for this period.
+        // msg.sender is always the calling PolicyManager during onExecute.
         RecurringAllowance.useLimit(
             _depositLimitState,
             policyId,
-            _addTimeBoundsToDepositLimit(policyId, lendPolicyConfig.depositLimit),
+            _addTimeBoundsToDepositLimit(policyId, msg.sender, lendPolicyConfig.depositLimit),
             lendData.depositAssets
         );
 
@@ -181,19 +186,24 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
 
     /// @dev Constructs a full `RecurringAllowance.Limit` by combining the caller-supplied
     ///      `DepositLimitConfig` (allowance, period) with the policy's on-chain validity window
-    ///      (start, end) read from the PolicyManager. A zero `validUntil` (no expiry) is mapped
+    ///      (start, end) read from the specified PolicyManager. A zero `validUntil` (no expiry) is mapped
     ///      to `type(uint40).max`.
     ///
+    ///      In hook paths (onExecute), `manager` should be `msg.sender` (the calling PolicyManager).
+    ///      In view paths (getDepositLimitPeriodUsage), `manager` is supplied by the caller since there is
+    ///      no `msg.sender` context from a manager.
+    ///
     /// @param policyId            Policy identifier used to look up validity timestamps.
+    /// @param manager             Address of the PolicyManager to query for validity timestamps.
     /// @param depositLimitConfig  Allowance and period parameters from the policy config.
     ///
     /// @return depositLimit Fully populated limit struct ready for `RecurringAllowance` consumption.
-    function _addTimeBoundsToDepositLimit(bytes32 policyId, DepositLimitConfig memory depositLimitConfig)
-        internal
-        view
-        returns (RecurringAllowance.Limit memory depositLimit)
-    {
-        (,,, uint40 validAfter, uint40 validUntil) = policyManager.policies(address(this), policyId);
+    function _addTimeBoundsToDepositLimit(
+        bytes32 policyId,
+        address manager,
+        DepositLimitConfig memory depositLimitConfig
+    ) internal view returns (RecurringAllowance.Limit memory depositLimit) {
+        (,,, uint40 validAfter, uint40 validUntil) = PolicyManager(manager).policies(address(this), policyId);
         uint40 start = validAfter;
         uint40 end = validUntil == 0 ? type(uint40).max : validUntil;
         return RecurringAllowance.Limit({
