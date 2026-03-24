@@ -167,7 +167,6 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         address caller
     ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
         if (executionData.length == 0) return (accountCallData, postCallData);
-
         _requireConfigHash(policyId, policyConfig);
 
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
