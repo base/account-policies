@@ -117,3 +117,4 @@ This prevents a signature intended for one policy contract from being valid on a
 
 - `SingleExecutorPolicy.sol` — abstract base providing the canonical encoding, config authentication, nonce management, pause/unpause, and hook scaffolding. The `executor` field on `SingleExecutorConfig` is optional: `address(0)` means no executor consensus is required.
 - `SingleExecutorAuthorizedPolicy.sol` — inherits `SingleExecutorPolicy` and always requires a valid executor signature on execution. Use this as the base for policies that must enforce executor authorization.
+- `MoiraiDelegate.sol` — inherits `SingleExecutorPolicy` directly. Implements one-shot deferred execution of a fixed wallet call, gated by an optional time-lock and/or optional executor consensus signature. Permits `executor = address(0)` (time-lock-only mode).
