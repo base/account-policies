@@ -31,9 +31,9 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         vm.warp(unlockTime);
 
         // For delay-only, executionData must be non-empty to bypass the early-return guard.
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
         policyManager.execute(address(policy), policyId, config, bytes("0x01"));
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
     }
 
     /// @notice Executes successfully when only an executor signature is required and a valid sig is provided.
@@ -43,9 +43,9 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
 
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
         policyManager.execute(address(policy), policyId, config, executionData);
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
     }
 
     /// @notice Executes a native ETH transfer from the account to a recipient.
@@ -86,9 +86,9 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
 
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
         policyManager.execute(address(policy), policyId, config, executionData);
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
     }
 
     // =============================================================
@@ -100,12 +100,12 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         bytes memory config = _buildMoiraiConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
         policyManager.execute(address(policy), policyId, config, executionData);
 
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
     }
 
     /// @notice isExecuted remains false after a no-op execute call with empty executionData.
@@ -113,9 +113,9 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         bytes memory config = _buildMoiraiConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
         policyManager.execute(address(policy), policyId, config, bytes(""));
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
     }
 
     // =============================================================
@@ -144,7 +144,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
         // Must pass non-empty executionData to reach the time-lock check.
         vm.expectRevert(
-            abi.encodeWithSelector(MoiraiDelegate.UnlockTimestampNotReached.selector, block.timestamp, unlockTime)
+            abi.encodeWithSelector(MoiraiDelegate.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
         );
         policyManager.execute(address(policy), policyId, config, bytes("0x01"));
     }
@@ -230,7 +230,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
 
         vm.expectRevert(
-            abi.encodeWithSelector(MoiraiDelegate.UnlockTimestampNotReached.selector, block.timestamp, unlockTime)
+            abi.encodeWithSelector(MoiraiDelegate.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
         );
         policyManager.execute(address(policy), policyId, config, executionData);
     }

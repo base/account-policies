@@ -54,7 +54,7 @@ contract UninstallTest is MoiraiDelegateTestBase {
     function test_isExecuted_falseAfterUninstall() public {
         bytes memory executionData = _buildExecutionData(policyId, policyConfig, bytes(""), 0, 0);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
 
         PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
             binding: PolicyManager.PolicyBinding({
@@ -68,14 +68,14 @@ contract UninstallTest is MoiraiDelegateTestBase {
         vm.prank(address(account));
         policyManager.uninstall(payload);
 
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
     }
 
     /// @notice `_onUninstallForReplace` clears state when the policy is replaced by a new binding.
     function test_success_onUninstallForReplace() public {
         bytes memory executionData = _buildExecutionData(policyId, policyConfig, bytes(""), 0, 0);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
-        assertTrue(policy.isExecuted(policyId));
+        assertTrue(policy.executed(policyId));
 
         bytes memory newConfig = _buildMoiraiConfig(0, executor);
         PolicyManager.PolicyBinding memory newBinding = _buildBinding(newConfig, 1);
@@ -94,7 +94,7 @@ contract UninstallTest is MoiraiDelegateTestBase {
 
         assertFalse(policyManager.isPolicyActive(address(policy), policyId));
         assertTrue(policyManager.isPolicyActive(address(policy), newPolicyId));
-        assertFalse(policy.isExecuted(policyId));
+        assertFalse(policy.executed(policyId));
     }
 
     /// @notice Uninstalling an already-uninstalled policy is idempotent at the PolicyManager level.
@@ -123,14 +123,30 @@ contract UninstallTest is MoiraiDelegateTestBase {
     // Reverts
     // =============================================================
 
-    /// @notice Non-account caller is rejected by the policy hook and propagated by the manager.
+    /// @notice Non-account, non-executor caller with an invalid signature is rejected.
     ///
-    /// @param relayer Non-account caller address.
+    /// @param relayer Non-account, non-executor caller address.
     function test_reverts_whenNonAccountCaller(address relayer) public {
-        vm.assume(relayer != address(account));
+        vm.assume(relayer != address(account) && relayer != executor);
+
+        // Provide a well-formed but invalid uninstall envelope (empty signature).
+        bytes memory uninstallData = abi.encode(bytes(""), uint256(0));
 
         vm.expectRevert(abi.encodeWithSelector(SingleExecutorPolicy.Unauthorized.selector, relayer));
         vm.prank(address(policyManager));
-        policy.onUninstall(policyId, address(account), policyConfig, bytes(""), relayer);
+        policy.onUninstall(policyId, address(account), policyConfig, uninstallData, relayer);
+    }
+
+    /// @notice Executor can uninstall via a signed intent, clearing stored state.
+    function test_success_executorUninstall() public {
+        bytes memory executionData = _buildExecutionData(policyId, policyConfig, bytes(""), 0, 0);
+        policyManager.execute(address(policy), policyId, policyConfig, executionData);
+        assertTrue(policy.executed(policyId));
+
+        bytes memory uninstallData = _signExecutorUninstall(policyId, keccak256(policyConfig), 0);
+        vm.prank(address(policyManager));
+        policy.onUninstall(policyId, address(account), policyConfig, uninstallData, executor);
+
+        assertFalse(policy.executed(policyId));
     }
 }

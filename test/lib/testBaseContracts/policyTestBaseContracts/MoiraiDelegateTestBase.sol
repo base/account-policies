@@ -17,6 +17,10 @@ abstract contract MoiraiDelegateTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
 
+    bytes32 internal constant SINGLE_EXECUTOR_UNINSTALL_TYPEHASH = keccak256(
+        "SingleExecutorUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)"
+    );
+
     bytes32 internal constant EXECUTION_TYPEHASH = keccak256(
         "Execution(bytes32 policyId,address account,bytes32 policyConfigHash,ExecutionData executionData)"
         "ExecutionData(bytes actionData,uint256 nonce,uint256 deadline)"
@@ -78,11 +82,7 @@ abstract contract MoiraiDelegateTestBase is Test {
             SingleExecutorPolicy.SingleExecutorConfig({executor: executor_}),
             abi.encode(
                 MoiraiDelegate.MoiraiConfig({
-                    consensusSigner: executor_,
-                    target: target_,
-                    value: value_,
-                    callData: callData_,
-                    unlockTimestamp: unlockTimestamp
+                    target: target_, value: value_, callData: callData_, unlockTimestamp: unlockTimestamp
                 })
             )
         );
@@ -197,6 +197,26 @@ abstract contract MoiraiDelegateTestBase is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
         bytes memory signature = abi.encodePacked(r, s, v);
         return account.wrapSignature(0, signature);
+    }
+
+    /// @notice Signs an executor uninstall intent with the executor private key.
+    ///
+    /// @param policyId Policy identifier for the binding.
+    /// @param configHash Config hash committed at install time.
+    /// @param deadline Optional signature expiry timestamp (seconds). Zero means no expiry.
+    ///
+    /// @return uninstallData ABI-encoded `(bytes signature, uint256 deadline)`.
+    function _signExecutorUninstall(bytes32 policyId, bytes32 configHash, uint256 deadline)
+        internal
+        view
+        returns (bytes memory uninstallData)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(SINGLE_EXECUTOR_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
+        );
+        bytes32 digest = _hashTypedData(address(policy), "Moirai Delegate", "1", structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
+        return abi.encode(abi.encodePacked(r, s, v), deadline);
     }
 
     /// @notice Computes an EIP-712 typed-data digest.

@@ -22,7 +22,7 @@ import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 ///      Execution data format (when executor is set): `executionData = abi.encode(SingleExecutorExecutionData,
 ///      bytes actionData)`.
 ///
-///      Each policy instance may only be executed once — `_executed[policyId]` guards against replays.
+///      Each policy instance may only be executed once — `executed[policyId]` guards against replays.
 contract MoiraiDelegate is SingleExecutorPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
@@ -32,7 +32,6 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     ///
     /// @dev Encoded as the inner `policySpecificConfig` bytes inside the canonical
     ///      `abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` envelope.
-    ///      `consensusSigner` must equal the `executor` in the outer `SingleExecutorConfig`.
     struct MoiraiConfig {
         /// @dev Target address for the delegated call.
         address target;
@@ -42,9 +41,6 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         bytes callData;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means no time-lock.
         uint256 unlockTimestamp;
-        /// @dev Address authorized to co-sign execution. `address(0)` means no consensus required.
-        ///      Must match the `executor` field in the outer `SingleExecutorConfig`.
-        address consensusSigner;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -52,7 +48,7 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Tracks whether a policy instance has already been executed.
-    mapping(bytes32 policyId => bool executed) private _executed;
+    mapping(bytes32 policyId => bool executed) public executed;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -63,20 +59,14 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @param policyId Policy identifier that was already executed.
     error AlreadyExecuted(bytes32 policyId);
 
-    /// @notice Thrown when neither `unlockTimestamp` nor `consensusSigner` is configured.
+    /// @notice Thrown when neither `unlockTimestamp` nor executor is configured.
     error NoConditionSpecified();
-
-    /// @notice Thrown when `MoiraiConfig.consensusSigner` does not match the outer `SingleExecutorConfig.executor`.
-    ///
-    /// @param executor Executor address from the outer `SingleExecutorConfig`.
-    /// @param consensusSigner Consensus signer address from `MoiraiConfig`.
-    error ExecutorConsensusSignerMismatch(address executor, address consensusSigner);
 
     /// @notice Thrown when the current timestamp has not yet reached the configured unlock timestamp.
     ///
     /// @param currentTimestamp Current block timestamp in seconds.
     /// @param unlockTimestamp Configured unlock timestamp in seconds.
-    error UnlockTimestampNotReached(uint256 currentTimestamp, uint256 unlockTimestamp);
+    error BeforeUnlockTimestamp(uint256 currentTimestamp, uint256 unlockTimestamp);
 
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
@@ -85,21 +75,8 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @notice Constructs the policy and grants the admin role.
     ///
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
-    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` (controls pause/unpause).
+    /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     constructor(address policyManager, address admin) SingleExecutorPolicy(policyManager, admin) {}
-
-    ////////////////////////////////////////////////////////////////
-    ///                    External Functions                    ///
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice Returns whether a policy instance has been executed.
-    ///
-    /// @param policyId Policy identifier to check.
-    ///
-    /// @return True if the policy instance has been executed, false otherwise.
-    function isExecuted(bytes32 policyId) external view returns (bool) {
-        return _executed[policyId];
-    }
 
     ////////////////////////////////////////////////////////////////
     ///                    Internal Functions                    ///
@@ -108,16 +85,12 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @inheritdoc Policy
     ///
     /// @dev Decodes the canonical `(SingleExecutorConfig, bytes)` envelope, decodes the inner `MoiraiConfig`,
-    ///      validates that `consensusSigner` matches the outer executor, validates that at least one condition
-    ///      is set, and stores the config hash.
+    ///      validates that at least one condition is set, and stores the config hash.
     function _onInstall(bytes32 policyId, address, bytes calldata policyConfig) internal override {
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
             _decodeSingleExecutorConfig(policyConfig);
         MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
-        if (singleExecutorConfig.executor != config.consensusSigner) {
-            revert ExecutorConsensusSignerMismatch(singleExecutorConfig.executor, config.consensusSigner);
-        }
-        if (config.unlockTimestamp == 0 && config.consensusSigner == address(0)) {
+        if (config.unlockTimestamp == 0 && singleExecutorConfig.executor == address(0)) {
             revert NoConditionSpecified();
         }
         _storeConfigHash(policyId, policyConfig);
@@ -125,24 +98,42 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
     /// @inheritdoc Policy
     ///
-    /// @dev Only the bound account may uninstall. Cleans up stored state.
-    function _onUninstall(bytes32 policyId, address account, bytes calldata, bytes calldata, address caller)
-        internal
-        override
-    {
-        if (caller != account) revert Unauthorized(caller);
-        delete _executed[policyId];
-        delete _configHashByPolicyId[policyId];
-    }
+    /// @dev Account callers clear stored state immediately. Non-account callers (executor) must provide
+    ///      a signed uninstall intent (`abi.encode(signature, deadline)`) over the stored config hash.
+    function _onUninstall(
+        bytes32 policyId,
+        address account,
+        bytes calldata policyConfig,
+        bytes calldata uninstallData,
+        address caller
+    ) internal override {
+        if (caller == account) {
+            delete executed[policyId];
+            delete _configHashByPolicyId[policyId];
+            return;
+        }
 
-    /// @inheritdoc Policy
-    ///
-    /// @dev During replacement the account has already authorized the operation. Allow it and clean up state.
-    function _onUninstallForReplace(bytes32 policyId, address, bytes calldata, bytes calldata, address, bytes32)
-        internal
-        override
-    {
-        delete _executed[policyId];
+        bytes32 storedConfigHash = _configHashByPolicyId[policyId];
+
+        // Pre-install permanent disable: signed by executor over policyConfig hash.
+        if (storedConfigHash == bytes32(0)) {
+            (SingleExecutorConfig memory preinstallConfig,) = _decodeSingleExecutorConfig(policyConfig);
+            (bytes memory sig, uint256 dl) = abi.decode(uninstallData, (bytes, uint256));
+            if (dl != 0 && block.timestamp > dl) revert SignatureExpired(block.timestamp, dl);
+            bytes32 preinstallDigest = _getUninstallDigest(policyId, account, keccak256(policyConfig), dl);
+            if (!_isValidExecutorSig(preinstallConfig.executor, preinstallDigest, sig)) revert Unauthorized(caller);
+            return; // Nothing installed to delete.
+        }
+
+        // Post-install: executor provides signed uninstall intent over stored config hash.
+        _requireConfigHash(policyId, policyConfig);
+        (SingleExecutorConfig memory singleExecutorConfig,) = _decodeSingleExecutorConfig(policyConfig);
+        (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
+        if (deadline != 0 && block.timestamp > deadline) revert SignatureExpired(block.timestamp, deadline);
+        bytes32 digest = _getUninstallDigest(policyId, account, storedConfigHash, deadline);
+        if (!_isValidExecutorSig(singleExecutorConfig.executor, digest, signature)) revert Unauthorized(caller);
+
+        delete executed[policyId];
         delete _configHashByPolicyId[policyId];
     }
 
@@ -151,11 +142,11 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @dev Validates config hash, checks single-execution guard, enforces time-lock and/or executor signature,
     ///      then returns the configured calldata as the account call.
     ///
-    ///      When `executionData` is empty the function returns early without touching `_executed[policyId]`.
+    ///      When `executionData` is empty the function returns early without touching `executed[policyId]`.
     ///      This is an intentional no-op: it does NOT consume the one-shot execution lock. Callers who want
     ///      to trigger the policy must supply non-empty `executionData`.
     ///
-    ///      For delay-only policies (`consensusSigner == address(0)`), the content of `executionData` is
+    ///      For delay-only policies (`executor == address(0)`), the content of `executionData` is
     ///      ignored entirely — only its non-zero length is checked. Any non-empty bytes trigger execution
     ///      once the time-lock is met. The actual call parameters (`target`, `value`, `callData`) are always
     ///      taken from `policyConfig`, not from `executionData`.
@@ -173,15 +164,15 @@ contract MoiraiDelegate is SingleExecutorPolicy {
             _decodeSingleExecutorConfig(policyConfig);
         MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
 
-        if (_executed[policyId]) revert AlreadyExecuted(policyId);
+        if (executed[policyId]) revert AlreadyExecuted(policyId);
 
         if (config.unlockTimestamp > 0) {
             if (block.timestamp < config.unlockTimestamp) {
-                revert UnlockTimestampNotReached(block.timestamp, config.unlockTimestamp);
+                revert BeforeUnlockTimestamp(block.timestamp, config.unlockTimestamp);
             }
         }
 
-        if (config.consensusSigner != address(0)) {
+        if (singleExecutorConfig.executor != address(0)) {
             (SingleExecutorExecutionData memory executionData_, bytes memory actionData) =
                 abi.decode(executionData, (SingleExecutorExecutionData, bytes));
             _validateAndConsumeExecutionIntent(
@@ -189,7 +180,7 @@ contract MoiraiDelegate is SingleExecutorPolicy {
             );
         }
 
-        _executed[policyId] = true;
+        executed[policyId] = true;
 
         accountCallData =
             abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, config.target, config.value, config.callData);
