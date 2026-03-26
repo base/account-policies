@@ -89,15 +89,23 @@ abstract contract Policy {
 
     /// @notice Authorize the execution and build the account call and optional post-call.
     ///
-    /// @dev This hook is called on every `execute`, `installWithSignature`, and `replaceWithSignature` invocation —
-    ///      including when `executionData` is empty. Policies MUST handle empty `executionData` gracefully. To signal
-    ///      "no execution", return empty `accountCallData` and empty `postCallData`; the PolicyManager will skip the
-    ///      account call, post-execute hook, and `PolicyExecuted` event.
+    /// @dev This hook is called only when execution is intended: via `execute()`, or via
+    ///      `installWithSignature` / `replaceWithSignature` when non-empty `executionData` is provided.
+    ///      The PolicyManager gates execution at the callsite — install-only flows (empty `executionData`)
+    ///      never reach this hook.
+    ///
+    ///      If the policy returns empty `accountCallData`, the PolicyManager treats it as a no-op: no account call,
+    ///      no `onPostExecute`, and no `PolicyExecuted` event.
+    ///
+    ///      The validity window is enforced by the manager before this hook is called. Policies do not need to
+    ///      check it. Policy-specific execution preconditions (time-locks, nonce guards, oracle state, etc.)
+    ///      should revert on failure — reverts are always meaningful errors, never install-flow artifacts.
     ///
     /// @param policyId Policy identifier for the binding.
     /// @param account Account that authorized this policy instance.
     /// @param policyConfig Policy-defined config bytes (often the config preimage).
-    /// @param executionData Policy-defined per-execution payload (may be empty).
+    /// @param executionData Policy-defined per-execution payload. For push-the-button policies this may be empty
+    ///        (signaling "go"); for data-bearing policies it carries the action parameters.
     /// @param caller External caller that invoked the manager.
     ///
     /// @return accountCallData ABI-encoded calldata to execute on the account (or empty for no-op).
@@ -197,9 +205,10 @@ abstract contract Policy {
     /// @dev Policy-specific install hook. Revert to refuse installation.
     function _onInstall(bytes32 policyId, address account, bytes calldata policyConfig) internal virtual;
 
-    /// @dev Policy-specific execute hook. Called on every execution path including `installWithSignature` and
-    ///      `replaceWithSignature`. Implementations MUST handle empty `executionData` (e.g., return all-empty to
-    ///      signal no-op). Revert to refuse execution.
+    /// @dev Policy-specific execute hook. Called only when execution is intended — the manager never calls this for
+    ///      install-only flows. The validity window has already been enforced by the manager before this hook is
+    ///      called. Policies branch on config (not on data presence) to determine execution behavior. Revert to
+    ///      refuse execution.
     function _onExecute(
         bytes32 policyId,
         address account,

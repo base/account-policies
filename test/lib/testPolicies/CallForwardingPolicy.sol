@@ -42,8 +42,6 @@ contract CallForwardingPolicy is Policy {
         override
         returns (bytes memory accountCallData, bytes memory postCallData)
     {
-        if (executionData.length == 0) return (accountCallData, postCallData);
-
         ForwardCall memory f = abi.decode(executionData, (ForwardCall));
 
         if (f.revertOnExecute) revert OnExecuteReverted();
