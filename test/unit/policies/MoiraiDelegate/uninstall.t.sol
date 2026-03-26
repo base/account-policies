@@ -2,7 +2,6 @@
 pragma solidity ^0.8.23;
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {MoiraiDelegate} from "../../../../src/policies/MoiraiDelegate.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 import {

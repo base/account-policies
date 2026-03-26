@@ -48,7 +48,10 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     ////////////////////////////////////////////////////////////////
 
     /// @notice Tracks whether a policy instance has already been executed.
-    mapping(bytes32 policyId => bool executed) public executed;
+    ///
+    /// @dev `executed[policyId]` is `true` after a successful `_onExecute` call and `false` before (or after
+    ///      uninstall, which deletes it). The executor can clear this bit via a signed uninstall intent.
+    mapping(bytes32 policyId => bool hasExecuted) public executed;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///
@@ -98,8 +101,17 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
     /// @inheritdoc Policy
     ///
-    /// @dev Account callers clear stored state immediately. Non-account callers (executor) must provide
-    ///      a signed uninstall intent (`abi.encode(signature, deadline)`) over the stored config hash.
+    /// @dev Three paths:
+    ///      1. `caller == account` — fast-delete; no config or signature required. This is also the path taken by
+    ///         `Policy._onUninstallForReplace`, which calls `_onUninstall(..., caller=account)`.
+    ///      2. `storedConfigHash == 0` (pre-install disable) — executor signs over `keccak256(policyConfig)` to
+    ///         permanently block a policyId before the account ever installs it. Reverts if `executor == address(0)`
+    ///         (delay-only configs have no executor to authorize pre-install disable).
+    ///      3. Post-install executor uninstall — executor signs over the stored config hash. Clearing `executed`
+    ///         here is intentional; the `PolicyManager` permanently marks the policyId as uninstalled, so clearing
+    ///         the bit does not enable a replay.
+    ///
+    ///      Non-account callers must supply `uninstallData = abi.encode(bytes signature, uint256 deadline)`.
     function _onUninstall(
         bytes32 policyId,
         address account,
@@ -115,9 +127,12 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         bytes32 storedConfigHash = _configHashByPolicyId[policyId];
 
-        // Pre-install permanent disable: signed by executor over policyConfig hash.
+        // Pre-install permanent disable: executor signs over keccak256(policyConfig).
+        // Variable names differ from the post-install branch to avoid Solidity shadowing warnings
+        // (both branches declare the same logical names but are in separate scoped blocks).
         if (storedConfigHash == bytes32(0)) {
             (SingleExecutorConfig memory preinstallConfig,) = _decodeSingleExecutorConfig(policyConfig);
+            if (preinstallConfig.executor == address(0)) revert Unauthorized(caller);
             (bytes memory sig, uint256 dl) = abi.decode(uninstallData, (bytes, uint256));
             if (dl != 0 && block.timestamp > dl) revert SignatureExpired(block.timestamp, dl);
             bytes32 preinstallDigest = _getUninstallDigest(policyId, account, keccak256(policyConfig), dl);
@@ -126,7 +141,9 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         }
 
         // Post-install: executor provides signed uninstall intent over stored config hash.
-        _requireConfigHash(policyId, policyConfig);
+        // Use storedConfigHash (already loaded) instead of calling _requireConfigHash to avoid a redundant SLOAD.
+        bytes32 actualConfigHash = keccak256(policyConfig);
+        if (actualConfigHash != storedConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, storedConfigHash);
         (SingleExecutorConfig memory singleExecutorConfig,) = _decodeSingleExecutorConfig(policyConfig);
         (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
         if (deadline != 0 && block.timestamp > deadline) revert SignatureExpired(block.timestamp, deadline);
