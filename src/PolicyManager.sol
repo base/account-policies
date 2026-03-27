@@ -169,6 +169,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address newPolicy
     );
 
+    /// @notice Emitted when a policy uninstall hook revert is swallowed during uninstallation or replacement.
+    ///
+    /// @dev Indicates that the policy's cleanup logic (`onUninstall` or `onReplace` for the old policy) did not run
+    ///      to completion. The raw revert payload is included for off-chain decoding (custom errors, `Error(string)`,
+    ///      `Panic(uint256)`).
+    ///
+    /// @param policyId EIP-712 struct hash of the binding.
+    /// @param account Account associated with the binding.
+    /// @param policy Policy contract address whose hook reverted.
+    /// @param revertData Raw revert payload from the failed hook call.
+    event PolicyUninstallHookReverted(
+        bytes32 indexed policyId, address indexed account, address indexed policy, bytes revertData
+    );
+
     /// @notice Emitted when a policy execution is performed.
     ///
     /// @param policyId EIP-712 struct hash of the binding.
@@ -640,11 +654,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                         payload.uninstallData,
                         effectiveCaller
                     ) {}
-                catch {
+                catch (bytes memory revertData) {
                     // If the hook reverts and the effective caller is not the account, revert
                     if (effectiveCaller != policyRecordByBinding.account) {
                         revert Unauthorized(effectiveCaller);
                     }
+                    emit PolicyUninstallHookReverted(
+                        policyId, policyRecordByBinding.account, binding.policy, revertData
+                    );
                 }
                 emit PolicyUninstalled(policyId, policyRecordByBinding.account, binding.policy);
                 return policyId;
@@ -659,9 +676,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
             try Policy(binding.policy)
                 .onUninstall(policyId, binding.account, binding.policyConfig, payload.uninstallData, effectiveCaller) {}
-            catch {
+            catch (bytes memory revertData) {
                 // If the hook reverts and the effective caller is not the account, revert
                 if (effectiveCaller != binding.account) revert Unauthorized(effectiveCaller);
+                emit PolicyUninstallHookReverted(policyId, binding.account, binding.policy, revertData);
             }
 
             emit PolicyUninstalled(policyId, binding.account, binding.policy);
@@ -681,10 +699,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             .onUninstall(
                 policyId, policyRecordById.account, payload.policyConfig, payload.uninstallData, effectiveCaller
             ) {}
-        catch {
+        catch (bytes memory revertData) {
             if (effectiveCaller != policyRecordById.account) {
                 revert Unauthorized(effectiveCaller);
             }
+            emit PolicyUninstallHookReverted(policyId, policyRecordById.account, policy, revertData);
         }
         emit PolicyUninstalled(policyId, policyRecordById.account, policy);
         return policyId;
@@ -842,7 +861,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 otherPolicyId,
                 Policy.ReplaceRole.OldPolicy
             ) {}
-            catch {}
+        catch (bytes memory revertData) {
+            emit PolicyUninstallHookReverted(policyId, policyRecord.account, policy, revertData);
+        }
         emit PolicyUninstalled(policyId, policyRecord.account, policy);
     }
 

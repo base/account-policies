@@ -273,6 +273,9 @@ contract ReplaceTest is PolicyManagerTestBase {
 
         PolicyManager.PolicyBinding memory newBinding =
             _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+
+        // Skip cases where old and new policyIds collide — that hits InvalidPayload before PolicyNotInstalled.
+        vm.assume(oldPolicyId != policyManager.getPolicyId(newBinding));
         PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
             oldPolicy: address(callPolicy),
             oldPolicyId: oldPolicyId,
@@ -659,6 +662,47 @@ contract ReplaceTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
+        vm.prank(address(account));
+        policyManager.replace(payload);
+
+        assertTrue(policyManager.isPolicyActive(address(callPolicy), newPolicyId));
+    }
+
+    /// @notice Emits `PolicyUninstallHookReverted` when the old policy's uninstall hook reverts during replacement.
+    function test_emitsPolicyUninstallHookReverted_whenOldPolicyHookReverts() public {
+        RevertOnUninstallForReplacePolicy oldPolicy = new RevertOnUninstallForReplacePolicy(address(policyManager));
+
+        bytes memory oldConfig = abi.encode(bytes32("old"));
+        PolicyManager.PolicyBinding memory oldBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(oldPolicy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_OLD_SALT,
+            policyConfig: oldConfig
+        });
+        vm.prank(address(account));
+        bytes32 oldPolicyId = policyManager.install(oldBinding);
+
+        PolicyManager.PolicyBinding memory newBinding =
+            _binding(address(callPolicy), abi.encode(DEFAULT_NEW_CONFIG_SEED), DEFAULT_NEW_SALT);
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(oldPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstallHookReverted(
+            oldPolicyId,
+            address(account),
+            address(oldPolicy),
+            abi.encodeWithSelector(RevertOnUninstallForReplacePolicy.OnUninstallReverted.selector)
+        );
         vm.prank(address(account));
         policyManager.replace(payload);
 
