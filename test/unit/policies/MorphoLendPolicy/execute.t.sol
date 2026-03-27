@@ -10,6 +10,9 @@ import {RecurringAllowance} from "../../../../src/policies/accounting/RecurringA
 import {
     MorphoLendPolicyTestBase
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLendPolicyTestBase.sol";
+import {ApprovalResetToken} from "../../../lib/mocks/ApprovalResetToken.sol";
+import {MockMorphoVault} from "../../../lib/mocks/MockMorpho.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 /// @title ExecuteTest
 ///
@@ -180,5 +183,66 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
         policyManager.execute(address(policy), altPolicyId, policyConfig, executionData);
 
         assertEq(loanToken.balanceOf(address(vault)), vaultBalanceBefore + depositAssets);
+    }
+
+    /// @notice Deposits succeed when the vault asset is a non-standard token requiring approval reset (e.g. USDT).
+    ///
+    /// @param depositAssets Amount of underlying assets to deposit.
+    /// @param nonce Executor-chosen nonce.
+    function test_depositsIntoVault_whenAssetRequiresApprovalReset(uint256 depositAssets, uint256 nonce) public {
+        depositAssets = bound(depositAssets, 1, MAX_DEPOSIT);
+
+        // Deploy USDT-like token and new vault
+        ApprovalResetToken resetToken = new ApprovalResetToken("Reset", "RST");
+        MockMorphoVault newVault = new MockMorphoVault(address(resetToken));
+
+        // Mint to account
+        resetToken.mint(address(account), depositAssets);
+
+        // Create new policy binding with different salt to avoid collision
+        bytes memory newPolicyConfig = abi.encode(
+            SingleExecutorPolicy.SingleExecutorConfig({executor: executor}),
+            abi.encode(
+                MorphoLendPolicy.LendPolicyConfig({
+                    vault: address(newVault),
+                    depositLimit: MorphoLendPolicy.DepositLimitConfig({
+                        allowance: uint160(1_000_000 ether), period: 1 days
+                    })
+                })
+            )
+        );
+
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 1, // Different salt
+            policyConfig: newPolicyConfig
+        });
+
+        bytes memory userSig = _signInstall(newBinding);
+        policyManager.installWithSignature(newBinding, userSig, 0, bytes(""));
+
+        // Set non-zero allowance from account to vault (simulating previous approval)
+        vm.prank(address(account));
+        resetToken.approve(address(newVault), 1);
+
+        // Verify allowance is set
+        assertEq(resetToken.allowance(address(account), address(newVault)), 1);
+
+        // Execute should succeed (policy zeros the allowance first, then approves the amount)
+        MorphoLendPolicy.LendData memory ld = MorphoLendPolicy.LendData({depositAssets: depositAssets});
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory executionData = _encodePolicyDataWithSig(newBinding, ld, nonce, 0);
+
+        uint256 vaultBalanceBefore = resetToken.balanceOf(address(newVault));
+        uint256 accountBalanceBefore = resetToken.balanceOf(address(account));
+
+        vm.prank(executor);
+        policyManager.execute(address(policy), newPolicyId, newPolicyConfig, executionData);
+
+        assertEq(resetToken.balanceOf(address(newVault)), vaultBalanceBefore + depositAssets);
+        assertEq(resetToken.balanceOf(address(account)), accountBalanceBefore - depositAssets);
     }
 }

@@ -220,14 +220,19 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
             if (currentLtv < config.triggerLtv) revert HealthyPosition(currentLtv, config.triggerLtv);
         }
 
-        // Build wallet call plan: approve collateral token spend, then supply collateral to Morpho.
-        CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
+        // Build wallet call plan: zero-approve (for non-standard tokens like USDT), approve, then supply collateral.
+        CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
         calls[0] = CoinbaseSmartWallet.Call({
+            target: marketParams.collateralToken,
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.approve.selector, MORPHO, 0)
+        });
+        calls[1] = CoinbaseSmartWallet.Call({
             target: marketParams.collateralToken,
             value: 0,
             data: abi.encodeWithSelector(IERC20.approve.selector, MORPHO, topUpAssets)
         });
-        calls[1] = CoinbaseSmartWallet.Call({
+        calls[2] = CoinbaseSmartWallet.Call({
             target: MORPHO,
             value: 0,
             data: abi.encodeWithSelector(

@@ -6,12 +6,15 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
+import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 
 import {
     MorphoLoanProtectionPolicyTestBase
 } from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLoanProtectionPolicyTestBase.sol";
+import {ApprovalResetToken} from "../../../lib/mocks/ApprovalResetToken.sol";
+import {MockMorphoBlue, MockMorphoOracle} from "../../../lib/mocks/MockMorphoBlue.sol";
+import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
 /// @title ExecuteTest
 ///
@@ -207,5 +210,93 @@ contract ExecuteTest is MorphoLoanProtectionPolicyTestBase {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory executionData = _encodePolicyData(topUp, nonce, 0);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
+    }
+
+    /// @notice Top-up succeeds when the collateral token requires approval reset (e.g. USDT).
+    ///
+    /// @param topUpAssets Amount of collateral to top up.
+    /// @param nonce Executor-chosen nonce.
+    function test_topsUpCollateral_whenAssetRequiresApprovalReset(uint256 topUpAssets, uint256 nonce) public {
+        topUpAssets = bound(topUpAssets, 1, MAX_TOP_UP);
+
+        // Deploy USDT-like token as collateral
+        ApprovalResetToken resetCollateral = new ApprovalResetToken("ResetCollateral", "RSTC");
+
+        // Set up new market with reset token as collateral
+        MockMorphoOracle resetOracle = new MockMorphoOracle();
+        resetOracle.setPrice(1e36);
+
+        Id newMarketId = Id.wrap(bytes32(uint256(456)));
+        MarketParams memory newMarketParams = MarketParams({
+            loanToken: address(loanToken),
+            collateralToken: address(resetCollateral),
+            oracle: address(resetOracle),
+            irm: address(0xBEEF),
+            lltv: 0.8e18
+        });
+
+        morpho.setMarket(
+            newMarketId,
+            newMarketParams,
+            Market({
+                totalSupplyAssets: 0,
+                totalSupplyShares: 0,
+                totalBorrowAssets: uint128(1e18),
+                totalBorrowShares: uint128(1e18),
+                lastUpdate: uint128(block.timestamp),
+                fee: 0
+            })
+        );
+
+        // Set account position in the new market (same as setUp: borrowShares=75e18, collateral=100e18)
+        morpho.setPosition(
+            newMarketId,
+            address(account),
+            Position({supplyShares: 0, borrowShares: uint128(75 ether), collateral: uint128(100 ether)})
+        );
+
+        // Create new policy binding with reset token market
+        bytes memory newPolicyConfig = abi.encode(
+            SingleExecutorPolicy.SingleExecutorConfig({executor: executor}),
+            abi.encode(
+                MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
+                    marketId: newMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+                })
+            )
+        );
+
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(policy),
+            validAfter: 0,
+            validUntil: 0,
+            salt: 1, // Different salt
+            policyConfig: newPolicyConfig
+        });
+
+        bytes memory userSig = _signInstall(newBinding);
+        policyManager.installWithSignature(newBinding, userSig, 0, bytes(""));
+
+        // Mint reset token to account
+        resetCollateral.mint(address(account), topUpAssets);
+
+        // Set non-zero allowance from account to morpho (simulating previous approval)
+        vm.prank(address(account));
+        resetCollateral.approve(address(morpho), 1);
+
+        // Verify allowance is set
+        assertEq(resetCollateral.allowance(address(account), address(morpho)), 1);
+
+        // Execute should succeed (policy zeros the allowance first, then approves the amount)
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory executionData = _encodePolicyDataLocal(newBinding, newPolicyConfig, topUpAssets, nonce, 0);
+
+        uint256 morphoBalanceBefore = resetCollateral.balanceOf(address(morpho));
+        uint256 accountBalanceBefore = resetCollateral.balanceOf(address(account));
+
+        policyManager.execute(address(policy), newPolicyId, newPolicyConfig, executionData);
+
+        assertEq(resetCollateral.balanceOf(address(morpho)), morphoBalanceBefore + topUpAssets);
+        assertEq(resetCollateral.balanceOf(address(account)), accountBalanceBefore - topUpAssets);
     }
 }

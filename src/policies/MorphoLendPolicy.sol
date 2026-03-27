@@ -158,17 +158,20 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
             lendData.depositAssets
         );
 
-        // Build wallet call plan: approve vault's underlying asset, then deposit into vault.
+        // Build wallet call plan: zero-approve (for non-standard tokens like USDT), approve, then deposit.
         address vault = lendPolicyConfig.vault;
         address asset = IMorphoVault(vault).asset();
 
-        CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](2);
+        CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
         calls[0] = CoinbaseSmartWallet.Call({
+            target: asset, value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, vault, 0)
+        });
+        calls[1] = CoinbaseSmartWallet.Call({
             target: asset,
             value: 0,
             data: abi.encodeWithSelector(IERC20.approve.selector, vault, lendData.depositAssets)
         });
-        calls[1] = CoinbaseSmartWallet.Call({
+        calls[2] = CoinbaseSmartWallet.Call({
             target: vault,
             value: 0,
             data: abi.encodeWithSelector(IMorphoVault.deposit.selector, lendData.depositAssets, account)
