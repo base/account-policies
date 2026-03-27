@@ -198,7 +198,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
@@ -1084,5 +1084,41 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes32 ret = policyManager.replaceWithSignature(payload, userSig, 0, executionData);
         assertEq(ret, newPolicyId);
         assertEq(receiver.calls(), 1);
+    }
+
+    /// @notice Reverts when the new policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    function test_reverts_whenNewPolicyIsEIP7702Delegation() public {
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_NEW_SALT,
+            policyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+        });
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 }

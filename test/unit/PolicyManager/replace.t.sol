@@ -148,7 +148,7 @@ contract ReplaceTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
         vm.prank(address(account));
         policyManager.replace(payload);
     }
@@ -736,5 +736,38 @@ contract ReplaceTest is PolicyManagerTestBase {
         bytes32 ret = policyManager.replace(payload);
         assertEq(ret, policyManager.getPolicyId(newBinding));
         assertEq(vm.getRecordedLogs().length, 0);
+    }
+
+    /// @notice Reverts when the new policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    function test_reverts_whenNewPolicyIsEIP7702Delegation() public {
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_NEW_SALT,
+            policyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+        });
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        vm.prank(address(account));
+        policyManager.replace(payload);
     }
 }

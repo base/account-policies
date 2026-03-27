@@ -247,6 +247,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param validator The address that was provided.
     error ValidatorNotContract(address validator);
 
+    /// @notice Thrown when a policy address has no persistent code (empty or EIP-7702 delegation only).
+    ///
+    /// @param policy The address that was provided.
+    error PolicyNotContract(address policy);
+
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
     ////////////////////////////////////////////////////////////////
@@ -580,6 +585,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding) internal returns (bytes32 policyId) {
+        _requirePersistentCode(binding.policy);
         policyId = getPolicyId(binding);
 
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
@@ -774,6 +780,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (payload.oldPolicy == address(0) || payload.newBinding.policy == address(0)) {
             revert InvalidPayload();
         }
+        _requirePersistentCode(payload.newBinding.policy);
 
         // Check policyId is not the same
         newPolicyId = getPolicyId(payload.newBinding);
@@ -956,6 +963,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (policyRecord.validAfter != 0 && timestamp < policyRecord.validAfter) return false;
         if (policyRecord.validUntil != 0 && timestamp >= policyRecord.validUntil) return false;
         return true;
+    }
+
+    /// @notice Reverts if the given address has no persistent code (empty or EIP-7702 delegation prefix only).
+    ///
+    /// @param addr Address to check.
+    function _requirePersistentCode(address addr) internal view {
+        bytes memory code = addr.code;
+        bool notPersistent =
+            code.length == 0 || (code.length == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00);
+        if (notPersistent) revert PolicyNotContract(addr);
     }
 
     /// @dev EIP-712 domain metadata.

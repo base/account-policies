@@ -63,7 +63,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory userSig = _signInstall(binding);
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 
@@ -650,5 +650,30 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
 
         assertEq(receiver.calls(), 0);
+    }
+
+    /// @notice Reverts when the policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    ///
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_whenPolicyIsEIP7702Delegation(uint256 salt) public {
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+        bytes memory userSig = _signInstall(binding);
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 }
