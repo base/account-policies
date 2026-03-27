@@ -145,6 +145,32 @@ contract InstallTest is PolicyManagerTestBase {
         assertTrue(policyManager.isPolicyInstalled(address(installPolicy), policyId));
     }
 
+    /// @notice Reverts when validAfter >= validUntil and both are non-zero (impossible validity window).
+    ///
+    /// @param validAfter Lower bound timestamp.
+    /// @param validUntil Upper bound timestamp.
+    /// @param salt Salt for the binding.
+    function test_reverts_whenValidityWindowIsInvalid(uint40 validAfter, uint40 validUntil, uint256 salt) public {
+        vm.assume(validAfter != 0 && validUntil != 0);
+        vm.assume(validAfter >= validUntil);
+        // Ensure validUntil is in the future so we don't hit AfterValidUntil first.
+        vm.assume(uint40(block.timestamp) < validUntil);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidValidityWindow.selector, validAfter, validUntil));
+        vm.prank(address(account));
+        policyManager.install(binding);
+    }
+
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.
     ///
     /// @dev Expects `PolicyManager.AfterValidUntil`.

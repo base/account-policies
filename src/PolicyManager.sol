@@ -236,6 +236,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param validUntil Upper bound in seconds.
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
 
+    /// @notice Thrown when `validAfter >= validUntil` and both are non-zero, creating an impossible validity window.
+    ///
+    /// @param validAfter Lower bound in seconds.
+    /// @param validUntil Upper bound in seconds.
+    error InvalidValidityWindow(uint40 validAfter, uint40 validUntil);
+
     /// @notice Thrown when a caller restriction is violated.
     ///
     /// @param sender Actual sender.
@@ -597,6 +603,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
             revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
         }
+        if (binding.validAfter != 0 && binding.validUntil != 0 && binding.validAfter >= binding.validUntil) {
+            revert InvalidValidityWindow(binding.validAfter, binding.validUntil);
+        }
 
         policies[binding.policy][policyId] = PolicyRecord({
             installed: true,
@@ -900,6 +909,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Allow early install (before validAfter), but reject already-expired bindings.
         if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
             revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
+        }
+        if (binding.validAfter != 0 && binding.validUntil != 0 && binding.validAfter >= binding.validUntil) {
+            revert InvalidValidityWindow(binding.validAfter, binding.validUntil);
         }
 
         policyRecord.installed = true;

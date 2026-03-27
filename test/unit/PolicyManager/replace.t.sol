@@ -391,6 +391,45 @@ contract ReplaceTest is PolicyManagerTestBase {
         policyManager.replace(payload);
     }
 
+    /// @notice Reverts when new binding has validAfter >= validUntil and both are non-zero (impossible validity window).
+    ///
+    /// @param validAfter Lower bound timestamp.
+    /// @param validUntil Upper bound timestamp.
+    /// @param newSalt Salt for the new binding.
+    function test_reverts_whenNewBindingValidityWindowIsInvalid(uint40 validAfter, uint40 validUntil, uint256 newSalt)
+        public
+    {
+        vm.assume(validAfter != 0 && validUntil != 0);
+        vm.assume(validAfter >= validUntil);
+        // Ensure validUntil is in the future so we don't hit AfterValidUntil first.
+        vm.assume(uint40(block.timestamp) < validUntil);
+
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+
+        bytes memory newConfig = abi.encode(DEFAULT_NEW_CONFIG_SEED);
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: newSalt,
+            policyConfig: newConfig
+        });
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidValidityWindow.selector, validAfter, validUntil));
+        vm.prank(address(account));
+        policyManager.replace(payload);
+    }
+
     /// @notice Replace succeeds even when current timestamp is before `newBinding.validAfter`.
     ///
     /// @dev Early install of the new binding is allowed; execution is still gated by the validity window.
