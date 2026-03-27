@@ -44,7 +44,7 @@ contract ExecuteTest is MorphoLendPolicyTestBase {
         bytes32 policyId = policyManager.getPolicyId(binding);
         bytes memory executionData = _encodePolicyDataWithSig(binding, ld, nonce, 0);
 
-        vm.expectRevert(MorphoLendPolicy.ZeroAmount.selector);
+        vm.expectRevert(RecurringAllowance.ZeroValue.selector);
         vm.prank(executor);
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }

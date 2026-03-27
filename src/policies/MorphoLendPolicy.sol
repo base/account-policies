@@ -60,9 +60,6 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
     ///                         Errors                           ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Thrown when attempting to deposit zero assets.
-    error ZeroAmount();
-
     /// @notice Thrown when the vault address has no deployed code.
     error VaultNotContract(address vault);
 
@@ -145,12 +142,11 @@ contract MorphoLendPolicy is SingleExecutorAuthorizedPolicy {
         bytes memory policySpecificConfig,
         bytes memory actionData
     ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
-        // Decode config and action data; validate deposit amount.
+        // Decode config and action data.
         LendPolicyConfig memory lendPolicyConfig = abi.decode(policySpecificConfig, (LendPolicyConfig));
         LendData memory lendData = abi.decode(actionData, (LendData));
-        if (lendData.depositAssets == 0) revert ZeroAmount();
 
-        // Consume recurring allowance for this period.
+        // Consume recurring allowance for this period (reverts with ZeroValue if depositAssets is zero).
         RecurringAllowance.useLimit(
             _depositLimitState,
             policyId,
