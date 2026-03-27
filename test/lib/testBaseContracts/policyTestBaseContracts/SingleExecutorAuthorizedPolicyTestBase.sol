@@ -93,6 +93,8 @@ abstract contract SingleExecutorAuthorizedPolicyTestBase is Test {
         owners[0] = abi.encode(owner);
         account.initialize(owners);
 
+        // Etch minimal code at Solady's ERC-6492 verifier address so the constructor check passes.
+        vm.etch(0x0000bc370E4DC924F427d84e2f4B9Ec81626ba7E, hex"01");
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
         policy = new SingleExecutorAuthorizedTestPolicy(address(policyManager), owner);
