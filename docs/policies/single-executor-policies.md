@@ -12,10 +12,6 @@ They exist to standardize a common operational pattern:
 
 This family is optional: `PolicyManager` remains schema-agnostic and does not "know" single executor schemas. The single executor family defines a canonical envelope and shared auth model so policies in this family behave consistently.
 
-### Mutable PolicyManager
-
-single executor policies hold a mutable reference to the `PolicyManager`. The admin can update it via `setPolicyManager(address)`, which emits `PolicyManagerUpdated(oldManager, newManager)`. This supports operational upgrades (e.g., migrating to a new manager deployment) without redeploying policies.
-
 ## Actors and trust boundaries
 
 - **Account**: installs policies; ultimately executes wallet calls (via the manager). The account can always uninstall installed instances.

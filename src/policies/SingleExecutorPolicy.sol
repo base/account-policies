@@ -5,8 +5,6 @@ import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessContr
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-import {PolicyManager} from "../PolicyManager.sol";
-
 import {Policy} from "./Policy.sol";
 
 /// @title SingleExecutorPolicy
@@ -116,12 +114,6 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ///                         Events                           ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Emitted when the authorized PolicyManager is updated.
-    ///
-    /// @param oldManager The previous PolicyManager address.
-    /// @param newManager The new PolicyManager address.
-    event PolicyManagerUpdated(address oldManager, address newManager);
-
     /// @notice Emitted when a nonce is explicitly cancelled.
     ///
     /// @param policyId Policy identifier for the binding.
@@ -146,25 +138,6 @@ abstract contract SingleExecutorPolicy is Policy, AccessControl, Pausable, EIP71
     ////////////////////////////////////////////////////////////////
     ///                    External Functions                    ///
     ////////////////////////////////////////////////////////////////
-
-    /// @notice Updates the authorized PolicyManager address.
-    ///
-    /// @dev Only callable by `DEFAULT_ADMIN_ROLE`. Reverts if the new address has no deployed code.
-    ///
-    ///      WARNING: Changing the policy manager breaks several Policy-to-Manager assumptions. The new manager has no
-    ///      knowledge of install/uninstall state recorded by the old manager, so a policyId that was previously
-    ///      uninstalled could appear fresh and be reinstalled. Additionally, `_configHashByPolicyId` entries written
-    ///      during prior installs remain on the policy and may collide with new installs under the new manager.
-    ///      A replacement PolicyManager should account for prior install state (e.g. by reading the old manager's
-    ///      records) to preserve the one-install-per-policyId invariant.
-    ///
-    /// @param newPolicyManager Address of the new PolicyManager.
-    function setPolicyManager(address newPolicyManager) external virtual onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (_isNotPersistentCode(newPolicyManager)) revert PolicyManagerNotContract(newPolicyManager);
-        address oldManager = address(policyManager);
-        policyManager = PolicyManager(newPolicyManager);
-        emit PolicyManagerUpdated(oldManager, newPolicyManager);
-    }
 
     /// @notice Pauses execution for this policy.
     ///
