@@ -12,6 +12,16 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 ///
 /// @author Coinbase (https://github.com/base/account-policies)
 contract PublicERC6492Validator {
+    /// @notice Solady's pre-deployed non-reverting ERC-6492 verifier, required for counterfactual signature validation.
+    address internal constant _ERC6492_VERIFIER = 0x0000bc370E4DC924F427d84e2f4B9Ec81626ba7E;
+
+    /// @notice Thrown when the Solady ERC-6492 verifier contract is not deployed on this chain.
+    error ERC6492VerifierNotDeployed();
+
+    constructor() {
+        if (_ERC6492_VERIFIER.code.length == 0) revert ERC6492VerifierNotDeployed();
+    }
+
     /// @notice Validate contract signature and execute side effects if provided.
     ///
     /// @dev If the signature is postfixed with the ERC-6492 magic value, an external call to deploy/prepare the account

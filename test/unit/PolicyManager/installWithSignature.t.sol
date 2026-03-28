@@ -63,7 +63,7 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         });
         bytes memory userSig = _signInstall(binding);
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 
@@ -143,6 +143,32 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
         bytes32 policyId = policyManager.getPolicyId(binding);
         assertTrue(policyManager.isPolicyInstalled(address(installPolicy), policyId));
+    }
+
+    /// @notice Reverts when validAfter >= validUntil and both are non-zero (impossible validity window).
+    ///
+    /// @param validAfter Lower bound timestamp.
+    /// @param validUntil Upper bound timestamp.
+    /// @param salt Salt for the binding.
+    function test_reverts_whenValidityWindowIsInvalid(uint40 validAfter, uint40 validUntil, uint256 salt) public {
+        vm.assume(validAfter != 0 && validUntil != 0);
+        vm.assume(validAfter >= validUntil);
+        // Ensure validUntil is in the future so we don't hit AfterValidUntil first.
+        vm.assume(uint40(block.timestamp) < validUntil);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+        bytes memory userSig = _signInstall(binding);
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidValidityWindow.selector, validAfter, validUntil));
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.
@@ -650,5 +676,30 @@ contract InstallWithSignatureTest is PolicyManagerTestBase {
         policyManager.installWithSignature(binding, userSig, 0, bytes(""));
 
         assertEq(receiver.calls(), 0);
+    }
+
+    /// @notice Reverts when the policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    ///
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_whenPolicyIsEIP7702Delegation(uint256 salt) public {
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+        bytes memory userSig = _signInstall(binding);
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        policyManager.installWithSignature(binding, userSig, 0, bytes(""));
     }
 }

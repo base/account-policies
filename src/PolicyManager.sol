@@ -169,6 +169,20 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         address newPolicy
     );
 
+    /// @notice Emitted when a policy uninstall hook revert is swallowed during uninstallation or replacement.
+    ///
+    /// @dev Indicates that the policy's cleanup logic (`onUninstall` or `onReplace` for the old policy) did not run
+    ///      to completion. The raw revert payload is included for off-chain decoding (custom errors, `Error(string)`,
+    ///      `Panic(uint256)`).
+    ///
+    /// @param policyId EIP-712 struct hash of the binding.
+    /// @param account Account associated with the binding.
+    /// @param policy Policy contract address whose hook reverted.
+    /// @param revertData Raw revert payload from the failed hook call.
+    event PolicyUninstallHookReverted(
+        bytes32 indexed policyId, address indexed account, address indexed policy, bytes revertData
+    );
+
     /// @notice Emitted when a policy execution is performed.
     ///
     /// @param policyId EIP-712 struct hash of the binding.
@@ -222,6 +236,12 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @param validUntil Upper bound in seconds.
     error AfterValidUntil(uint40 currentTimestamp, uint40 validUntil);
 
+    /// @notice Thrown when `validAfter >= validUntil` and both are non-zero, creating an impossible validity window.
+    ///
+    /// @param validAfter Lower bound in seconds.
+    /// @param validUntil Upper bound in seconds.
+    error InvalidValidityWindow(uint40 validAfter, uint40 validUntil);
+
     /// @notice Thrown when a caller restriction is violated.
     ///
     /// @param sender Actual sender.
@@ -232,6 +252,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @param validator The address that was provided.
     error ValidatorNotContract(address validator);
+
+    /// @notice Thrown when a policy address has no persistent code (empty or EIP-7702 delegation only).
+    ///
+    /// @param policy The address that was provided.
+    error PolicyNotContract(address policy);
 
     ////////////////////////////////////////////////////////////////
     ///                        Modifiers                         ///
@@ -566,6 +591,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function _install(PolicyBinding calldata binding) internal returns (bytes32 policyId) {
+        _requirePersistentCode(binding.policy);
         policyId = getPolicyId(binding);
 
         PolicyRecord storage policyRecord = policies[binding.policy][policyId];
@@ -576,6 +602,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Allow early install (before validAfter), but reject already-expired bindings.
         if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
             revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
+        }
+        if (binding.validAfter != 0 && binding.validUntil != 0 && binding.validAfter >= binding.validUntil) {
+            revert InvalidValidityWindow(binding.validAfter, binding.validUntil);
         }
 
         policies[binding.policy][policyId] = PolicyRecord({
@@ -640,11 +669,14 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                         payload.uninstallData,
                         effectiveCaller
                     ) {}
-                catch {
+                catch (bytes memory revertData) {
                     // If the hook reverts and the effective caller is not the account, revert
                     if (effectiveCaller != policyRecordByBinding.account) {
                         revert Unauthorized(effectiveCaller);
                     }
+                    emit PolicyUninstallHookReverted(
+                        policyId, policyRecordByBinding.account, binding.policy, revertData
+                    );
                 }
                 emit PolicyUninstalled(policyId, policyRecordByBinding.account, binding.policy);
                 return policyId;
@@ -659,9 +691,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
             try Policy(binding.policy)
                 .onUninstall(policyId, binding.account, binding.policyConfig, payload.uninstallData, effectiveCaller) {}
-            catch {
+            catch (bytes memory revertData) {
                 // If the hook reverts and the effective caller is not the account, revert
                 if (effectiveCaller != binding.account) revert Unauthorized(effectiveCaller);
+                emit PolicyUninstallHookReverted(policyId, binding.account, binding.policy, revertData);
             }
 
             emit PolicyUninstalled(policyId, binding.account, binding.policy);
@@ -681,10 +714,11 @@ contract PolicyManager is EIP712, ReentrancyGuard {
             .onUninstall(
                 policyId, policyRecordById.account, payload.policyConfig, payload.uninstallData, effectiveCaller
             ) {}
-        catch {
+        catch (bytes memory revertData) {
             if (effectiveCaller != policyRecordById.account) {
                 revert Unauthorized(effectiveCaller);
             }
+            emit PolicyUninstallHookReverted(policyId, policyRecordById.account, policy, revertData);
         }
         emit PolicyUninstalled(policyId, policyRecordById.account, policy);
         return policyId;
@@ -755,6 +789,7 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (payload.oldPolicy == address(0) || payload.newBinding.policy == address(0)) {
             revert InvalidPayload();
         }
+        _requirePersistentCode(payload.newBinding.policy);
 
         // Check policyId is not the same
         newPolicyId = getPolicyId(payload.newBinding);
@@ -842,7 +877,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
                 otherPolicyId,
                 Policy.ReplaceRole.OldPolicy
             ) {}
-            catch {}
+        catch (bytes memory revertData) {
+            emit PolicyUninstallHookReverted(policyId, policyRecord.account, policy, revertData);
+        }
         emit PolicyUninstalled(policyId, policyRecord.account, policy);
     }
 
@@ -872,6 +909,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         // Allow early install (before validAfter), but reject already-expired bindings.
         if (binding.validUntil != 0 && uint40(block.timestamp) >= binding.validUntil) {
             revert AfterValidUntil(uint40(block.timestamp), binding.validUntil);
+        }
+        if (binding.validAfter != 0 && binding.validUntil != 0 && binding.validAfter >= binding.validUntil) {
+            revert InvalidValidityWindow(binding.validAfter, binding.validUntil);
         }
 
         policyRecord.installed = true;
@@ -935,6 +975,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         if (policyRecord.validAfter != 0 && timestamp < policyRecord.validAfter) return false;
         if (policyRecord.validUntil != 0 && timestamp >= policyRecord.validUntil) return false;
         return true;
+    }
+
+    /// @notice Reverts if the given address has no persistent code (empty or EIP-7702 delegation prefix only).
+    ///
+    /// @param addr Address to check.
+    function _requirePersistentCode(address addr) internal view {
+        bytes memory code = addr.code;
+        bool notPersistent =
+            code.length == 0 || (code.length == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00);
+        if (notPersistent) revert PolicyNotContract(addr);
     }
 
     /// @dev EIP-712 domain metadata.

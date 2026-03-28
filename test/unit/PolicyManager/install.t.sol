@@ -64,7 +64,7 @@ contract InstallTest is PolicyManagerTestBase {
             policyConfig: policyConfig
         });
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, policy));
         vm.prank(address(account));
         policyManager.install(binding);
     }
@@ -143,6 +143,32 @@ contract InstallTest is PolicyManagerTestBase {
 
         bytes32 policyId = _install(binding);
         assertTrue(policyManager.isPolicyInstalled(address(installPolicy), policyId));
+    }
+
+    /// @notice Reverts when validAfter >= validUntil and both are non-zero (impossible validity window).
+    ///
+    /// @param validAfter Lower bound timestamp.
+    /// @param validUntil Upper bound timestamp.
+    /// @param salt Salt for the binding.
+    function test_reverts_whenValidityWindowIsInvalid(uint40 validAfter, uint40 validUntil, uint256 salt) public {
+        vm.assume(validAfter != 0 && validUntil != 0);
+        vm.assume(validAfter >= validUntil);
+        // Ensure validUntil is in the future so we don't hit AfterValidUntil first.
+        vm.assume(uint40(block.timestamp) < validUntil);
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidValidityWindow.selector, validAfter, validUntil));
+        vm.prank(address(account));
+        policyManager.install(binding);
     }
 
     /// @notice Reverts when current timestamp is at/after `binding.validUntil`.
@@ -376,6 +402,31 @@ contract InstallTest is PolicyManagerTestBase {
 
         vm.prank(address(account));
         vm.expectRevert();
+        policyManager.install(binding);
+    }
+
+    /// @notice Reverts when the policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    ///
+    /// @param salt Salt used to derive the policyId.
+    function test_reverts_whenPolicyIsEIP7702Delegation(uint256 salt) public {
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        bytes memory policyConfig = abi.encode(bytes32(0));
+        PolicyManager.PolicyBinding memory binding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: salt,
+            policyConfig: policyConfig
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        vm.prank(address(account));
         policyManager.install(binding);
     }
 }

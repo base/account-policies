@@ -30,7 +30,7 @@ abstract contract Policy {
     ////////////////////////////////////////////////////////////////
 
     /// @dev The `PolicyManager` instance authorized to call hooks.
-    PolicyManager public policyManager;
+    PolicyManager public immutable policyManager;
 
     ////////////////////////////////////////////////////////////////
     ///                         Errors                           ///

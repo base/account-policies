@@ -291,6 +291,99 @@ contract UninstallTest is PolicyManagerTestBase {
         policyManager.uninstall(payload);
     }
 
+    /// @notice Emits `PolicyUninstallHookReverted` when the policy uninstall hook reverts in policyId-mode (installed lifecycle).
+    ///
+    /// @param configSeed Seed used to build the installed policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_emitsPolicyUninstallHookReverted_policyIdMode_whenAccountEscapeHatch(bytes32 configSeed, uint256 salt)
+        public
+    {
+        (bytes32 policyId, bytes memory policyConfig) =
+            _installPolicy(address(revertPolicy), abi.encode(configSeed), salt);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: PolicyManager.PolicyBinding({
+                account: address(0), policy: address(0), validAfter: 0, validUntil: 0, salt: 0, policyConfig: bytes("")
+            }),
+            policy: address(revertPolicy),
+            policyId: policyId,
+            policyConfig: policyConfig,
+            uninstallData: ""
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstallHookReverted(
+            policyId,
+            address(account),
+            address(revertPolicy),
+            abi.encodeWithSelector(RevertOnUninstallPolicy.OnUninstallReverted.selector)
+        );
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstalled(policyId, address(account), address(revertPolicy));
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+    }
+
+    /// @notice Emits `PolicyUninstallHookReverted` when the policy uninstall hook reverts in binding-mode (installed lifecycle).
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_emitsPolicyUninstallHookReverted_bindingMode_installedLifecycle_whenAccountEscapeHatch(
+        bytes32 configSeed,
+        uint256 salt
+    ) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
+
+        vm.prank(address(account));
+        bytes32 policyId = policyManager.install(binding);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstallHookReverted(
+            policyId,
+            address(account),
+            address(revertPolicy),
+            abi.encodeWithSelector(RevertOnUninstallPolicy.OnUninstallReverted.selector)
+        );
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstalled(policyId, address(account), address(revertPolicy));
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+    }
+
+    /// @notice Emits `PolicyUninstallHookReverted` when the policy uninstall hook reverts in binding-mode (pre-install).
+    ///
+    /// @param configSeed Seed used to build the policy config (hashed into `policyId`).
+    /// @param salt Salt used to build the binding (hashed into `policyId`).
+    function test_emitsPolicyUninstallHookReverted_bindingMode_preInstall_whenAccountEscapeHatch(
+        bytes32 configSeed,
+        uint256 salt
+    ) public {
+        bytes memory policyConfig = abi.encode(configSeed);
+        PolicyManager.PolicyBinding memory binding = _binding(address(revertPolicy), policyConfig, salt);
+        bytes32 policyId = policyManager.getPolicyId(binding);
+
+        PolicyManager.UninstallPayload memory payload = PolicyManager.UninstallPayload({
+            binding: binding, policy: address(0), policyId: bytes32(0), policyConfig: policyConfig, uninstallData: ""
+        });
+
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstallHookReverted(
+            policyId,
+            address(account),
+            address(revertPolicy),
+            abi.encodeWithSelector(RevertOnUninstallPolicy.OnUninstallReverted.selector)
+        );
+        vm.expectEmit(true, true, true, true, address(policyManager));
+        emit PolicyManager.PolicyUninstalled(policyId, address(account), address(revertPolicy));
+        vm.prank(address(account));
+        policyManager.uninstall(payload);
+    }
+
     /// @notice In binding-mode (pre-install), uninstall is idempotent: uninstalling an already-uninstalled policyId is a no-op.
     ///
     /// @dev Covers the binding-mode idempotent early return branch.

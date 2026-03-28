@@ -198,7 +198,7 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
             newBinding: newBinding
         });
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, newPolicy));
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
@@ -427,6 +427,48 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         });
 
         vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyAlreadyInstalled.selector, newPolicyId));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when new binding has validAfter >= validUntil and both are non-zero (impossible validity window).
+    ///
+    /// @param validAfter Lower bound timestamp.
+    /// @param validUntil Upper bound timestamp.
+    /// @param newSalt Salt for the new binding.
+    function test_reverts_whenNewBindingValidityWindowIsInvalid(uint40 validAfter, uint40 validUntil, uint256 newSalt)
+        public
+    {
+        vm.assume(validAfter != 0 && validUntil != 0);
+        vm.assume(validAfter >= validUntil);
+        // Ensure validUntil is in the future so we don't hit AfterValidUntil first.
+        vm.assume(uint40(block.timestamp) < validUntil);
+
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+
+        bytes memory newConfig = abi.encode(DEFAULT_NEW_CONFIG_SEED);
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: address(callPolicy),
+            validAfter: validAfter,
+            validUntil: validUntil,
+            salt: newSalt,
+            policyConfig: newConfig
+        });
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.InvalidValidityWindow.selector, validAfter, validUntil));
         policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 
@@ -1084,5 +1126,41 @@ contract ReplaceWithSignatureTest is PolicyManagerTestBase {
         bytes32 ret = policyManager.replaceWithSignature(payload, userSig, 0, executionData);
         assertEq(ret, newPolicyId);
         assertEq(receiver.calls(), 1);
+    }
+
+    /// @notice Reverts when the new policy address has only an EIP-7702 delegation prefix (no persistent code).
+    ///
+    /// @dev EIP-7702 delegation addresses have 23 bytes of code starting with 0xef01.
+    ///      These should not be accepted as valid policy contracts.
+    function test_reverts_whenNewPolicyIsEIP7702Delegation() public {
+        (bytes32 oldPolicyId, bytes memory oldPolicyConfig) =
+            _installCallPolicy(abi.encode(bytes32(0)), DEFAULT_OLD_SALT, 0, 0);
+
+        address target = address(0xdead);
+        vm.etch(target, hex"ef01000000000000000000000000000000000000000000");
+
+        PolicyManager.PolicyBinding memory newBinding = PolicyManager.PolicyBinding({
+            account: address(account),
+            policy: target,
+            validAfter: 0,
+            validUntil: 0,
+            salt: DEFAULT_NEW_SALT,
+            policyConfig: abi.encode(DEFAULT_NEW_CONFIG_SEED)
+        });
+        bytes32 newPolicyId = policyManager.getPolicyId(newBinding);
+        bytes memory userSig =
+            _signReplace(address(account), address(callPolicy), oldPolicyId, oldPolicyConfig, newPolicyId, 0);
+
+        PolicyManager.ReplacePayload memory payload = PolicyManager.ReplacePayload({
+            oldPolicy: address(callPolicy),
+            oldPolicyId: oldPolicyId,
+            oldPolicyConfig: oldPolicyConfig,
+            oldPolicyReplaceData: "",
+            newPolicyReplaceData: "",
+            newBinding: newBinding
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(PolicyManager.PolicyNotContract.selector, target));
+        policyManager.replaceWithSignature(payload, userSig, 0, bytes(""));
     }
 }
