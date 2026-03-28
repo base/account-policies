@@ -282,14 +282,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Installs a policy using an account signature over the binding, optionally followed by an execution.
     ///
-    /// @dev The signature only authorizes the binding (not the execution). Any `executionData` provided, including empty
-    ///      bytes, is forwarded to the policy's execute hook, which MUST enforce its own execution authorization semantics.
+    /// @dev The signature only authorizes the binding (not the execution). If `executionData` is non-empty, the manager
+    ///      calls `_execute`, which enforces the validity window and invokes the policy's execute hook. If `executionData`
+    ///      is empty, installation proceeds without any execution — the policy's `onExecute` hook is never called.
+    ///      Policies MUST enforce their own execution authorization semantics.
     ///
     /// @param binding Policy binding parameters authorized by the account (includes `policyConfig`).
     /// @param userSig ERC-6492-compatible signature by `binding.account` over the install typed digest:
     ///      `_hashTypedData(keccak256(abi.encode(INSTALL_POLICY_TYPEHASH, policyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
-    /// @param executionData Policy-defined per-execution payload (may be empty; the policy decides how to handle it).
+    /// @param executionData Policy-defined per-execution payload. If non-empty, triggers execution after install.
+    ///        If empty, no execution occurs.
     ///
     /// @return policyId Deterministic policy identifier derived from the binding.
     function installWithSignature(
@@ -306,7 +309,10 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         _install(binding);
 
-        _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender);
+        if (executionData.length > 0) {
+            _execute(binding.policy, policyId, binding.policyConfig, executionData, msg.sender);
+        }
+
         return policyId;
     }
 
@@ -371,12 +377,16 @@ contract PolicyManager is EIP712, ReentrancyGuard {
     /// @notice Atomically uninstall an existing policy instance and install a new one (authorized by account signature).
     ///
     /// @dev Uses a dedicated EIP-712 typed message so the signature cannot be replayed as a plain install.
+    ///      If `executionData` is non-empty, the manager calls `_execute` on the new policy after replacement,
+    ///      enforcing the validity window and invoking the policy's execute hook. If `executionData` is empty,
+    ///      replacement proceeds without any execution — the policy's `onExecute` hook is never called.
     ///
     /// @param payload Replace payload containing the old policy instance to uninstall and the new binding to install.
     /// @param userSig ERC-6492-compatible signature by `payload.newBinding.account` over the replacement typed digest:
     ///      `_hashTypedData(keccak256(abi.encode(REPLACE_POLICY_TYPEHASH, account, oldPolicy, oldPolicyId, keccak256(oldPolicyConfig), newPolicyId, deadline)))`.
     /// @param deadline Optional timestamp (seconds). If non-zero, the signature is invalid after this deadline.
-    /// @param executionData Policy-defined per-execution payload (may be empty; the policy decides how to handle it).
+    /// @param executionData Policy-defined per-execution payload. If non-empty, triggers execution after replacement.
+    ///        If empty, no execution occurs.
     ///
     /// @return newPolicyId Deterministic policy identifier for the new binding.
     function replaceWithSignature(
@@ -405,7 +415,9 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
         _replace(payload);
 
-        _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
+        if (executionData.length > 0) {
+            _execute(payload.newBinding.policy, newPolicyId, payload.newBinding.policyConfig, executionData, msg.sender);
+        }
 
         return newPolicyId;
     }
@@ -680,15 +692,17 @@ contract PolicyManager is EIP712, ReentrancyGuard {
 
     /// @notice Executes an action for a policy instance.
     ///
-    /// @dev Validates the policy is active, calls the policy hook, then enforces the validity window only when
-    ///      the policy returns an account action:
+    /// @dev Validates the policy is active and within its validity window, then calls the policy hook:
     ///      1) requires the policy is not disabled (uninstalled)
-    ///      2) calls the policy `onExecute` hook
-    ///      3) if `accountCallData` is empty, returns (no window check, no account call)
-    ///      4) checks validity window (only for actual executions)
+    ///      2) enforces the validity window
+    ///      3) calls the policy `onExecute` hook
+    ///      4) if `accountCallData` is empty, returns (no account call, no post-call, no event)
     ///      5) calls the account with the policy-prepared calldata
-    ///      6) calls the policy post-call (if any)
+    ///      6) calls the policy post-call hook
     ///
+    ///      The validity window is enforced before the policy ever sees the call. Install-only flows
+    ///      (`installWithSignature` / `replaceWithSignature` with empty `executionData`) never reach
+    ///      this function — the manager gates `_execute` at the callsite.
     ///
     /// @param policy Policy contract address.
     /// @param policyId Policy identifier for the binding.
@@ -705,16 +719,13 @@ contract PolicyManager is EIP712, ReentrancyGuard {
         PolicyRecord storage policyRecord = policies[policy][policyId];
         if (policyRecord.uninstalled) revert PolicyIsDisabled(policyId);
 
+        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
+
         address account = policyRecord.account;
         (bytes memory accountCallData, bytes memory postCallData) =
             Policy(policy).onExecute(policyId, account, policyConfig, executionData, caller);
 
         if (accountCallData.length == 0) return;
-
-        // Enforce validity window only when the policy returns an account action. This allows
-        // `installWithSignature` / `replaceWithSignature` to succeed before `validAfter` when no
-        // execution is requested (policy returns empty calldata for empty executionData).
-        _checkValidityWindow(policyRecord.validAfter, policyRecord.validUntil);
 
         Address.functionCall(account, accountCallData);
 
