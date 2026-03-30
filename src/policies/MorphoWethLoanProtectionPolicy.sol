@@ -129,6 +129,7 @@ contract MorphoWethLoanProtectionPolicy is MorphoLoanProtectionPolicy {
         }
 
         // Build wallet call plan: wrap ETH → approve WETH → supply collateral to Morpho.
+        // No zero-approve step needed: WETH is a standard ERC-20 (unlike USDT-style tokens in the parent).
         CoinbaseSmartWallet.Call[] memory calls = new CoinbaseSmartWallet.Call[](3);
         calls[0] = CoinbaseSmartWallet.Call({
             target: WETH, value: topUpAssets, data: abi.encodeWithSelector(IWETH.deposit.selector)

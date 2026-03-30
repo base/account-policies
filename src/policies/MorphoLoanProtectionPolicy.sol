@@ -306,7 +306,13 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     ///
     /// @return name    Domain name (`"Morpho Loan Protection Policy"`).
     /// @return version Domain version (`"1"`).
-    function _domainNameAndVersion() internal pure virtual override returns (string memory name, string memory version) {
+    function _domainNameAndVersion()
+        internal
+        pure
+        virtual
+        override
+        returns (string memory name, string memory version)
+    {
         name = "Morpho Loan Protection Policy";
         version = "1";
     }
