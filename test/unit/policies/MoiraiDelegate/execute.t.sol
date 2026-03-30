@@ -30,7 +30,6 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
         vm.warp(unlockTime);
 
-        // For delay-only, executionData must be non-empty to bypass the early-return guard.
         assertFalse(policy.executed(policyId));
         policyManager.execute(address(policy), policyId, config, bytes("0x01"));
         assertTrue(policy.executed(policyId));
@@ -108,16 +107,6 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         assertTrue(policy.executed(policyId));
     }
 
-    /// @notice isExecuted remains false after a no-op execute call with empty executionData.
-    function test_isExecuted_remainsFalse_afterEmptyDataNoOp() public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
-        bytes32 policyId = _buildAndInstall(config, 0);
-
-        assertFalse(policy.executed(policyId));
-        policyManager.execute(address(policy), policyId, config, bytes(""));
-        assertFalse(policy.executed(policyId));
-    }
-
     // =============================================================
     // Reverts
     // =============================================================
@@ -142,7 +131,6 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         bytes memory config = _buildMoiraiConfig(unlockTime, address(0));
         bytes32 policyId = _buildAndInstall(config, 0);
 
-        // Must pass non-empty executionData to reach the time-lock check.
         vm.expectRevert(
             abi.encodeWithSelector(MoiraiDelegate.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
         );

@@ -159,14 +159,13 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @dev Validates config hash, checks single-execution guard, enforces time-lock and/or executor signature,
     ///      then returns the configured calldata as the account call.
     ///
-    ///      When `executionData` is empty the function returns early without touching `executed[policyId]`.
-    ///      This is an intentional no-op: it does NOT consume the one-shot execution lock. Callers who want
-    ///      to trigger the policy must supply non-empty `executionData`.
+    ///      When this hook is called the intention is always a genuine execution — the `PolicyManager` ensures
+    ///      `onExecute` is only invoked when execution is explicitly requested.
     ///
-    ///      For delay-only policies (`executor == address(0)`), the content of `executionData` is
-    ///      ignored entirely — only its non-zero length is checked. Any non-empty bytes trigger execution
-    ///      once the time-lock is met. The actual call parameters (`target`, `value`, `callData`) are always
-    ///      taken from `policyConfig`, not from `executionData`.
+    ///      For executor-required policies (`executor != address(0)`), `executionData` is decoded to extract
+    ///      the executor signature. For delay-only policies (`executor == address(0)`), `executionData` is never
+    ///      inspected — only the time-lock matters. The actual call parameters (`target`, `value`, `callData`)
+    ///      are always taken from `policyConfig`, not from `executionData`.
     function _onExecute(
         bytes32 policyId,
         address account,
@@ -174,7 +173,6 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         bytes calldata executionData,
         address caller
     ) internal override whenNotPaused returns (bytes memory accountCallData, bytes memory postCallData) {
-        if (executionData.length == 0) return (accountCallData, postCallData);
         _requireConfigHash(policyId, policyConfig);
 
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
