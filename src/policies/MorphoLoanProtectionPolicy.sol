@@ -149,7 +149,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         address account,
         SingleExecutorConfig memory,
         bytes memory policySpecificConfig
-    ) internal override {
+    ) internal virtual override {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         bytes32 marketKey = Id.unwrap(config.marketId);
         if (marketKey == bytes32(0)) revert ZeroMarketId();
@@ -199,7 +199,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         SingleExecutorConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
-    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal virtual override returns (bytes memory accountCallData, bytes memory postCallData) {
         // One-shot guard: revert if already used, otherwise mark consumed.
         if (_usedPolicyId[policyId]) revert PolicyAlreadyUsed(policyId);
         _usedPolicyId[policyId] = true;
@@ -306,7 +306,13 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     ///
     /// @return name    Domain name (`"Morpho Loan Protection Policy"`).
     /// @return version Domain version (`"1"`).
-    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+    function _domainNameAndVersion()
+        internal
+        pure
+        virtual
+        override
+        returns (string memory name, string memory version)
+    {
         name = "Morpho Loan Protection Policy";
         version = "1";
     }
