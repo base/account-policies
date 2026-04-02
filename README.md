@@ -240,6 +240,17 @@ Policies are only callable by the manager, which keeps the trust boundary clean 
 
 ---
 
+## Audits
+
+Audited by [Spearbit](https://spearbit.com/) via [Cantina](https://cantina.xyz/).
+
+| Audit | Date | Report |
+|-------|------|--------|
+| Private audit 1 | 03/31/2026 | [Report](audits/Cantina-March-2026.pdf) |
+| Private audit 2 | 03/31/2026 | [Report](audits/Cantina-March-2026-Pt2.pdf) |
+
+---
+
 ## Setup
 
 This repo uses git submodules for dependencies (in `lib/`).
