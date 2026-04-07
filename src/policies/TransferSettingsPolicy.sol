@@ -1,44 +1,55 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 
 import {Policy} from "./Policy.sol";
 import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 
-/// @title MoiraiDelegate
+/// @title TransferSettingsPolicy
 ///
-/// @notice A one-shot delegation policy that executes a fixed call (target, value, calldata) on behalf of
-///         an account under at least one of two configurable conditions: a time-lock and/or an executor signature.
+/// @notice A one-shot policy that executes a fixed token transfer (native ETH or ERC20) on behalf of an account
+///         under at least one of two configurable conditions: a time-lock and/or an executor signature.
 ///
 /// @dev Inherits `SingleExecutorPolicy` directly. The executor is optional (zero address means no consensus
 ///      required). At least one condition must be configured at install time:
 ///      - `unlockTimestamp > 0` — execution is gated behind a time-lock.
 ///      - `executor != address(0)` — execution requires a valid executor-signed intent.
 ///
-///      Config format: `policyConfig = abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` — the canonical
-///      single-executor encoding shared across all `SingleExecutorPolicy` subclasses.
+///      The transfer parameters (`recipient`, `amount`, `tokenContract`) are fixed at install time.
+///      For native ETH transfers, set `tokenContract` to `address(0)`. For ERC20 transfers, set
+///      `tokenContract` to the ERC20 contract address; the policy hard-codes the `transfer` selector.
+///
+///      Config format: `policyConfig = abi.encode(SingleExecutorConfig, abi.encode(TransferConfig))` — the
+///      canonical single-executor encoding shared across all `SingleExecutorPolicy` subclasses.
 ///
 ///      Execution data format (when executor is set): `executionData = abi.encode(SingleExecutorExecutionData,
 ///      bytes actionData)`.
 ///
 ///      Each policy instance may only be executed once — `executed[policyId]` guards against replays.
-contract MoiraiDelegate is SingleExecutorPolicy {
+///
+///      ERC20 transfers: `CoinbaseSmartWallet.execute` propagates inner-call reverts but does NOT inspect
+///      the boolean return value of `IERC20.transfer`. Non-standard tokens (e.g. USDT-mainnet) that return
+///      `false` without reverting would silently succeed from the wallet's perspective. To guard against this,
+///      `_onPostExecute` reads the recipient's post-call balance and reverts with `ERC20TransferFailed` if it
+///      did not increase by at least `amount`.
+contract TransferSettingsPolicy is SingleExecutorPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Policy-specific configuration for a MoiraiDelegate instance.
+    /// @notice Policy-specific configuration for a TransferSettingsPolicy instance.
     ///
     /// @dev Encoded as the inner `policySpecificConfig` bytes inside the canonical
-    ///      `abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` envelope.
-    struct MoiraiConfig {
-        /// @dev Target address for the delegated call.
-        address target;
-        /// @dev ETH value to send with the call.
-        uint256 value;
-        /// @dev Calldata to pass to `target`.
-        bytes callData;
+    ///      `abi.encode(SingleExecutorConfig, abi.encode(TransferConfig))` envelope.
+    struct TransferConfig {
+        /// @dev Destination address for the transfer. Must be non-zero.
+        address recipient;
+        /// @dev Amount to transfer (wei for native ETH; token units for ERC20). Must be non-zero.
+        uint256 amount;
+        /// @dev Token contract address. `address(0)` means native ETH transfer; otherwise ERC20.
+        address tokenContract;
         /// @dev Earliest timestamp (seconds) at which execution is allowed. Zero means no time-lock.
         uint256 unlockTimestamp;
     }
@@ -71,6 +82,21 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @param unlockTimestamp Configured unlock timestamp in seconds.
     error BeforeUnlockTimestamp(uint256 currentTimestamp, uint256 unlockTimestamp);
 
+    /// @notice Thrown when the configured recipient is the zero address.
+    error ZeroRecipient();
+
+    /// @notice Thrown when the configured transfer amount is zero.
+    error ZeroAmount();
+
+    /// @notice Thrown when non-empty action data is provided; this policy does not use action data.
+    error UnexpectedActionData();
+
+    /// @notice Thrown when an ERC20 transfer did not deliver the expected token amount to the recipient.
+    ///
+    /// @dev Fired in `_onPostExecute` when the recipient's post-call balance did not increase by
+    ///      at least `amount`. Covers non-standard tokens that return `false` without reverting.
+    error ERC20TransferFailed();
+
     ////////////////////////////////////////////////////////////////
     ///                       Constructor                        ///
     ////////////////////////////////////////////////////////////////
@@ -87,15 +113,17 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
     /// @inheritdoc Policy
     ///
-    /// @dev Decodes the canonical `(SingleExecutorConfig, bytes)` envelope, decodes the inner `MoiraiConfig`,
-    ///      validates that at least one condition is set, and stores the config hash.
+    /// @dev Decodes the canonical `(SingleExecutorConfig, bytes)` envelope, decodes the inner `TransferConfig`,
+    ///      validates that at least one condition is set, validates recipient and amount, and stores the config hash.
     function _onInstall(bytes32 policyId, address, bytes calldata policyConfig) internal override {
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
             _decodeSingleExecutorConfig(policyConfig);
-        MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
+        TransferConfig memory config = abi.decode(specificConfig, (TransferConfig));
         if (config.unlockTimestamp == 0 && singleExecutorConfig.executor == address(0)) {
             revert NoConditionSpecified();
         }
+        if (config.recipient == address(0)) revert ZeroRecipient();
+        if (config.amount == 0) revert ZeroAmount();
         _storeConfigHash(policyId, policyConfig);
     }
 
@@ -128,8 +156,6 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         bytes32 storedConfigHash = _configHashByPolicyId[policyId];
 
         // Pre-install permanent disable: executor signs over keccak256(policyConfig).
-        // Variable names differ from the post-install branch to avoid Solidity shadowing warnings
-        // (both branches declare the same logical names but are in separate scoped blocks).
         if (storedConfigHash == bytes32(0)) {
             (SingleExecutorConfig memory preinstallConfig,) = _decodeSingleExecutorConfig(policyConfig);
             if (preinstallConfig.executor == address(0)) revert Unauthorized(caller);
@@ -141,10 +167,10 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         }
 
         // Post-install: executor provides signed uninstall intent over stored config hash.
-        // Use storedConfigHash (already loaded) instead of calling _requireConfigHash to avoid a redundant SLOAD.
         bytes32 actualConfigHash = keccak256(policyConfig);
         if (actualConfigHash != storedConfigHash) revert PolicyConfigHashMismatch(actualConfigHash, storedConfigHash);
         (SingleExecutorConfig memory singleExecutorConfig,) = _decodeSingleExecutorConfig(policyConfig);
+        if (singleExecutorConfig.executor == address(0)) revert Unauthorized(caller);
         (bytes memory signature, uint256 deadline) = abi.decode(uninstallData, (bytes, uint256));
         if (deadline != 0 && block.timestamp > deadline) revert SignatureExpired(block.timestamp, deadline);
         bytes32 digest = _getUninstallDigest(policyId, account, storedConfigHash, deadline);
@@ -157,15 +183,18 @@ contract MoiraiDelegate is SingleExecutorPolicy {
     /// @inheritdoc Policy
     ///
     /// @dev Validates config hash, checks single-execution guard, enforces time-lock and/or executor signature,
-    ///      then returns the configured calldata as the account call.
+    ///      then constructs and returns the transfer call as the account call.
     ///
-    ///      When this hook is called the intention is always a genuine execution — the `PolicyManager` ensures
-    ///      `onExecute` is only invoked when execution is explicitly requested.
+    ///      For native ETH transfers (`tokenContract == address(0)`), the account calls `execute(recipient,
+    ///      amount, "")`. For ERC20 transfers, the account calls `execute(tokenContract, 0,
+    ///      abi.encodeCall(IERC20.transfer, (recipient, amount)))`.
     ///
     ///      For executor-required policies (`executor != address(0)`), `executionData` is decoded to extract
     ///      the executor signature. For delay-only policies (`executor == address(0)`), `executionData` is never
-    ///      inspected — only the time-lock matters. The actual call parameters (`target`, `value`, `callData`)
-    ///      are always taken from `policyConfig`, not from `executionData`.
+    ///      inspected — only the time-lock matters.
+    ///
+    ///      For ERC20 transfers, `postCallData` encodes `(tokenContract, recipient, amount)` so that
+    ///      `_onPostExecute` can verify the recipient's balance increased by at least `amount`.
     function _onExecute(
         bytes32 policyId,
         address account,
@@ -177,7 +206,7 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         (SingleExecutorConfig memory singleExecutorConfig, bytes memory specificConfig) =
             _decodeSingleExecutorConfig(policyConfig);
-        MoiraiConfig memory config = abi.decode(specificConfig, (MoiraiConfig));
+        TransferConfig memory config = abi.decode(specificConfig, (TransferConfig));
 
         if (executed[policyId]) revert AlreadyExecuted(policyId);
 
@@ -190,6 +219,7 @@ contract MoiraiDelegate is SingleExecutorPolicy {
         if (singleExecutorConfig.executor != address(0)) {
             (SingleExecutorExecutionData memory executionData_, bytes memory actionData) =
                 abi.decode(executionData, (SingleExecutorExecutionData, bytes));
+            if (actionData.length != 0) revert UnexpectedActionData();
             _validateAndConsumeExecutionIntent(
                 policyId, account, singleExecutorConfig.executor, executionData_, actionData, caller
             );
@@ -197,17 +227,47 @@ contract MoiraiDelegate is SingleExecutorPolicy {
 
         executed[policyId] = true;
 
-        accountCallData =
-            abi.encodeWithSelector(CoinbaseSmartWallet.execute.selector, config.target, config.value, config.callData);
-        return (accountCallData, "");
+        if (config.tokenContract == address(0)) {
+            // Native ETH transfer
+            accountCallData =
+                abi.encodeCall(CoinbaseSmartWallet.execute, (config.recipient, config.amount, new bytes(0)));
+            return (accountCallData, "");
+        } else {
+            // ERC20 transfer
+            accountCallData = abi.encodeCall(
+                CoinbaseSmartWallet.execute,
+                (config.tokenContract, uint256(0), abi.encodeCall(IERC20.transfer, (config.recipient, config.amount)))
+            );
+            // Pass token details to _onPostExecute for balance verification.
+            postCallData = abi.encode(config.tokenContract, config.recipient, config.amount);
+            return (accountCallData, postCallData);
+        }
+    }
+
+    /// @inheritdoc Policy
+    ///
+    /// @dev For ERC20 transfers, verifies that the recipient's token balance increased by at least `amount`
+    ///      after the account call. This guards against non-standard tokens (e.g. USDT-mainnet) that return
+    ///      `false` from `transfer` without reverting — `CoinbaseSmartWallet.execute` propagates call reverts
+    ///      but does not inspect the ERC20 return value. For native ETH transfers, `postCallData` is empty
+    ///      and this hook is a no-op.
+    ///
+    /// @param postCallData ABI-encoded `(address tokenContract, address recipient, uint256 amount)` for ERC20;
+    ///                     empty for native ETH.
+    function _onPostExecute(bytes32, address, bytes calldata postCallData) internal view override {
+        if (postCallData.length == 0) return;
+        (address tokenContract, address recipient, uint256 amount) =
+            abi.decode(postCallData, (address, address, uint256));
+        uint256 balance = IERC20(tokenContract).balanceOf(recipient);
+        if (balance < amount) revert ERC20TransferFailed();
     }
 
     /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
     ///
-    /// @return name    Domain name (`"Moirai Delegate"`).
+    /// @return name    Domain name (`"Transfer Settings Policy"`).
     /// @return version Domain version (`"1"`).
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
-        name = "Moirai Delegate";
+        name = "Transfer Settings Policy";
         version = "1";
     }
 }
