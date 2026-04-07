@@ -78,12 +78,31 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
     }
 
-    /// @notice Reverts when triggerLtv is greater than or equal to the market's LLTV.
+    /// @notice Reverts when triggerLtv is zero.
     ///
     /// @param salt Salt for deriving a unique policyId.
-    /// @param triggerLtv Fuzzed trigger LTV at or above the market's LLTV (0.8e18).
-    function test_reverts_whenTriggerLtvAboveLltv(uint256 salt, uint256 triggerLtv) public {
-        triggerLtv = bound(triggerLtv, marketParams.lltv, type(uint256).max);
+    function test_reverts_whenTriggerLtvIsZero(uint256 salt) public {
+        bytes memory psc = abi.encode(
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
+                marketId: marketId, triggerLtv: 0, maxTopUpAssets: 25 ether
+            })
+        );
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
+        PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(MorphoLoanProtectionPolicy.ZeroTriggerLtv.selector);
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
+    }
+
+    /// @notice Reverts when triggerLtv is too close to (or above) the market's LLTV.
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    /// @param triggerLtv Fuzzed trigger LTV within the buffer zone or above LLTV.
+    function test_reverts_whenTriggerLtvTooCloseToLltv(uint256 salt, uint256 triggerLtv) public {
+        // MIN_LTV_BUFFER is 0.05e18 in the test base; lltv is 0.8e18.
+        // Revert range: triggerLtv >= lltv - buffer = 0.75e18 (but exclude 0 which hits ZeroTriggerLtv).
+        triggerLtv = bound(triggerLtv, marketParams.lltv - policy.MIN_LTV_BUFFER(), type(uint256).max);
 
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
@@ -96,7 +115,10 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                MorphoLoanProtectionPolicy.TriggerLtvAboveLltv.selector, triggerLtv, marketParams.lltv
+                MorphoLoanProtectionPolicy.TriggerLtvTooCloseToLltv.selector,
+                triggerLtv,
+                marketParams.lltv,
+                policy.MIN_LTV_BUFFER()
             )
         );
         policyManager.installWithSignature(b, userSig, 0, bytes(""));

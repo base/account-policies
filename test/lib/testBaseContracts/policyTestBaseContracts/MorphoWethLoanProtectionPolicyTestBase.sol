@@ -58,7 +58,9 @@ abstract contract MorphoWethLoanProtectionPolicyTestBase is Test {
         oracle = new MockMorphoOracle();
         wethToken = new MockWETH();
 
-        policy = new MorphoWethLoanProtectionPolicy(address(policyManager), owner, address(morpho), address(wethToken));
+        policy = new MorphoWethLoanProtectionPolicy(
+            address(policyManager), owner, address(morpho), address(wethToken), 0.05e18
+        );
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));

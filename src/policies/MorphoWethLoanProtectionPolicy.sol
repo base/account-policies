@@ -59,8 +59,9 @@ contract MorphoWethLoanProtectionPolicy is MorphoLoanProtectionPolicy {
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
     /// @param weth_ WETH contract address for this chain (must be a deployed contract).
-    constructor(address policyManager, address admin, address morpho_, address weth_)
-        MorphoLoanProtectionPolicy(policyManager, admin, morpho_)
+    /// @param minLtvBuffer_ Minimum required buffer between `triggerLtv` and the market's `lltv` (WAD-scaled).
+    constructor(address policyManager, address admin, address morpho_, address weth_, uint256 minLtvBuffer_)
+        MorphoLoanProtectionPolicy(policyManager, admin, morpho_, minLtvBuffer_)
     {
         if (_isNotPersistentCode(weth_)) revert WethNotContract(weth_);
         WETH = weth_;
@@ -146,7 +147,7 @@ contract MorphoWethLoanProtectionPolicy is MorphoLoanProtectionPolicy {
         });
 
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
-        postCallData = "";
+        postCallData = abi.encode(config, marketParams);
     }
 
     /// @dev Returns the EIP-712 domain name and version used for executor signature verification.

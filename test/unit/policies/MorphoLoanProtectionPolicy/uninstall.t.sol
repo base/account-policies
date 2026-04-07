@@ -141,7 +141,7 @@ contract ClearInstallStateTest is Test {
     MorphoLoanProtectionHarness internal harness;
 
     function setUp() public {
-        harness = new MorphoLoanProtectionHarness(address(this), address(this), address(this));
+        harness = new MorphoLoanProtectionHarness(address(this), address(this), address(this), 0.05e18);
     }
 
     /// @notice No-op when the market key has already been cleared (or was never set).

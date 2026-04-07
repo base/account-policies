@@ -62,7 +62,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         morpho = new MockMorphoBlue();
         oracle = new MockMorphoOracle();
 
-        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho));
+        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho), 0.05e18);
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
