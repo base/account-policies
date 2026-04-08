@@ -26,8 +26,11 @@ import {SingleExecutorAuthorizedPolicy} from "./SingleExecutorAuthorizedPolicy.s
 ///
 ///      This policy is NOT guaranteed to prevent liquidation. Market conditions, oracle price updates, and
 ///      further interest accrual can change between blocks; executors may not submit transactions in time;
-///      and gas costs may prevent timely execution. Even after a successful top-up, the position may become
-///      unhealthy again in subsequent blocks. The policy provides a best-effort protection mechanism only.
+///      and gas costs may prevent timely execution. A successful top-up guarantees the position is below the
+///      market's LLTV at the time of execution (enforced by `_onPostExecute`), but the position may become
+///      unhealthy again in subsequent blocks. If market conditions change between the executor's signature
+///      and transaction inclusion such that the top-up cannot bring the position below LLTV, the transaction
+///      reverts — preserving the one-shot and the account's collateral.
 contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
@@ -55,6 +58,13 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
 
     /// @notice Morpho Blue singleton contract address.
     address public immutable MORPHO;
+
+    /// @notice Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled, 1e18 = 100%).
+    ///
+    /// @dev Set at deployment. A value of 0.95e18 means `triggerLtv` must be below 95% of the market's
+    ///      `lltv`. This scales the buffer proportionally to the market's liquidation threshold, ensuring
+    ///      a meaningful reaction window regardless of the market's `lltv`.
+    uint256 public immutable MAX_TRIGGER_LTV_RATIO;
 
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
@@ -97,8 +107,26 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Thrown when the oracle price results in a zero collateral value.
     error ZeroCollateralValue();
 
-    /// @notice Thrown when the configured triggerLtv is not below the market's LLTV.
-    error TriggerLtvAboveLltv(uint256 triggerLtv, uint256 lltv);
+    /// @notice Thrown when triggerLtv is zero.
+    error ZeroTriggerLtv();
+
+    /// @notice Thrown when triggerLtv is too close to (or above) the market's LLTV.
+    ///
+    /// @param triggerLtv The configured trigger LTV.
+    /// @param lltv The market's liquidation LTV.
+    /// @param maxTriggerLtv The maximum allowed trigger LTV (derived from `lltv * MAX_TRIGGER_LTV_RATIO`).
+    error TriggerLtvTooCloseToLltv(uint256 triggerLtv, uint256 lltv, uint256 maxTriggerLtv);
+
+    /// @notice Thrown when the position's LTV remains at or above the market's LLTV after the top-up.
+    ///
+    /// @param postTopUpLtv The position's LTV after the top-up (WAD-scaled).
+    /// @param lltv The market's liquidation LTV.
+    error PostTopUpLtvAboveLltv(uint256 postTopUpLtv, uint256 lltv);
+
+    /// @notice Thrown when `maxTriggerLtvRatio` is out of valid range (must be 0 < ratio < 1e18).
+    ///
+    /// @param ratio The invalid ratio that was provided.
+    error InvalidMaxTriggerLtvRatio(uint256 ratio);
 
     /// @notice Thrown when an account attempts to install multiple active policies for the same marketId.
     error PolicyAlreadyInstalledForMarket(address account, Id marketId);
@@ -112,11 +140,18 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
-    constructor(address policyManager, address admin, address morpho_)
+    /// @param maxTriggerLtvRatio_ Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled).
+    ///        Must satisfy 0 < ratio < 1e18. For example, 0.95e18 means `triggerLtv` must be below 95% of
+    ///        `lltv`.
+    constructor(address policyManager, address admin, address morpho_, uint256 maxTriggerLtvRatio_)
         SingleExecutorAuthorizedPolicy(policyManager, admin)
     {
         if (_isNotPersistentCode(morpho_)) revert MorphoNotContract(morpho_);
+        if (maxTriggerLtvRatio_ == 0 || maxTriggerLtvRatio_ >= 1e18) {
+            revert InvalidMaxTriggerLtvRatio(maxTriggerLtvRatio_);
+        }
         MORPHO = morpho_;
+        MAX_TRIGGER_LTV_RATIO = maxTriggerLtvRatio_;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -149,7 +184,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         address account,
         SingleExecutorConfig memory,
         bytes memory policySpecificConfig
-    ) internal override {
+    ) internal virtual override {
         LoanProtectionPolicyConfig memory config = abi.decode(policySpecificConfig, (LoanProtectionPolicyConfig));
         bytes32 marketKey = Id.unwrap(config.marketId);
         if (marketKey == bytes32(0)) revert ZeroMarketId();
@@ -158,9 +193,20 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         // Ensure the pinned market exists on this Morpho instance.
         MarketParams memory marketParams = _requireMarketParams(config.marketId);
 
-        // Ensure the trigger LTV is below the market's liquidation LTV so the protection can
-        // fire before the position becomes liquidatable.
-        if (config.triggerLtv >= marketParams.lltv) revert TriggerLtvAboveLltv(config.triggerLtv, marketParams.lltv);
+        // Reject a zero trigger LTV (uint256 comparison `currentLtv < 0` is always false, so zero
+        // would allow unconditional execution regardless of position health).
+        if (config.triggerLtv == 0) revert ZeroTriggerLtv();
+
+        // Ensure the trigger LTV is below a proportional ceiling of the market's liquidation LTV
+        // so the executor has a meaningful reaction window before the position becomes liquidatable.
+        // e.g., MAX_TRIGGER_LTV_RATIO = 0.95e18 → triggerLtv must be < 95% of lltv.
+        // The `triggerLtv >= lltv` branch is defense-in-depth: when the constructor enforces
+        // `0 < ratio < 1e18`, `maxTriggerLtv < lltv` always holds, but we guard against
+        // misconfiguration weakening the buffer guarantee.
+        uint256 maxTriggerLtv = Math.mulDiv(marketParams.lltv, MAX_TRIGGER_LTV_RATIO, 1e18);
+        if (config.triggerLtv >= maxTriggerLtv || config.triggerLtv >= marketParams.lltv) {
+            revert TriggerLtvTooCloseToLltv(config.triggerLtv, marketParams.lltv, maxTriggerLtv);
+        }
 
         // Ensure only one active policy per (account, market).
         if (activePolicyByMarket[account][marketKey] != bytes32(0)) {
@@ -199,7 +245,7 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         SingleExecutorConfig memory,
         bytes memory policySpecificConfig,
         bytes memory actionData
-    ) internal override returns (bytes memory accountCallData, bytes memory postCallData) {
+    ) internal virtual override returns (bytes memory accountCallData, bytes memory postCallData) {
         // One-shot guard: revert if already used, otherwise mark consumed.
         if (_usedPolicyId[policyId]) revert PolicyAlreadyUsed(policyId);
         _usedPolicyId[policyId] = true;
@@ -241,7 +287,19 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         });
 
         accountCallData = abi.encodeWithSelector(CoinbaseSmartWallet.executeBatch.selector, calls);
-        postCallData = "";
+        postCallData = abi.encode(config, marketParams);
+    }
+
+    /// @dev Verifies that the position's LTV is below the market's LLTV after the top-up. If the
+    ///      top-up was insufficient to bring the position out of the liquidation zone (e.g., due to
+    ///      price movement between the executor's signature and transaction inclusion), the entire
+    ///      transaction reverts — preserving the one-shot and the account's collateral.
+    function _onPostExecute(bytes32, address account, bytes calldata postCallData) internal override {
+        (LoanProtectionPolicyConfig memory config, MarketParams memory marketParams) =
+            abi.decode(postCallData, (LoanProtectionPolicyConfig, MarketParams));
+
+        uint256 postTopUpLtv = _computeCurrentLtv(config, marketParams, account);
+        if (postTopUpLtv >= marketParams.lltv) revert PostTopUpLtvAboveLltv(postTopUpLtv, marketParams.lltv);
     }
 
     /// @notice Looks up market params from `marketId` and reverts if the market is not initialized.
@@ -306,7 +364,13 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     ///
     /// @return name    Domain name (`"Morpho Loan Protection Policy"`).
     /// @return version Domain version (`"1"`).
-    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+    function _domainNameAndVersion()
+        internal
+        pure
+        virtual
+        override
+        returns (string memory name, string memory version)
+    {
         name = "Morpho Loan Protection Policy";
         version = "1";
     }

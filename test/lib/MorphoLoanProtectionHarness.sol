@@ -8,8 +8,8 @@ import {MorphoLoanProtectionPolicy} from "../../src/policies/MorphoLoanProtectio
 ///
 /// @notice Test harness that exposes internal `MorphoLoanProtectionPolicy` functions for direct unit testing.
 contract MorphoLoanProtectionHarness is MorphoLoanProtectionPolicy {
-    constructor(address policyManager, address admin, address morpho_)
-        MorphoLoanProtectionPolicy(policyManager, admin, morpho_)
+    constructor(address policyManager, address admin, address morpho_, uint256 maxTriggerLtvRatio_)
+        MorphoLoanProtectionPolicy(policyManager, admin, morpho_, maxTriggerLtvRatio_)
     {}
 
     function exposed_computeCurrentLtv(

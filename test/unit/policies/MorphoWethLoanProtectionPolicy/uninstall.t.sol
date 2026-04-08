@@ -1,28 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {Test} from "forge-std/Test.sol";
-
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
 
-import {MorphoLoanProtectionHarness} from "../../../lib/MorphoLoanProtectionHarness.sol";
 import {
-    MorphoLoanProtectionPolicyTestBase
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLoanProtectionPolicyTestBase.sol";
+    MorphoWethLoanProtectionPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoWethLoanProtectionPolicyTestBase.sol";
 
 /// @title UninstallTest
 ///
-/// @notice Full-flow uninstall tests for `MorphoLoanProtectionPolicy` verifying that internal
-///         state (`_activePolicyByMarket`, `_marketKeyByPolicyId`) is properly cleaned up.
-contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
+/// @notice Full-flow uninstall tests for `MorphoWethLoanProtectionPolicy` verifying that internal
+///         state (`activePolicyByMarket`, `marketKeyByPolicyId`) is properly cleaned up.
+contract UninstallTest is MorphoWethLoanProtectionPolicyTestBase {
     bytes32 internal constant SINGLE_EXECUTOR_UNINSTALL_TYPEHASH = keccak256(
         "SingleExecutorUninstall(bytes32 policyId,address account,bytes32 policyConfigHash,uint256 deadline)"
     );
 
     function setUp() public {
-        setUpMorphoLoanProtectionBase();
+        setUpMorphoWethLoanProtectionBase();
     }
 
     // =============================================================
@@ -117,6 +114,7 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
     // Helpers
     // =============================================================
 
+    /// @dev Signs an uninstall message using the WETH policy's EIP-712 domain.
     function _signUninstallLocal(bytes32 policyId, bytes32 configHash, uint256 deadline)
         internal
         view
@@ -125,51 +123,9 @@ contract UninstallTest is MorphoLoanProtectionPolicyTestBase {
         bytes32 structHash = keccak256(
             abi.encode(SINGLE_EXECUTOR_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
         );
-        bytes32 digest = _hashTypedData(address(policy), "Morpho Loan Protection Policy", "1", structHash);
+        bytes32 digest = _hashTypedData(address(policy), "Morpho WETH Loan Protection Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         return abi.encodePacked(r, s, v);
-    }
-}
-
-/// @title ClearInstallStateTest
-///
-/// @notice Harness-based tests for `MorphoLoanProtectionPolicy._clearInstallState`.
-///
-/// @dev Two paths: (1) marketKey is zero → no-op, (2) marketKey is nonzero → delete both mappings.
-contract ClearInstallStateTest is Test {
-    MorphoLoanProtectionHarness internal harness;
-
-    function setUp() public {
-        harness = new MorphoLoanProtectionHarness(address(this), address(this), address(this), 0.95e18);
-    }
-
-    /// @notice No-op when the market key has already been cleared (or was never set).
-    ///
-    /// @param policyId Fuzzed policy identifier.
-    /// @param account Fuzzed account address.
-    function test_noOp_whenMarketKeyIsZero(bytes32 policyId, address account) public {
-        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
-
-        harness.exposed_clearInstallState(policyId, account);
-
-        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
-    }
-
-    /// @notice Clears both mappings when marketKey is nonzero.
-    ///
-    /// @param policyId Policy being cleared.
-    /// @param marketKey Market key linking the two mappings.
-    /// @param account Account address.
-    function test_clearsBoth_whenMarketKeyIsNonzero(bytes32 policyId, bytes32 marketKey, address account) public {
-        vm.assume(marketKey != bytes32(0));
-
-        harness.setMarketKeyByPolicyId(policyId, marketKey);
-        harness.setActivePolicyByMarket(account, marketKey, policyId);
-
-        harness.exposed_clearInstallState(policyId, account);
-
-        assertEq(harness.marketKeyByPolicyId(policyId), bytes32(0));
-        assertEq(harness.activePolicyByMarket(account, marketKey), bytes32(0));
     }
 }

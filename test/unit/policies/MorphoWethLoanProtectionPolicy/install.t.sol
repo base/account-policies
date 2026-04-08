@@ -1,25 +1,88 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {Id, Market, MarketParams} from "../../../../src/interfaces/morpho/BlueTypes.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
+import {MorphoWethLoanProtectionPolicy} from "../../../../src/policies/MorphoWethLoanProtectionPolicy.sol";
 
 import {
-    MorphoLoanProtectionPolicyTestBase
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoLoanProtectionPolicyTestBase.sol";
+    MorphoWethLoanProtectionPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/MorphoWethLoanProtectionPolicyTestBase.sol";
+
+contract MintableToken is ERC20 {
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
 
 /// @title InstallTest
 ///
-/// @notice Test contract for `MorphoLoanProtectionPolicy` install-time behavior (`_onSingleExecutorInstall`).
-contract InstallTest is MorphoLoanProtectionPolicyTestBase {
+/// @notice Test contract for `MorphoWethLoanProtectionPolicy` install-time behavior.
+contract InstallTest is MorphoWethLoanProtectionPolicyTestBase {
     function setUp() public {
-        setUpMorphoLoanProtectionBase();
+        setUpMorphoWethLoanProtectionBase();
     }
 
     // =============================================================
-    // Reverts
+    // Reverts — WETH-specific
+    // =============================================================
+
+    /// @notice Reverts when the market's collateral token does not match the configured WETH address.
+    ///
+    /// @param salt Salt for deriving a unique policyId.
+    function test_reverts_whenCollateralNotWeth(uint256 salt) public {
+        salt = bound(salt, 1, type(uint256).max);
+
+        // Create a market whose collateral token is NOT WETH.
+        MintableToken nonWethCollateral = new MintableToken("NotWETH", "NWETH");
+        Id nonWethMarketId = Id.wrap(bytes32(uint256(456)));
+        MarketParams memory nonWethMarketParams = MarketParams({
+            loanToken: address(0xBEEF),
+            collateralToken: address(nonWethCollateral),
+            oracle: address(oracle),
+            irm: address(0xDEAD),
+            lltv: 0.8e18
+        });
+        morpho.setMarket(
+            nonWethMarketId,
+            nonWethMarketParams,
+            Market({
+                totalSupplyAssets: 0,
+                totalSupplyShares: 0,
+                totalBorrowAssets: uint128(1e18),
+                totalBorrowShares: uint128(1e18),
+                lastUpdate: uint128(block.timestamp),
+                fee: 0
+            })
+        );
+
+        bytes memory psc = abi.encode(
+            MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
+                marketId: nonWethMarketId, triggerLtv: 0.7e18, maxTopUpAssets: 25 ether
+            })
+        );
+        bytes memory config = abi.encode(SingleExecutorPolicy.SingleExecutorConfig({executor: executor}), psc);
+        PolicyManager.PolicyBinding memory b = _buildBinding(config, salt);
+        bytes memory userSig = _signInstall(b);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoWethLoanProtectionPolicy.CollateralNotWeth.selector,
+                address(nonWethCollateral),
+                address(wethToken)
+            )
+        );
+        policyManager.installWithSignature(b, userSig, 0, bytes(""));
+    }
+
+    // =============================================================
+    // Reverts — inherited from parent
     // =============================================================
 
     /// @notice Reverts when the marketId is zero.
@@ -100,9 +163,6 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     /// @param salt Salt for deriving a unique policyId.
     /// @param triggerLtv Fuzzed trigger LTV at or above the proportional ceiling.
     function test_reverts_whenTriggerLtvTooCloseToLltv(uint256 salt, uint256 triggerLtv) public {
-        // MAX_TRIGGER_LTV_RATIO is 0.95e18 in the test base; lltv is 0.8e18.
-        // maxTriggerLtv = 0.8e18 * 0.95e18 / 1e18 = 0.76e18.
-        // Revert range: triggerLtv >= 0.76e18.
         uint256 maxTriggerLtv = (marketParams.lltv * policy.MAX_TRIGGER_LTV_RATIO()) / 1e18;
         triggerLtv = bound(triggerLtv, maxTriggerLtv, type(uint256).max);
 
@@ -132,10 +192,10 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
     function test_reverts_whenMarketLastUpdateIsZero(uint256 salt) public {
         Id staleMarketId = Id.wrap(bytes32(uint256(999)));
         MarketParams memory staleParams = MarketParams({
-            loanToken: address(loanToken),
-            collateralToken: address(collateralToken),
+            loanToken: address(0xBEEF),
+            collateralToken: address(wethToken),
             oracle: address(oracle),
-            irm: address(0xBEEF),
+            irm: address(0xDEAD),
             lltv: 0.8e18
         });
         morpho.setMarket(
@@ -208,6 +268,13 @@ contract InstallTest is MorphoLoanProtectionPolicyTestBase {
             )
         );
         policyManager.execute(address(policy), policyId, wrongConfig, executionData);
+    }
+
+    /// @notice Successfully installs when the market's collateral token matches WETH.
+    function test_succeeds_whenCollateralIsWeth() public view {
+        // setUp already installs successfully; verify the policy is installed.
+        bytes32 policyId = policyManager.getPolicyId(binding);
+        assertTrue(policyManager.isPolicyInstalled(address(policy), policyId));
     }
 
     // =============================================================

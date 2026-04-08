@@ -3,28 +3,24 @@ pragma solidity ^0.8.23;
 
 import {Test} from "forge-std/Test.sol";
 
-import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-
 import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
 import {Id, Market, MarketParams, Position} from "../../../../src/interfaces/morpho/BlueTypes.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 import {MorphoLoanProtectionPolicy} from "../../../../src/policies/MorphoLoanProtectionPolicy.sol";
+import {MorphoWethLoanProtectionPolicy} from "../../../../src/policies/MorphoWethLoanProtectionPolicy.sol";
 import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 import {MockMorphoBlue, MockMorphoOracle} from "../../mocks/MockMorphoBlue.sol";
+import {MockWETH} from "../../mocks/MockWETH.sol";
 
-contract MintableToken is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
-
-/// @title MorphoLoanProtectionPolicyTestBase
+/// @title MorphoWethLoanProtectionPolicyTestBase
 ///
-/// @notice Shared fixture + helpers for `MorphoLoanProtectionPolicy` unit tests.
-abstract contract MorphoLoanProtectionPolicyTestBase is Test {
+/// @notice Shared fixture + helpers for `MorphoWethLoanProtectionPolicy` unit tests.
+///
+/// @dev Mirrors `MorphoLoanProtectionPolicyTestBase` but deploys the WETH variant and uses `MockWETH`
+///      as the collateral token. The account is funded with native ETH (via `vm.deal`) instead of
+///      minted ERC-20 collateral, since the policy wraps ETH → WETH on execution.
+abstract contract MorphoWethLoanProtectionPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
 
@@ -36,19 +32,18 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
-    MorphoLoanProtectionPolicy internal policy;
+    MorphoWethLoanProtectionPolicy internal policy;
 
     MockMorphoBlue internal morpho;
     MockMorphoOracle internal oracle;
-    MintableToken internal loanToken;
-    MintableToken internal collateralToken;
+    MockWETH internal wethToken;
 
     Id internal marketId;
     MarketParams internal marketParams;
     bytes internal policyConfig;
     PolicyManager.PolicyBinding internal binding;
 
-    function setUpMorphoLoanProtectionBase() internal {
+    function setUpMorphoWethLoanProtectionBase() internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -61,22 +56,23 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         morpho = new MockMorphoBlue();
         oracle = new MockMorphoOracle();
+        wethToken = new MockWETH();
 
-        policy = new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho), 0.95e18);
+        policy = new MorphoWethLoanProtectionPolicy(
+            address(policyManager), owner, address(morpho), address(wethToken), 0.95e18
+        );
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
 
-        loanToken = new MintableToken("Loan", "LOAN");
-        collateralToken = new MintableToken("Collateral", "COLL");
         oracle.setPrice(1e36);
 
         marketId = Id.wrap(bytes32(uint256(123)));
         marketParams = MarketParams({
-            loanToken: address(loanToken),
-            collateralToken: address(collateralToken),
+            loanToken: address(0xBEEF),
+            collateralToken: address(wethToken),
             oracle: address(oracle),
-            irm: address(0xBEEF),
+            irm: address(0xDEAD),
             lltv: 0.8e18
         });
 
@@ -99,7 +95,8 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
             Position({supplyShares: 0, borrowShares: uint128(75 ether), collateral: uint128(100 ether)})
         );
 
-        collateralToken.mint(address(account), 1_000 ether);
+        // Fund the account with native ETH (the policy wraps ETH → WETH during execution).
+        vm.deal(address(account), 1_000 ether);
 
         bytes memory policySpecificConfig = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
@@ -135,32 +132,6 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
         cfg = abi.decode(policySpecificConfig, (MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig));
     }
 
-    function _signReplace(
-        address oldPolicy,
-        bytes32 oldPolicyId,
-        bytes memory oldPolicyConfig,
-        bytes32 newPolicyId,
-        uint256 deadline
-    ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                policyManager.REPLACE_POLICY_TYPEHASH(),
-                address(account),
-                oldPolicy,
-                oldPolicyId,
-                keccak256(oldPolicyConfig),
-                newPolicyId,
-                deadline
-            )
-        );
-        bytes32 digest = _hashTypedData(address(policyManager), "Policy Manager", "1", structHash);
-        bytes32 replaySafeDigest = account.replaySafeHash(digest);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, replaySafeDigest);
-        bytes memory signature = abi.encodePacked(r, s, v);
-        return account.wrapSignature(0, signature);
-    }
-
     function _encodePolicyData(uint256 topUp, uint256 nonce, uint256 deadline) internal view returns (bytes memory) {
         return _encodePolicyDataLocal(binding, policyConfig, topUp, nonce, deadline);
     }
@@ -176,7 +147,7 @@ abstract contract MorphoLoanProtectionPolicyTestBase is Test {
 
         bytes32 digest = _hashTypedData(
             address(policy),
-            "Morpho Loan Protection Policy",
+            "Morpho WETH Loan Protection Policy",
             "1",
             keccak256(
                 abi.encode(
