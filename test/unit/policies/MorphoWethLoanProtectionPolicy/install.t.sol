@@ -161,9 +161,10 @@ contract InstallTest is MorphoWethLoanProtectionPolicyTestBase {
     /// @notice Reverts when triggerLtv is too close to (or above) the market's LLTV.
     ///
     /// @param salt Salt for deriving a unique policyId.
-    /// @param triggerLtv Fuzzed trigger LTV within the buffer zone or above LLTV.
+    /// @param triggerLtv Fuzzed trigger LTV at or above the proportional ceiling.
     function test_reverts_whenTriggerLtvTooCloseToLltv(uint256 salt, uint256 triggerLtv) public {
-        triggerLtv = bound(triggerLtv, marketParams.lltv - policy.MIN_LTV_BUFFER(), type(uint256).max);
+        uint256 maxTriggerLtv = (marketParams.lltv * policy.MAX_TRIGGER_LTV_RATIO()) / 1e18;
+        triggerLtv = bound(triggerLtv, maxTriggerLtv, type(uint256).max);
 
         bytes memory psc = abi.encode(
             MorphoLoanProtectionPolicy.LoanProtectionPolicyConfig({
@@ -179,7 +180,7 @@ contract InstallTest is MorphoWethLoanProtectionPolicyTestBase {
                 MorphoLoanProtectionPolicy.TriggerLtvTooCloseToLltv.selector,
                 triggerLtv,
                 marketParams.lltv,
-                policy.MIN_LTV_BUFFER()
+                maxTriggerLtv
             )
         );
         policyManager.installWithSignature(b, userSig, 0, bytes(""));
