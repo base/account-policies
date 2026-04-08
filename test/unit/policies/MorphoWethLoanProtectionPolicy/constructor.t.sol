@@ -35,6 +35,21 @@ contract ConstructorTest is MorphoWethLoanProtectionPolicyTestBase {
         new MorphoWethLoanProtectionPolicy(address(policyManager), owner, address(morpho), wethAddr, 0.95e18);
     }
 
+    /// @notice Reverts when MAX_TRIGGER_LTV_RATIO is zero (inherited from parent).
+    function test_reverts_whenMaxTriggerLtvRatioIsZero() public {
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.InvalidMaxTriggerLtvRatio.selector, 0));
+        new MorphoWethLoanProtectionPolicy(address(policyManager), owner, address(morpho), address(wethToken), 0);
+    }
+
+    /// @notice Reverts when MAX_TRIGGER_LTV_RATIO is 1e18 (100%) or above (inherited from parent).
+    ///
+    /// @param ratio Fuzzed ratio at or above 1e18.
+    function test_reverts_whenMaxTriggerLtvRatioTooHigh(uint256 ratio) public {
+        ratio = bound(ratio, 1e18, type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.InvalidMaxTriggerLtvRatio.selector, ratio));
+        new MorphoWethLoanProtectionPolicy(address(policyManager), owner, address(morpho), address(wethToken), ratio);
+    }
+
     /// @notice Reverts when the Morpho Blue address has no deployed code (inherited from parent).
     function test_reverts_whenMorphoNotContract() public {
         vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.MorphoNotContract.selector, address(0)));

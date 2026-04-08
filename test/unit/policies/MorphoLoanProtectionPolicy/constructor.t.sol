@@ -21,6 +21,21 @@ contract ConstructorTest is MorphoLoanProtectionPolicyTestBase {
         new MorphoLoanProtectionPolicy(address(policyManager), owner, address(0), 0.95e18);
     }
 
+    /// @notice Reverts when MAX_TRIGGER_LTV_RATIO is zero.
+    function test_reverts_whenMaxTriggerLtvRatioIsZero() public {
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.InvalidMaxTriggerLtvRatio.selector, 0));
+        new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho), 0);
+    }
+
+    /// @notice Reverts when MAX_TRIGGER_LTV_RATIO is 1e18 (100%) or above.
+    ///
+    /// @param ratio Fuzzed ratio at or above 1e18.
+    function test_reverts_whenMaxTriggerLtvRatioTooHigh(uint256 ratio) public {
+        ratio = bound(ratio, 1e18, type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(MorphoLoanProtectionPolicy.InvalidMaxTriggerLtvRatio.selector, ratio));
+        new MorphoLoanProtectionPolicy(address(policyManager), owner, address(morpho), ratio);
+    }
+
     /// @notice Stores the Morpho Blue address as an immutable.
     ///
     /// @param morphoAddr Fuzzed address to pin as Morpho (given code to pass constructor check).

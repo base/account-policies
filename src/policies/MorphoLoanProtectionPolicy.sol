@@ -123,6 +123,11 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @param lltv The market's liquidation LTV.
     error PostTopUpLtvAboveLltv(uint256 postTopUpLtv, uint256 lltv);
 
+    /// @notice Thrown when `maxTriggerLtvRatio` is out of valid range (must be 0 < ratio < 1e18).
+    ///
+    /// @param ratio The invalid ratio that was provided.
+    error InvalidMaxTriggerLtvRatio(uint256 ratio);
+
     /// @notice Thrown when an account attempts to install multiple active policies for the same marketId.
     error PolicyAlreadyInstalledForMarket(address account, Id marketId);
 
@@ -136,12 +141,15 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
     /// @param maxTriggerLtvRatio_ Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled).
-    ///        For example, 0.95e18 means `triggerLtv` must be below 95% of `lltv`. A value of 1e18 disables
-    ///        the proportional buffer (only the strict `triggerLtv < lltv` check applies).
+    ///        Must satisfy 0 < ratio < 1e18. For example, 0.95e18 means `triggerLtv` must be below 95% of
+    ///        `lltv`.
     constructor(address policyManager, address admin, address morpho_, uint256 maxTriggerLtvRatio_)
         SingleExecutorAuthorizedPolicy(policyManager, admin)
     {
         if (_isNotPersistentCode(morpho_)) revert MorphoNotContract(morpho_);
+        if (maxTriggerLtvRatio_ == 0 || maxTriggerLtvRatio_ >= 1e18) {
+            revert InvalidMaxTriggerLtvRatio(maxTriggerLtvRatio_);
+        }
         MORPHO = morpho_;
         MAX_TRIGGER_LTV_RATIO = maxTriggerLtvRatio_;
     }
@@ -192,8 +200,11 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         // Ensure the trigger LTV is below a proportional ceiling of the market's liquidation LTV
         // so the executor has a meaningful reaction window before the position becomes liquidatable.
         // e.g., MAX_TRIGGER_LTV_RATIO = 0.95e18 → triggerLtv must be < 95% of lltv.
+        // The `triggerLtv >= lltv` branch is defense-in-depth: when the constructor enforces
+        // `0 < ratio < 1e18`, `maxTriggerLtv < lltv` always holds, but we guard against
+        // misconfiguration weakening the buffer guarantee.
         uint256 maxTriggerLtv = Math.mulDiv(marketParams.lltv, MAX_TRIGGER_LTV_RATIO, 1e18);
-        if (config.triggerLtv >= maxTriggerLtv) {
+        if (config.triggerLtv >= maxTriggerLtv || config.triggerLtv >= marketParams.lltv) {
             revert TriggerLtvTooCloseToLltv(config.triggerLtv, marketParams.lltv, maxTriggerLtv);
         }
 
