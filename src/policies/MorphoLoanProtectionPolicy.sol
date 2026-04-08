@@ -59,11 +59,12 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Morpho Blue singleton contract address.
     address public immutable MORPHO;
 
-    /// @notice Minimum required buffer between `triggerLtv` and the market's `lltv` (WAD-scaled, 1e18 = 100%).
+    /// @notice Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled, 1e18 = 100%).
     ///
-    /// @dev Set at deployment. Prevents configurations where `triggerLtv` is so close to `lltv` that the
-    ///      executor has no practical reaction window to detect and protect the position.
-    uint256 public immutable MIN_LTV_BUFFER;
+    /// @dev Set at deployment. A value of 0.95e18 means `triggerLtv` must be below 95% of the market's
+    ///      `lltv`. This scales the buffer proportionally to the market's liquidation threshold, ensuring
+    ///      a meaningful reaction window regardless of the market's `lltv`.
+    uint256 public immutable MAX_TRIGGER_LTV_RATIO;
 
     /// @notice Tracks one active policy per (account, marketId).
     mapping(address account => mapping(bytes32 marketKey => bytes32 policyId)) public activePolicyByMarket;
@@ -109,12 +110,12 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @notice Thrown when triggerLtv is zero.
     error ZeroTriggerLtv();
 
-    /// @notice Thrown when triggerLtv is too close to (or above) the market's LLTV given the minimum buffer.
+    /// @notice Thrown when triggerLtv is too close to (or above) the market's LLTV.
     ///
     /// @param triggerLtv The configured trigger LTV.
     /// @param lltv The market's liquidation LTV.
-    /// @param minLtvBuffer The minimum required buffer between them.
-    error TriggerLtvTooCloseToLltv(uint256 triggerLtv, uint256 lltv, uint256 minLtvBuffer);
+    /// @param maxTriggerLtv The maximum allowed trigger LTV (derived from `lltv * MAX_TRIGGER_LTV_RATIO`).
+    error TriggerLtvTooCloseToLltv(uint256 triggerLtv, uint256 lltv, uint256 maxTriggerLtv);
 
     /// @notice Thrown when the position's LTV remains at or above the market's LLTV after the top-up.
     ///
@@ -134,14 +135,15 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
     /// @param policyManager Address of the `PolicyManager` authorized to call hooks.
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
-    /// @param minLtvBuffer_ Minimum required buffer between `triggerLtv` and the market's `lltv` (WAD-scaled).
-    ///        Zero disables the buffer enforcement (only the strict `triggerLtv < lltv` check applies).
-    constructor(address policyManager, address admin, address morpho_, uint256 minLtvBuffer_)
+    /// @param maxTriggerLtvRatio_ Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled).
+    ///        For example, 0.95e18 means `triggerLtv` must be below 95% of `lltv`. A value of 1e18 disables
+    ///        the proportional buffer (only the strict `triggerLtv < lltv` check applies).
+    constructor(address policyManager, address admin, address morpho_, uint256 maxTriggerLtvRatio_)
         SingleExecutorAuthorizedPolicy(policyManager, admin)
     {
         if (_isNotPersistentCode(morpho_)) revert MorphoNotContract(morpho_);
         MORPHO = morpho_;
-        MIN_LTV_BUFFER = minLtvBuffer_;
+        MAX_TRIGGER_LTV_RATIO = maxTriggerLtvRatio_;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -187,10 +189,12 @@ contract MorphoLoanProtectionPolicy is SingleExecutorAuthorizedPolicy {
         // would allow unconditional execution regardless of position health).
         if (config.triggerLtv == 0) revert ZeroTriggerLtv();
 
-        // Ensure the trigger LTV is below the market's liquidation LTV by at least `MIN_LTV_BUFFER`
+        // Ensure the trigger LTV is below a proportional ceiling of the market's liquidation LTV
         // so the executor has a meaningful reaction window before the position becomes liquidatable.
-        if (marketParams.lltv <= MIN_LTV_BUFFER || config.triggerLtv >= marketParams.lltv - MIN_LTV_BUFFER) {
-            revert TriggerLtvTooCloseToLltv(config.triggerLtv, marketParams.lltv, MIN_LTV_BUFFER);
+        // e.g., MAX_TRIGGER_LTV_RATIO = 0.95e18 → triggerLtv must be < 95% of lltv.
+        uint256 maxTriggerLtv = Math.mulDiv(marketParams.lltv, MAX_TRIGGER_LTV_RATIO, 1e18);
+        if (config.triggerLtv >= maxTriggerLtv) {
+            revert TriggerLtvTooCloseToLltv(config.triggerLtv, marketParams.lltv, maxTriggerLtv);
         }
 
         // Ensure only one active policy per (account, market).

@@ -19,7 +19,7 @@ import {MorphoWethLoanProtectionPolicy} from "../src/policies/MorphoWethLoanProt
  *   WETH           — WETH contract address for the target chain
  *                     Base:    0x4200000000000000000000000000000000000006
  *                     Mainnet: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
- *   MIN_LTV_BUFFER — minimum buffer between triggerLtv and market LLTV (WAD-scaled, e.g. 50000000000000000 = 5%)
+ *   MAX_TRIGGER_LTV_RATIO — max allowed ratio of triggerLtv to lltv (WAD-scaled, e.g. 950000000000000000 = 95%)
  *
  * Example (Base):
  *   ADMIN=$ADMIN WETH=0x4200000000000000000000000000000000000006 \
@@ -57,15 +57,15 @@ contract Deploy is Script {
     {
         address admin = vm.envAddress("ADMIN");
         address weth = vm.envAddress("WETH");
-        uint256 minLtvBuffer = vm.envUint("MIN_LTV_BUFFER");
+        uint256 maxTriggerLtvRatio = vm.envUint("MAX_TRIGGER_LTV_RATIO");
 
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
         morphoLendPolicy = new MorphoLendPolicy(address(policyManager), admin);
         morphoLoanProtectionPolicy =
-            new MorphoLoanProtectionPolicy(address(policyManager), admin, MORPHO_BLUE, minLtvBuffer);
+            new MorphoLoanProtectionPolicy(address(policyManager), admin, MORPHO_BLUE, maxTriggerLtvRatio);
         morphoWethLoanProtectionPolicy =
-            new MorphoWethLoanProtectionPolicy(address(policyManager), admin, MORPHO_BLUE, weth, minLtvBuffer);
+            new MorphoWethLoanProtectionPolicy(address(policyManager), admin, MORPHO_BLUE, weth, maxTriggerLtvRatio);
 
         logAddress("PublicERC6492Validator", address(validator));
         logAddress("PolicyManager", address(policyManager));

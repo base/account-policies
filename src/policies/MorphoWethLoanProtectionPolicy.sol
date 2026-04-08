@@ -59,9 +59,9 @@ contract MorphoWethLoanProtectionPolicy is MorphoLoanProtectionPolicy {
     /// @param admin Address that receives `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE`.
     /// @param morpho_ Morpho Blue singleton contract address.
     /// @param weth_ WETH contract address for this chain (must be a deployed contract).
-    /// @param minLtvBuffer_ Minimum required buffer between `triggerLtv` and the market's `lltv` (WAD-scaled).
-    constructor(address policyManager, address admin, address morpho_, address weth_, uint256 minLtvBuffer_)
-        MorphoLoanProtectionPolicy(policyManager, admin, morpho_, minLtvBuffer_)
+    /// @param maxTriggerLtvRatio_ Maximum allowed ratio of `triggerLtv` to the market's `lltv` (WAD-scaled).
+    constructor(address policyManager, address admin, address morpho_, address weth_, uint256 maxTriggerLtvRatio_)
+        MorphoLoanProtectionPolicy(policyManager, admin, morpho_, maxTriggerLtvRatio_)
     {
         if (_isNotPersistentCode(weth_)) revert WethNotContract(weth_);
         WETH = weth_;
