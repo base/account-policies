@@ -95,6 +95,45 @@ contract ExecuteTest is MorphoWethLoanProtectionPolicyTestBase {
         policyManager.execute(address(policy), policyId, policyConfig, executionData);
     }
 
+    /// @notice Reverts when the top-up is insufficient to bring the position's LTV below the market's LLTV,
+    ///         and preserves the one-shot (policy is NOT consumed).
+    ///
+    /// @dev Moves the position into the liquidation zone (LTV > LLTV), then attempts a small top-up that
+    ///      reduces LTV but not enough to cross below LLTV. The `_onPostExecute` hook detects this and
+    ///      reverts the entire transaction atomically — the one-shot is preserved so the executor can retry
+    ///      with a larger amount.
+    ///
+    /// @param nonce Executor-chosen nonce.
+    function test_reverts_whenTopUpInsufficientToBringLtvBelowLltv(uint256 nonce) public {
+        // Push position into liquidation zone: borrowShares=85e18, collateral=100e18 → LTV ≈ 85% > LLTV=80%.
+        morpho.setPosition(
+            marketId,
+            address(account),
+            Position({supplyShares: 0, borrowShares: uint128(85 ether), collateral: uint128(100 ether)})
+        );
+
+        // Top up 5 ether → new collateral = 105e18 → post-LTV ≈ 80.95% (still ≥ LLTV=80%).
+        uint256 topUpAssets = 5 ether;
+
+        // Compute expected post-top-up LTV to match the revert args.
+        uint256 debtAssets = SharesMathLib.toAssetsUp(85 ether, 1e18, 1e18);
+        uint256 postCollateral = 100 ether + topUpAssets;
+        uint256 expectedPostLtv = Math.mulDiv(debtAssets, WAD, postCollateral);
+
+        bytes32 policyId = policyManager.getPolicyId(binding);
+        bytes memory executionData = _encodePolicyData(topUpAssets, nonce, 0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoLoanProtectionPolicy.PostTopUpLtvAboveLltv.selector, expectedPostLtv, marketParams.lltv
+            )
+        );
+        policyManager.execute(address(policy), policyId, policyConfig, executionData);
+
+        // Atomicity: one-shot must NOT be consumed since the entire transaction reverted.
+        assertFalse(policy.isPolicyUsed(policyId));
+    }
+
     /// @notice Reverts when the account's position LTV is below the trigger threshold (position is healthy).
     ///
     /// @dev The setUp market has a 1:1 borrow share ratio (totalBorrowAssets == totalBorrowShares = 1e18).
