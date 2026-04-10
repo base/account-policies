@@ -45,7 +45,7 @@ single executor policies commit to:
 
 This makes single executor policies composable: tooling can treat "single executor config + action + signature" as a standard envelope.
 
-single executor policies return early with empty calldata when `executionData` is empty (signaling "no execution" to the manager). This is required because `onExecute` is called during `installWithSignature` and `replaceWithSignature` flows even when no execution is intended. single executor policies may also return `postCallData` from `onExecute`, which the manager forwards to the policy's `onPostExecute` hook after the account call completes.
+The `PolicyManager` gates execution: `onExecute` is only called when `executionData` is non-empty. Install-only and replace-only flows (empty `executionData`) never invoke the policy's execute hook. Single executor policies may return `postCallData` from `onExecute`, which the manager forwards to the policy's `onPostExecute` hook after the account call completes.
 
 ## Config authentication strategy (calldata-heavy by default)
 
@@ -82,7 +82,7 @@ Replay protection is policy-defined; single executor policies typically include 
 
 ### Pause / unpause
 
-single executor policies include an admin-controlled pause/unpause (policy-level kill switch) that blocks execution.
+single executor policies include a pause/unpause mechanism (policy-level kill switch) that blocks execution. Pause and unpause are gated by `PAUSER_ROLE` (granted to the admin at construction alongside `DEFAULT_ADMIN_ROLE`).
 
 ### Cancel nonces
 

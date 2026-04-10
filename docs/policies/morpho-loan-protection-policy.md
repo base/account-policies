@@ -6,9 +6,9 @@ For shared single executor concepts (executor authorization, signature binding, 
 
 ## Summary
 
-The Morpho Blue address is set at deployment (immutable, validated as a deployed contract). Each policy deployment targets exactly one Morpho instance.
+The Morpho Blue address and a `MAX_TRIGGER_LTV_RATIO` are set at deployment (both immutable, Morpho validated as a deployed contract). Each policy deployment targets exactly one Morpho instance.
 
-The account commits to a specific market, a trigger LTV, and a max top-up amount. If the account's position exceeds the trigger LTV, the executor can supply collateral on the account's behalf — once.
+The account commits to a specific market, a trigger LTV, and a max top-up amount. If the account's position exceeds the trigger LTV, the executor can supply collateral on the account's behalf — once. A post-execution check ensures the top-up actually brought the position below the market's liquidation LTV; if not, the entire transaction reverts, preserving the one-shot and the account's collateral.
 
 ## Config (`LoanProtectionPolicyConfig`)
 
@@ -23,7 +23,8 @@ The full `policyConfig` is `abi.encode(SingleExecutorConfig({ executor }), abi.e
 ### Install-time validation
 
 - Market must exist: fetches `morpho.idToMarketParams(marketId)` and requires all params to be nonzero. Additionally verifies `market.lastUpdate != 0` (Morpho sets this on `createMarket`; zero means the market was never created via the canonical path).
-- **Trigger LTV below LLTV**: `triggerLtv` must be strictly less than the market's `lltv` (the liquidation threshold). A trigger at or above `lltv` would mean the policy can only act when the position is already liquidatable, making it useless for protection.
+- **`triggerLtv` must be nonzero**: a zero trigger would make the `currentLtv < triggerLtv` check always false, allowing unconditional execution regardless of position health.
+- **Trigger LTV below proportional ceiling**: `triggerLtv` must be strictly less than `lltv * MAX_TRIGGER_LTV_RATIO / 1e18` (and also strictly less than `lltv`). `MAX_TRIGGER_LTV_RATIO` is set at deployment (e.g., 0.95e18 means `triggerLtv` must be below 95% of the market's `lltv`). This ensures a meaningful reaction window before the position becomes liquidatable.
 - **One active policy per market**: at most one active policy per `(account, marketId)`. Enforced via a mapping; cleaned up on uninstall.
 
 ## Execution (`TopUpData`)
@@ -43,10 +44,15 @@ The policy enforces:
 
 Then returns a wallet call plan:
 
-1. `approve(collateralToken, morpho, topUpAssets)`
-2. `morpho.supplyCollateral(marketParams, topUpAssets, account, "")` where `marketParams = morpho.idToMarketParams(marketId)`
+1. `approve(collateralToken, morpho, 0)` (zero-approve for non-standard tokens like USDT)
+2. `approve(collateralToken, morpho, topUpAssets)`
+3. `morpho.supplyCollateral(marketParams, topUpAssets, account, "")` where `marketParams = morpho.idToMarketParams(marketId)`
 
 The approval typically returns to zero after the supply.
+
+## Post-execute validation
+
+After the account call completes, the policy's `onPostExecute` hook recomputes the position's LTV and verifies it is below the market's LLTV. If the top-up was insufficient to bring the position out of the liquidation zone (e.g., due to price movement between the executor's signature and transaction inclusion), the entire transaction reverts with `PostTopUpLtvAboveLltv(postTopUpLtv, lltv)` — preserving the one-shot and the account's collateral.
 
 ## LTV computation
 

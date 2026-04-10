@@ -58,7 +58,7 @@ The manager does not impose a schema on either as this is left up to the interpr
 
 ### Validity windows
 
-Bindings include `validAfter` / `validUntil`. The manager enforces these windows at install time and execution time.
+Bindings include `validAfter` / `validUntil`. The manager enforces these windows at execution time. At install time, the manager rejects already-expired bindings (`validUntil` in the past) and impossible windows (`validAfter >= validUntil` when both are non-zero), but allows early installation before `validAfter` to support pre-staging workflows.
 
 A policy can treat these fields as pure protocol gating, or incorporate them into higher-level semantics (e.g. budgets bound to the install window).
 
@@ -135,6 +135,7 @@ Replacement exists as a standardized atomic migration mechanism so integrators d
 ### Install + optional execute convenience
 
 The protocol includes an install+optional-execute convenience via `installWithSignature(..., executionData)`.
+If `executionData` is non-empty, the manager calls `_execute` after installation; if empty, installation proceeds without any execution — the policy's `onExecute` hook is never called. The same applies to `replaceWithSignature`.
 
 This **does not bind** the installation signature to the `executionData` (i.e., it is not an atomic intent-binding
 signature). Policies MUST enforce their own execution authorization semantics.
@@ -152,7 +153,8 @@ The manager is the generic, minimal enforcement layer:
 * computes deterministic `policyId` from the binding  
 * validates account signatures (or calls) for installs/replacements (ERC-6492 capable)  
 * passes `policyConfig` from the binding to the policy on install (policies are responsible for authenticating config on execution)  
-* enforces `validAfter` / `validUntil` at install and execute  
+* rejects expired or impossible validity windows at install; enforces `validAfter` / `validUntil` at execute  
+* validates that policy addresses have persistent deployed code at install  
 * maintains policy instance liveness state (installed / uninstalled)  
 * enforces sticky disables (uninstallation permanently kills a `policyId`)  
 * requires the ERC-6492 validator to be a deployed contract (checked at construction)  
@@ -232,7 +234,7 @@ Policies implement the `Policy` hooks:
 
 * `onInstall`: validate installation and optionally initialize policy state  
 * `onUninstall`: authorize uninstall (including pre-install permanent disable) and optionally clean up policy state  
-* `onExecute`: authorize execution and return a call plan (called on every execution path, including `installWithSignature` and `replaceWithSignature` — policies MUST handle empty `executionData` gracefully)  
+* `onExecute`: authorize execution and return a call plan (called only when execution is intended — the manager gates this hook behind non-empty `executionData` in install/replace signature flows)  
 * `onPostExecute`: optional post-execution hook called after the account call completes (e.g., for postcondition checks or cleanup)  
 * `onReplace`: handle atomic replacement transitions (called with a role indicating whether this policy is the old or new side of the replacement)
 

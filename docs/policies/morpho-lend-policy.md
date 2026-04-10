@@ -28,14 +28,14 @@ The full `policyConfig` is `abi.encode(SingleExecutorConfig({ executor }), abi.e
 
 The policy enforces:
 
-1. `depositAssets > 0`
-2. Recurring budget not exceeded
-3. Standard single executor checks (executor signature, nonce, deadline, config preimage)
+1. Recurring budget not exceeded (also rejects zero-amount deposits via `RecurringAllowance`)
+2. Standard single executor checks (executor signature, nonce, deadline, config preimage)
 
 Then returns a wallet call plan:
 
-1. `approve(vault.asset(), vault, depositAssets)`
-2. `vault.deposit(depositAssets, account)`
+1. `approve(vault.asset(), vault, 0)` (zero-approve for non-standard tokens like USDT)
+2. `approve(vault.asset(), vault, depositAssets)`
+3. `vault.deposit(depositAssets, account)`
 
 The vault pulls tokens via `transferFrom`, so the approval typically returns to zero after the deposit.
 
