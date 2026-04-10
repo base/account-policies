@@ -19,5 +19,6 @@ Some policies in this repo are “single executor” policies: they share a comm
 
 - `morpho-lend-policy.md`
 - `morpho-loan-protection-policy.md`
+- `morpho-weth-loan-protection-policy.md`
 - `moirai-delegate.md`
 
