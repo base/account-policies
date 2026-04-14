@@ -254,6 +254,30 @@ Audited by [Spearbit](https://spearbit.com/) via [Cantina](https://cantina.xyz/)
 
 ---
 
+## Deployments
+
+### Base Mainnet
+
+| Contract | Address |
+|----------|---------|
+| PublicERC6492Validator | `0xc95F5Ad765eB43a2832FB3B3441d03946B40cf73` |
+| PolicyManager | `0xFdE76E26d450d6968F7F92323088d9c50179e15B` |
+| MorphoLendPolicy | `0x5A0E74Bf00B9a7AEc69e386C780917245b12E86f` |
+| MorphoLoanProtectionPolicy | `0x1040Fc3B4bA2317aE256fD1Af772388641B4FC0F` |
+| MorphoWethLoanProtectionPolicy | `0x23Aa13c9250bcb4694b667e0a71f1A595E2d18a1` |
+
+### Base Sepolia
+
+| Contract | Address |
+|----------|---------|
+| PublicERC6492Validator | `0xc95F5Ad765eB43a2832FB3B3441d03946B40cf73` |
+| PolicyManager | `0xFdE76E26d450d6968F7F92323088d9c50179e15B` |
+| MorphoLendPolicy | `0x26c81a9a11d11ca2c28afb160f3b47a94c49c0f9` |
+| MorphoLoanProtectionPolicy | `0x83e8077f8331f97b7d719c0ba5c5a33d4e87c8cd` |
+| MorphoWethLoanProtectionPolicy | `0x1f56518e84818412cbbfbcd616c54bba89d2cd5c` |
+
+---
+
 ## Setup
 
 This repo uses git submodules for dependencies (in `lib/`).
