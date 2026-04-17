@@ -5,15 +5,15 @@ import {Test} from "forge-std/Test.sol";
 
 import {PublicERC6492Validator} from "../../../../src/PublicERC6492Validator.sol";
 import {PolicyManager} from "../../../../src/PolicyManager.sol";
-import {MoiraiDelegate} from "../../../../src/policies/MoiraiDelegate.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
+import {TransferSettingsPolicy} from "../../../../src/policies/TransferSettingsPolicy.sol";
 
 import {MockCoinbaseSmartWallet} from "../../mocks/MockCoinbaseSmartWallet.sol";
 
-/// @title MoiraiDelegateTestBase
+/// @title TransferSettingsPolicyTestBase
 ///
-/// @notice Shared fixture for testing MoiraiDelegate policy semantics.
-abstract contract MoiraiDelegateTestBase is Test {
+/// @notice Shared fixture for testing TransferSettingsPolicy semantics.
+abstract contract TransferSettingsPolicyTestBase is Test {
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     bytes32 internal constant DOMAIN_TYPEHASH = 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f;
 
@@ -36,9 +36,9 @@ abstract contract MoiraiDelegateTestBase is Test {
     MockCoinbaseSmartWallet internal account;
     PublicERC6492Validator internal validator;
     PolicyManager internal policyManager;
-    MoiraiDelegate internal policy;
+    TransferSettingsPolicy internal policy;
 
-    function setUpMoiraiBase() internal {
+    function setUpTransferSettingsBase() internal {
         account = new MockCoinbaseSmartWallet();
         bytes[] memory owners = new bytes[](1);
         owners[0] = abi.encode(owner);
@@ -47,43 +47,48 @@ abstract contract MoiraiDelegateTestBase is Test {
         vm.etch(0x0000bc370E4DC924F427d84e2f4B9Ec81626ba7E, hex"01");
         validator = new PublicERC6492Validator();
         policyManager = new PolicyManager(validator);
-        policy = new MoiraiDelegate(address(policyManager), owner);
+        policy = new TransferSettingsPolicy(address(policyManager), owner);
 
         vm.prank(owner);
         account.addOwnerAddress(address(policyManager));
     }
 
-    /// @notice Builds an encoded `MoiraiConfig` with optional time-lock and executor.
+    /// @notice Builds an encoded `TransferConfig` for a native ETH transfer with minimal valid defaults.
+    ///
+    /// @dev Default recipient is `address(1)`, amount is `1` wei, tokenContract is `address(0)` (ETH).
     ///
     /// @param unlockTimestamp The unlock timestamp. Zero means no time-lock.
     /// @param executor_ The executor address. Zero means no consensus required.
     ///
-    /// @return Encoded `MoiraiConfig` bytes.
-    function _buildMoiraiConfig(uint256 unlockTimestamp, address executor_) internal pure returns (bytes memory) {
-        return _buildMoiraiConfig(unlockTimestamp, executor_, address(0), 0, "");
+    /// @return Canonical `abi.encode(SingleExecutorConfig, abi.encode(TransferConfig))` bytes.
+    function _buildTransferConfig(uint256 unlockTimestamp, address executor_) internal pure returns (bytes memory) {
+        return _buildTransferConfig(unlockTimestamp, executor_, address(1), 1, address(0));
     }
 
-    /// @notice Builds an encoded policy config with full call parameters.
+    /// @notice Builds an encoded policy config with full transfer parameters.
     ///
     /// @param unlockTimestamp The unlock timestamp. Zero means no time-lock.
     /// @param executor_ The executor address. Zero means no consensus required.
-    /// @param target_ Target address for the delegated call.
-    /// @param value_ ETH value to send with the call.
-    /// @param callData_ Calldata to pass to `target_`.
+    /// @param recipient_ Destination address for the transfer.
+    /// @param amount_ Amount to transfer.
+    /// @param tokenContract_ Token contract address; `address(0)` for native ETH.
     ///
-    /// @return Canonical `abi.encode(SingleExecutorConfig, abi.encode(MoiraiConfig))` bytes.
-    function _buildMoiraiConfig(
+    /// @return Canonical `abi.encode(SingleExecutorConfig, abi.encode(TransferConfig))` bytes.
+    function _buildTransferConfig(
         uint256 unlockTimestamp,
         address executor_,
-        address target_,
-        uint256 value_,
-        bytes memory callData_
+        address recipient_,
+        uint256 amount_,
+        address tokenContract_
     ) internal pure returns (bytes memory) {
         return abi.encode(
             SingleExecutorPolicy.SingleExecutorConfig({executor: executor_}),
             abi.encode(
-                MoiraiDelegate.MoiraiConfig({
-                    target: target_, value: value_, callData: callData_, unlockTimestamp: unlockTimestamp
+                TransferSettingsPolicy.TransferConfig({
+                    recipient: recipient_,
+                    amount: amount_,
+                    tokenContract: tokenContract_,
+                    unlockTimestamp: unlockTimestamp
                 })
             )
         );
@@ -138,7 +143,7 @@ abstract contract MoiraiDelegateTestBase is Test {
         return account.wrapSignature(0, signature);
     }
 
-    /// @notice Builds executor-signed execution data for a MoiraiDelegate policy.
+    /// @notice Builds executor-signed execution data for a TransferSettingsPolicy.
     ///
     /// @param policyId Policy identifier for the binding.
     /// @param policyConfig Full config preimage bytes.
@@ -159,7 +164,7 @@ abstract contract MoiraiDelegateTestBase is Test {
             keccak256(abi.encode(EXECUTION_DATA_TYPEHASH, keccak256(actionData), nonce, deadline));
         bytes32 structHash =
             keccak256(abi.encode(EXECUTION_TYPEHASH, policyId, address(account), configHash, executionDataHash));
-        bytes32 digest = _hashTypedData(address(policy), "Moirai Delegate", "1", structHash);
+        bytes32 digest = _hashTypedData(address(policy), "Transfer Settings Policy", "1", structHash);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
@@ -215,7 +220,7 @@ abstract contract MoiraiDelegateTestBase is Test {
         bytes32 structHash = keccak256(
             abi.encode(SINGLE_EXECUTOR_UNINSTALL_TYPEHASH, policyId, address(account), configHash, deadline)
         );
-        bytes32 digest = _hashTypedData(address(policy), "Moirai Delegate", "1", structHash);
+        bytes32 digest = _hashTypedData(address(policy), "Transfer Settings Policy", "1", structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(executorPk, digest);
         return abi.encode(abi.encodePacked(r, s, v), deadline);
     }
