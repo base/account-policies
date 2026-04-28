@@ -251,6 +251,7 @@ Audited by [Spearbit](https://spearbit.com/) via [Cantina](https://cantina.xyz/)
 | Private audit 1 | March 2026 | [Report](audits/Cantina-March-2026.pdf) |
 | Private audit 2 | March 2026 | [Report](audits/Cantina-March-2026-Pt2.pdf) |
 | WETH Loan Protection Policy audit 1 | April 2026 | [Report](audits/Cantina-April-2026-WethLoanProtection.pdf) |
+| WETH Loan Protection Policy audit 2 | April 2026 | [Report](audits/Cantina-April-2026-WethLoanProtection-Audit2.pdf) |
 
 ---
 
