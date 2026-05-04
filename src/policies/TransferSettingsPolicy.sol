@@ -32,8 +32,8 @@ import {SingleExecutorPolicy} from "./SingleExecutorPolicy.sol";
 ///      ERC20 transfers: `CoinbaseSmartWallet.execute` propagates inner-call reverts but does NOT inspect
 ///      the boolean return value of `IERC20.transfer`. Non-standard tokens (e.g. USDT-mainnet) that return
 ///      `false` without reverting would silently succeed from the wallet's perspective. To guard against this,
-///      `_onPostExecute` reads the recipient's post-call balance and reverts with `ERC20TransferFailed` if it
-///      did not increase by at least `amount`.
+///      `_onPostExecute` snapshots the recipient's balance before the account call and reverts with
+///      `ERC20TransferFailed` if the post-call balance did not increase by at least `amount`.
 contract TransferSettingsPolicy is SingleExecutorPolicy {
     ////////////////////////////////////////////////////////////////
     ///                         Types                            ///
@@ -193,7 +193,7 @@ contract TransferSettingsPolicy is SingleExecutorPolicy {
     ///      the executor signature. For delay-only policies (`executor == address(0)`), `executionData` is never
     ///      inspected — only the time-lock matters.
     ///
-    ///      For ERC20 transfers, `postCallData` encodes `(tokenContract, recipient, amount)` so that
+    ///      For ERC20 transfers, `postCallData` encodes `(tokenContract, recipient, amount, balanceBefore)` so that
     ///      `_onPostExecute` can verify the recipient's balance increased by at least `amount`.
     function _onExecute(
         bytes32 policyId,
@@ -234,12 +234,13 @@ contract TransferSettingsPolicy is SingleExecutorPolicy {
             return (accountCallData, "");
         } else {
             // ERC20 transfer
+            uint256 balanceBefore = IERC20(config.tokenContract).balanceOf(config.recipient);
             accountCallData = abi.encodeCall(
                 CoinbaseSmartWallet.execute,
                 (config.tokenContract, uint256(0), abi.encodeCall(IERC20.transfer, (config.recipient, config.amount)))
             );
-            // Pass token details to _onPostExecute for balance verification.
-            postCallData = abi.encode(config.tokenContract, config.recipient, config.amount);
+            // Pass token details + pre-transfer balance to _onPostExecute so it can verify the delta.
+            postCallData = abi.encode(config.tokenContract, config.recipient, config.amount, balanceBefore);
             return (accountCallData, postCallData);
         }
     }
@@ -252,14 +253,14 @@ contract TransferSettingsPolicy is SingleExecutorPolicy {
     ///      but does not inspect the ERC20 return value. For native ETH transfers, `postCallData` is empty
     ///      and this hook is a no-op.
     ///
-    /// @param postCallData ABI-encoded `(address tokenContract, address recipient, uint256 amount)` for ERC20;
+    /// @param postCallData ABI-encoded `(address tokenContract, address recipient, uint256 amount, uint256 balanceBefore)` for ERC20;
     ///                     empty for native ETH.
     function _onPostExecute(bytes32, address, bytes calldata postCallData) internal view override {
         if (postCallData.length == 0) return;
-        (address tokenContract, address recipient, uint256 amount) =
-            abi.decode(postCallData, (address, address, uint256));
-        uint256 balance = IERC20(tokenContract).balanceOf(recipient);
-        if (balance < amount) revert ERC20TransferFailed();
+        (address tokenContract, address recipient, uint256 amount, uint256 balanceBefore) =
+            abi.decode(postCallData, (address, address, uint256, uint256));
+        uint256 balanceAfter = IERC20(tokenContract).balanceOf(recipient);
+        if (balanceAfter < balanceBefore + amount) revert ERC20TransferFailed();
     }
 
     /// @dev Returns the EIP-712 domain name and version used for executor signature verification.
