@@ -3,19 +3,22 @@ pragma solidity ^0.8.23;
 
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
-import {MoiraiDelegate} from "../../../../src/policies/MoiraiDelegate.sol";
+import {TransferSettingsPolicy} from "../../../../src/policies/TransferSettingsPolicy.sol";
 import {SingleExecutorPolicy} from "../../../../src/policies/SingleExecutorPolicy.sol";
 
+import {FalseReturningERC20} from "../../../lib/mocks/FalseReturningERC20.sol";
+import {MintableERC20} from "../../../lib/mocks/MintableERC20.sol";
 import {
-    MoiraiDelegateTestBase
-} from "../../../lib/testBaseContracts/policyTestBaseContracts/MoiraiDelegateTestBase.sol";
+    TransferSettingsPolicyTestBase
+} from "../../../lib/testBaseContracts/policyTestBaseContracts/TransferSettingsPolicyTestBase.sol";
 
 /// @title ExecuteTest
 ///
-/// @notice Test contract for `MoiraiDelegate._onExecute` behavior.
-contract ExecuteTest is MoiraiDelegateTestBase {
+/// @notice Test contract for `TransferSettingsPolicy._onExecute` behavior.
+contract ExecuteTest is TransferSettingsPolicyTestBase {
     function setUp() public {
-        setUpMoiraiBase();
+        setUpTransferSettingsBase();
+        vm.deal(address(account), 100 ether);
     }
 
     // =============================================================
@@ -25,7 +28,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     /// @notice Executes successfully when only a time-lock is configured and the lock has expired.
     function test_success_withDelayOnly() public {
         uint256 unlockTime = block.timestamp + 1 days;
-        bytes memory config = _buildMoiraiConfig(unlockTime, address(0));
+        bytes memory config = _buildTransferConfig(unlockTime, address(0));
         bytes32 policyId = _buildAndInstall(config, 0);
 
         vm.warp(unlockTime);
@@ -37,7 +40,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
     /// @notice Executes successfully when only an executor signature is required and a valid sig is provided.
     function test_success_withExecutorOnly() public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
@@ -53,7 +56,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         uint256 amount = 1 ether;
         vm.deal(address(account), amount);
 
-        bytes memory config = _buildMoiraiConfig(0, executor, recipient, amount, "");
+        bytes memory config = _buildTransferConfig(0, executor, recipient, amount, address(0));
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
@@ -62,23 +65,27 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         assertEq(recipient.balance, amount);
     }
 
-    /// @notice Executes a contract call with calldata forwarded to the target.
-    function test_success_executesContractCall() public {
-        address target = makeAddr("target");
-        bytes memory callData = abi.encodeWithSignature("doSomething(uint256)", 42);
+    /// @notice Executes an ERC20 transfer from the account to a recipient.
+    function test_success_executesERC20Transfer() public {
+        MintableERC20 token = new MintableERC20("Test Token", "TT");
+        address recipient = makeAddr("recipient");
+        uint256 amount = 500e18;
+        token.mint(address(account), amount);
 
-        bytes memory config = _buildMoiraiConfig(0, executor, target, 0, callData);
+        bytes memory config = _buildTransferConfig(0, executor, recipient, amount, address(token));
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
-        vm.expectCall(target, 0, callData);
         policyManager.execute(address(policy), policyId, config, executionData);
+
+        assertEq(token.balanceOf(recipient), amount);
+        assertEq(token.balanceOf(address(account)), 0);
     }
 
     /// @notice Executes successfully when both time-lock and executor signature are required and both are satisfied.
     function test_success_withBothConditions() public {
         uint256 unlockTime = block.timestamp + 1 days;
-        bytes memory config = _buildMoiraiConfig(unlockTime, executor);
+        bytes memory config = _buildTransferConfig(unlockTime, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         vm.warp(unlockTime);
@@ -96,7 +103,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
     /// @notice isExecuted returns false before execution and true after.
     function test_isExecuted_falseBeforeTrueAfter() public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         assertFalse(policy.executed(policyId));
@@ -115,7 +122,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     ///
     /// @param executionData Arbitrary execution data (paused check fires before any decoding).
     function test_reverts_whenPaused(bytes calldata executionData) public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         vm.prank(owner);
@@ -128,11 +135,11 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     /// @notice Reverts when the unlock timestamp has not yet been reached.
     function test_reverts_beforeUnlockTime() public {
         uint256 unlockTime = block.timestamp + 1 days;
-        bytes memory config = _buildMoiraiConfig(unlockTime, address(0));
+        bytes memory config = _buildTransferConfig(unlockTime, address(0));
         bytes32 policyId = _buildAndInstall(config, 0);
 
         vm.expectRevert(
-            abi.encodeWithSelector(MoiraiDelegate.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
+            abi.encodeWithSelector(TransferSettingsPolicy.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
         );
         policyManager.execute(address(policy), policyId, config, bytes("0x01"));
     }
@@ -141,7 +148,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     ///
     /// @param badSig Arbitrary bytes that do not form a valid executor signature.
     function test_reverts_withInvalidSignature(bytes calldata badSig) public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = abi.encode(
@@ -156,10 +163,9 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     ///
     /// @param nonce Execution nonce that will be pre-cancelled.
     function test_reverts_withReplayedNonce(uint256 nonce) public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
-        // Pre-cancel the nonce so it is marked as used before execution.
         uint256[] memory nonces = new uint256[](1);
         nonces[0] = nonce;
         vm.prank(executor);
@@ -181,7 +187,7 @@ contract ExecuteTest is MoiraiDelegateTestBase {
         deadline = bound(deadline, 1, type(uint256).max - 1);
         vm.warp(deadline + 1);
 
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), nonce, deadline);
@@ -195,13 +201,11 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     /// @notice Reverts when both conditions are required but only the time-lock is met (no valid signature provided).
     function test_reverts_withBothConditions_onlyTimeMet() public {
         uint256 unlockTime = block.timestamp + 1 days;
-        bytes memory config = _buildMoiraiConfig(unlockTime, executor);
+        bytes memory config = _buildTransferConfig(unlockTime, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         vm.warp(unlockTime);
 
-        // Encode a well-formed execution envelope with an empty (invalid) signature so ABI decoding
-        // succeeds but signature validation fails with Unauthorized.
         bytes memory executionData = abi.encode(
             SingleExecutorPolicy.SingleExecutorExecutionData({nonce: 0, deadline: 0, signature: bytes("")}), bytes("")
         );
@@ -212,33 +216,33 @@ contract ExecuteTest is MoiraiDelegateTestBase {
     /// @notice Reverts when both conditions are required but only the executor signature is provided (time not met).
     function test_reverts_withBothConditions_onlyConsensusMet() public {
         uint256 unlockTime = block.timestamp + 1 days;
-        bytes memory config = _buildMoiraiConfig(unlockTime, executor);
+        bytes memory config = _buildTransferConfig(unlockTime, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
 
         vm.expectRevert(
-            abi.encodeWithSelector(MoiraiDelegate.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
+            abi.encodeWithSelector(TransferSettingsPolicy.BeforeUnlockTimestamp.selector, block.timestamp, unlockTime)
         );
         policyManager.execute(address(policy), policyId, config, executionData);
     }
 
     /// @notice Reverts on a second execute attempt after the first succeeds.
     function test_reverts_alreadyExecuted() public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
         policyManager.execute(address(policy), policyId, config, executionData);
 
         bytes memory executionData2 = _buildExecutionData(policyId, config, bytes(""), 1, 0);
-        vm.expectRevert(abi.encodeWithSelector(MoiraiDelegate.AlreadyExecuted.selector, policyId));
+        vm.expectRevert(abi.encodeWithSelector(TransferSettingsPolicy.AlreadyExecuted.selector, policyId));
         policyManager.execute(address(policy), policyId, config, executionData2);
     }
 
     /// @notice Cancelling a nonce already consumed by execution is a no-op (no event, no revert).
     function test_noOp_cancelNonce_afterExecution() public {
-        bytes memory config = _buildMoiraiConfig(0, executor);
+        bytes memory config = _buildTransferConfig(0, executor);
         bytes32 policyId = _buildAndInstall(config, 0);
 
         uint256 nonce = 42;
@@ -247,10 +251,39 @@ contract ExecuteTest is MoiraiDelegateTestBase {
 
         uint256[] memory nonces = new uint256[](1);
         nonces[0] = nonce;
-        // Already-used nonces are silently skipped (idempotent) — no NonceCancelled event.
         vm.recordLogs();
         vm.prank(executor);
         policy.cancelNonces(policyId, nonces, config);
         assertEq(vm.getRecordedLogs().length, 0);
+    }
+
+    /// @notice Reverts when the ERC20 token returns `false` from `transfer` without reverting.
+    ///
+    /// @dev `CoinbaseSmartWallet.execute` propagates inner-call reverts but does not inspect the ERC20
+    ///      return value. `_onPostExecute` catches the silent failure via a balance check.
+    function test_reverts_whenERC20TransferReturnsFalse() public {
+        FalseReturningERC20 token = new FalseReturningERC20();
+        address recipient = makeAddr("recipient");
+        uint256 amount = 500e18;
+        token.mint(address(account), amount);
+
+        bytes memory config = _buildTransferConfig(0, executor, recipient, amount, address(token));
+        bytes32 policyId = _buildAndInstall(config, 0);
+
+        bytes memory executionData = _buildExecutionData(policyId, config, bytes(""), 0, 0);
+
+        vm.expectRevert(TransferSettingsPolicy.ERC20TransferFailed.selector);
+        policyManager.execute(address(policy), policyId, config, executionData);
+    }
+
+    /// @notice Reverts when non-empty action data is provided to an executor-required policy.
+    function test_reverts_withNonEmptyActionData() public {
+        bytes memory config = _buildTransferConfig(0, executor);
+        bytes32 policyId = _buildAndInstall(config, 0);
+
+        bytes memory executionData = _buildExecutionData(policyId, config, bytes("0x01"), 0, 0);
+
+        vm.expectRevert(TransferSettingsPolicy.UnexpectedActionData.selector);
+        policyManager.execute(address(policy), policyId, config, executionData);
     }
 }
