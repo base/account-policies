@@ -15,6 +15,8 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 ///        - collateral value: rounded down;
 ///        - LTV: rounded up.
 ///      A strict `ltv > cap` guard on the result therefore cannot be slipped under by a 1-wei rounding artifact.
+///
+/// @author Coinbase (https://github.com/base/account-policies)
 library MorphoLtvLib {
     /// @notice Scale of Morpho Blue oracle prices (1e36).
     uint256 internal constant ORACLE_PRICE_SCALE = 1e36;
@@ -30,9 +32,9 @@ library MorphoLtvLib {
     /// @param collateral Collateral amount in collateral-token units.
     /// @param price Oracle price of one collateral token quoted in loan tokens, scaled by `ORACLE_PRICE_SCALE`.
     ///
-    /// @return collateralValue Collateral value in loan-token units, rounded down.
-    function collateralValueDown(uint256 collateral, uint256 price) internal pure returns (uint256 collateralValue) {
-        collateralValue = Math.mulDiv(collateral, price, ORACLE_PRICE_SCALE);
+    /// @return Collateral value in loan-token units, rounded down.
+    function collateralValueDown(uint256 collateral, uint256 price) internal pure returns (uint256) {
+        return Math.mulDiv(collateral, price, ORACLE_PRICE_SCALE);
     }
 
     /// @notice Returns a position's LTV in WAD with conservative rounding: debt up, collateral value down, LTV up.
@@ -47,19 +49,21 @@ library MorphoLtvLib {
     /// @param collateral The position's collateral in collateral-token units.
     /// @param price Oracle price of one collateral token quoted in loan tokens, scaled by `ORACLE_PRICE_SCALE`.
     ///
-    /// @return ltvWad The LTV in WAD (1e18 = 100%), rounded up.
+    /// @return The LTV in WAD (1e18 = 100%), rounded up.
     function ltvWadUp(
         uint256 borrowShares,
         uint256 totalBorrowAssets,
         uint256 totalBorrowShares,
         uint256 collateral,
         uint256 price
-    ) internal pure returns (uint256 ltvWad) {
-        uint256 debtAssets = SharesMathLib.toAssetsUp(borrowShares, totalBorrowAssets, totalBorrowShares);
+    ) internal pure returns (uint256) {
+        uint256 debtAssets = SharesMathLib.toAssetsUp({
+            shares: borrowShares, totalAssets: totalBorrowAssets, totalShares: totalBorrowShares
+        });
 
-        uint256 collateralValue = collateralValueDown(collateral, price);
+        uint256 collateralValue = collateralValueDown({collateral: collateral, price: price});
         if (collateralValue == 0) revert ZeroCollateralValue();
 
-        ltvWad = Math.mulDiv(debtAssets, WAD, collateralValue, Math.Rounding.Ceil);
+        return Math.mulDiv(debtAssets, WAD, collateralValue, Math.Rounding.Ceil);
     }
 }

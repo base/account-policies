@@ -48,7 +48,9 @@ contract LtvWadUpTest is Test {
     /// @param price Fuzzed oracle price.
     function test_reverts_whenCollateralIsZero(uint128 borrowShares, uint128 price) public {
         vm.expectRevert(MorphoLtvLib.ZeroCollateralValue.selector);
-        harness.ltvWadUp(borrowShares, 1e18, 1e18, 0, price);
+        harness.ltvWadUp({
+            borrowShares: borrowShares, totalBorrowAssets: 1e18, totalBorrowShares: 1e18, collateral: 0, price: price
+        });
     }
 
     /// @notice Reverts with `ZeroCollateralValue` when the oracle price is zero.
@@ -57,7 +59,9 @@ contract LtvWadUpTest is Test {
     function test_reverts_whenPriceIsZero(uint128 collateral) public {
         collateral = uint128(bound(collateral, 1, type(uint128).max));
         vm.expectRevert(MorphoLtvLib.ZeroCollateralValue.selector);
-        harness.ltvWadUp(1e18, 1e18, 1e18, collateral, 0);
+        harness.ltvWadUp({
+            borrowShares: 1e18, totalBorrowAssets: 1e18, totalBorrowShares: 1e18, collateral: collateral, price: 0
+        });
     }
 
     /// @notice Reverts with `ZeroCollateralValue` when `collateral * price` rounds down to zero.
@@ -70,7 +74,9 @@ contract LtvWadUpTest is Test {
         vm.assume(uint256(collateral) * uint256(price) < ORACLE_PRICE_SCALE);
 
         vm.expectRevert(MorphoLtvLib.ZeroCollateralValue.selector);
-        harness.ltvWadUp(1e18, 1e18, 1e18, collateral, price);
+        harness.ltvWadUp({
+            borrowShares: 1e18, totalBorrowAssets: 1e18, totalBorrowShares: 1e18, collateral: collateral, price: price
+        });
     }
 
     // =============================================================
@@ -82,7 +88,16 @@ contract LtvWadUpTest is Test {
     /// @param collateral Fuzzed non-zero collateral.
     function test_returnsZero_whenBorrowSharesIsZero(uint128 collateral) public view {
         collateral = uint128(bound(collateral, 1, type(uint128).max));
-        assertEq(harness.ltvWadUp(0, 0, 0, collateral, ORACLE_PRICE_SCALE), 0);
+        assertEq(
+            harness.ltvWadUp({
+                borrowShares: 0,
+                totalBorrowAssets: 0,
+                totalBorrowShares: 0,
+                collateral: collateral,
+                price: ORACLE_PRICE_SCALE
+            }),
+            0
+        );
     }
 
     /// @notice Matches the reference formula: `ceil(toAssetsUp(shares) * WAD / floor(collateral * price / 1e36))`.
@@ -111,7 +126,16 @@ contract LtvWadUpTest is Test {
         uint256 debtAssets = SharesMathLib.toAssetsUp(borrowShares, totalBorrowAssets, totalBorrowShares);
         uint256 expected = Math.mulDiv(debtAssets, WAD, collateralValue, Math.Rounding.Ceil);
 
-        assertEq(harness.ltvWadUp(borrowShares, totalBorrowAssets, totalBorrowShares, collateral, price), expected);
+        assertEq(
+            harness.ltvWadUp({
+                borrowShares: borrowShares,
+                totalBorrowAssets: totalBorrowAssets,
+                totalBorrowShares: totalBorrowShares,
+                collateral: collateral,
+                price: price
+            }),
+            expected
+        );
     }
 
     // =============================================================
@@ -123,14 +147,19 @@ contract LtvWadUpTest is Test {
     /// @dev Virtual offsets: 1 share against (assets 2, shares 3) is `ceil(1 * (2 + 1) / (3 + 1e6))` = 1 asset,
     ///      where rounding down would give 0. With collateral value 1e18, the LTV is 1 (not 0).
     function test_roundsDebtUp() public view {
-        assertEq(harness.ltvWadUp(1, 2, 3, 1e18, ORACLE_PRICE_SCALE), 1);
+        assertEq(
+            harness.ltvWadUp({
+                borrowShares: 1, totalBorrowAssets: 2, totalBorrowShares: 3, collateral: 1e18, price: ORACLE_PRICE_SCALE
+            }),
+            1
+        );
     }
 
     /// @notice Collateral value rounds down.
     ///
     /// @dev `3 * (1e36 / 2) / 1e36` = 1.5, floored to 1.
     function test_collateralValueDown_roundsDown() public view {
-        assertEq(harness.collateralValueDown(3, ORACLE_PRICE_SCALE / 2), 1);
+        assertEq(harness.collateralValueDown({collateral: 3, price: ORACLE_PRICE_SCALE / 2}), 1);
     }
 
     /// @notice The final LTV division rounds up.
@@ -139,6 +168,11 @@ contract LtvWadUpTest is Test {
     ///      Uses zero market totals so the one borrow share converts to exactly one asset
     ///      (`ceil(1 * 1 / 1e6)` = 1).
     function test_roundsLtvUp() public view {
-        assertEq(harness.ltvWadUp(1, 0, 0, 3, ORACLE_PRICE_SCALE), WAD / 3 + 1);
+        assertEq(
+            harness.ltvWadUp({
+                borrowShares: 1, totalBorrowAssets: 0, totalBorrowShares: 0, collateral: 3, price: ORACLE_PRICE_SCALE
+            }),
+            WAD / 3 + 1
+        );
     }
 }
